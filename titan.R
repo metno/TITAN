@@ -1,30 +1,12 @@
 #!/usr/bin/env Rscript
 # + TITAN - Temperature spatIal daTa quAlity coNtrol
 # mailto: cristianl@met.no
+# # https://github.com/metno/TITAN
 #
 # command line:
 #  >titan.R input_file output_file [options]
 # to list available options:
 #  >titan.R --help 
-# 
-# arguments:
-# file_input, text file with colums separated by ";"
-# column names = lat,lon,elev,value (any order is accepted)
-#
-# file_output, text file with colums separated by ";"
-#  same number of rows as file_in
-#  header:
-#   prid;lat;lon;z;val;dqc;sct;rep;
-#
-#  data quality control (dqc) codes:
-#  0 = ok
-#  1 = missing metadata
-#  2 = plausibility test failed
-#  3 = buddy check failed
-#  4 = SCT failed
-#  5 = isolated station
-#
-#
 #-----------------------------------------------------------------------------
 #  This file is free software: you may copy, redistribute and/or modify it  
 #  under the terms of the GNU General Public License as published by the  
