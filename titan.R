@@ -247,6 +247,8 @@ sct<-function(ixyn,
     cvres<-Zinv*SRinv.d
     # pog=cvres/(sig2obs+sig2CVpred)
     pog[sel]<-cvres**2/Zinv
+    sctpog[ix[j[sel]]]<-pog[sel]
+    assign("sctpog",sctpog,envir=.GlobalEnv)
     # check if any obs fails the test
     if (any(pog[sel]>T2)) {
       # flag as suspect only the observation with the largest cvres 
@@ -599,13 +601,18 @@ if (argv$verbose | argv$debug) {
 #
 #-----------------------------------------------------------------------------
 # write the output file
-cat(file=argv$output,"lat;lon;x;y;z;val;dqc;\n",append=F)
+cat(file=argv$output,"prid;lat;lon;elev;value;dqc;sct;rep;\n",append=F)
 #
 cat(file=argv$output,
-    paste(data$lat,data$lon,
-          x,y,z,
-          data$value,
-          dqcflag,"\n",sep=";"),
+    paste(NA,
+          round(data$lat,5),
+          round(data$lon,5),
+          round(z,1),
+          round(data$value,1),
+          dqcflag,
+          round(sctpog,2),
+          NA,
+          "",sep=";",collapse='\n'),
     append=T)
 #
 #-----------------------------------------------------------------------------
