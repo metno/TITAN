@@ -51,7 +51,7 @@ Data quality control (dqc) codes:
 
 Copyright and license
 ---------------------
-Copyright (C) 2015-2017 MET Norway. TITAN is licensed under [GPL
+Copyright (C) 2017 MET Norway. TITAN is licensed under [GPL
 version 3](https://github.com/metno/TITAN/blob/master/LICENSE) or (at
 your option) any later version.
 
