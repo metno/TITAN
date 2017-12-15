@@ -27,9 +27,9 @@ Running the program
 -------------------
 To see program options, run:
 
-.. code-block:: bash
-
-   ./titan.R
+```
+   titan.R --help
+```
 
 Input / Output
 -------------------
