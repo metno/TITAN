@@ -1,22 +1,43 @@
 # TITAN - Temperature spatIal daTa quAlity coNtrol
 
-command line
->R --vanilla file\_input file\_output < titan.R
+Automatic quality control of in-situ temperature observations over a geographical region.
 
-Arguments:
+Available checks are:
 
-- file\_input, text file with colums separated by ";" \
-column names = lat,lon,elev,value (any order is accepted)
-- file\_output, text file with colums separated by ";" \
-same number of rows as file\_in \
-header: lat;lon;x;y;z;val;dqc;\
+* Plausibility check
 
-data quality control (dqc) codes:
+* Buddy-check
 
-- 0 = ok
-- 1 = missing metadata
-- 2 = plausibility test failed
-- 3 = buddy check failed
-- 4 = SCT failed
-- 5 = isolated station 
+* Spatial Consistency Test (SCT)
+
+* detect isolated observations
+
+
+Installation Instructions
+-------------------------
+Ensure the following R-libraries are installed:
+
+   * argparser
+   * sp
+   * raster
+   * rgdal
+
+
+Running the program
+-------------------
+To see program options, run:
+
+```
+   titan.R --help
+```
+
+Copyright and license
+---------------------
+Copyright (C) 2017 MET Norway. TITAN is licensed under [GPL
+version 3](https://github.com/metno/TITAN/blob/master/LICENSE) or (at
+your option) any later version.
+
+Contact
+-------
+E-mail: cristianl@met.no
 
