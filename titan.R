@@ -1,6 +1,11 @@
-# TITAN - Temperature spatIal daTa quAlity coNtrol
-# command line
-# >R --vanilla file_input file_output < titan.R
+#!/usr/bin/env Rscript
+# + TITAN - Temperature spatIal daTa quAlity coNtrol
+# mailto: cristianl@met.no
+#
+# command line:
+#  >titan.R input_file output_file [options]
+# to list available options:
+#  >titan.R --help 
 # 
 # arguments:
 # file_input, text file with colums separated by ";"
@@ -9,22 +14,36 @@
 # file_output, text file with colums separated by ";"
 #  same number of rows as file_in
 #  header:
-#   lat;lon;x;y;z;val;dqc;
+#   prid;lat;lon;z;val;dqc;sct;rep;
+#
 #  data quality control (dqc) codes:
 #  0 = ok
 #  1 = missing metadata
 #  2 = plausibility test failed
 #  3 = buddy check failed
 #  4 = SCT failed
-#  5 = isolated station 
+#  5 = isolated station
+#
+#
 #-----------------------------------------------------------------------------
-library(sp)
-library(raster)
-library(rgdal)
-library(dotnc)
-#options(warn = 2, scipen = 999)
-options(scipen = 999)
-#------------------------------------------------------------------------------
+#  This file is free software: you may copy, redistribute and/or modify it  
+#  under the terms of the GNU General Public License as published by the  
+#  Free Software Foundation, either version 2 of the License, or (at your  
+#  option) any later version.  
+#  
+#  This file is distributed in the hope that it will be useful, but  
+#  WITHOUT ANY WARRANTY; without even the implied warranty of  
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+#  General Public License for more details.  
+#  
+#  You should have received a copy of the GNU General Public License  
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>. 
+#-----------------------------------------------------------------------------
+suppressPackageStartupMessages(library("argparser"))
+suppressPackageStartupMessages(library("sp"))
+suppressPackageStartupMessages(library("raster"))
+suppressPackageStartupMessages(library("rgdal"))
+options(warn = 2, scipen = 999)
 #------------------------------------------------------------------------------
 # FUNCTIONS
 
@@ -134,7 +153,7 @@ plotp<-function(x,y,val,br,col,
 #+ SCT - spatial consistency test
 sct<-function(ixyn,
               nmin=50,dzmin=30,
-              Dhmin=10,Dz=200,eps2=0.5,
+              Dhmin=10000,Dz=200,eps2=0.5,
               T2=16,sus.code=4) {
 # ref:
 #  Lussana, C., Uboldi, F., & Salvati, M. R. (2010). A spatial consistency 
@@ -147,7 +166,7 @@ sct<-function(ixyn,
 #  NOTE: stations are associated to a box before running this function
 #  nmin= numeric. minimum number of stations to fit a vertical profile
 #  dzmin= numeric. minimum elevation range to fit a vertical profile [m]
-#  Dhmin= numeric. minimum value for OI horizontal decorellation length [km]
+#  Dhmin= numeric. minimum value for OI horizontal decorellation length [m]
 #  Dz= numeric. OI vertical decorellation length [m]
 #  eps2= numeric. OI ratio between obs_err_variance/backg_err_variance
 #  T2=numeric. SCT threshold. (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
@@ -192,7 +211,7 @@ sct<-function(ixyn,
   pog[]<-NA
   # distance matrices
   disth<-(outer(xtot[j],xtot[j],FUN="-")**2.+
-          outer(ytot[j],ytot[j],FUN="-")**2.)**0.5/1000.
+          outer(ytot[j],ytot[j],FUN="-")**2.)**0.5
   distz<-abs(outer(ztot[j],ztot[j],FUN="-"))
   # set to optimal Dh
   Dh<-max(Dhmin,
@@ -248,10 +267,13 @@ sct<-function(ixyn,
     }
   } # end cycle SCT model
   # debug: begin
-  if (debug) {
+  if (argv$debug) {
     susi<-which(!is.na(dqctmp))
-    png(file=paste("vert_",formatC(ixyn[1],width=5,flag="0"),".png",sep=""),
-        width=800,height=800)
+    if (!dir.exists(argv$debug.dir)) 
+      dir.create(argv$debug.dir,showWarnings=F,recursive=T)
+    f<-file.path(argv$debug.dir,
+         paste("vert_",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
+    png(file=f,width=800,height=800)
     plot(topt,zopt,xlim=c(max(-30,min(topt)),min(30,max(topt))),
                    ylim=c(0,min(2000,max(zopt))) )
     zz<-seq(0,2000,by=0.1)
@@ -266,18 +288,19 @@ sct<-function(ixyn,
     abline(h=seq(-1000,10000,by=100),col="gray",lty=2)
     abline(h=0,lwd=2,col="black")
     dev.off()
-    png(file=paste("horz_",formatC(ixyn[1],width=5,flag="0"),".png",sep=""),
-        width=800,height=800)
+    f<-file.path(argv$debug.dir,
+         paste("horz_",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
+    png(file=f,width=800,height=800)
     plot(xtot[j],ytot[j])
-    dem1<-crop(dem$raster,
-               extent(c(ixyn[2]-100000,
-                        ixyn[2]+100000,
-                        ixyn[3]-100000,
-                        ixyn[3]+100000
-                        )))
-    image(dem1,add=T,
-          breaks=c(0,10,25,50,100,250,500,750,1000,1250,1500,1750,2000,2500,3000),
-          col=gray.colors(14))
+#    dem1<-crop(dem$raster,
+#               extent(c(ixyn[2]-100000,
+#                        ixyn[2]+100000,
+#                        ixyn[3]-100000,
+#                        ixyn[3]+100000
+#                        )))
+#    image(dem1,add=T,
+#          breaks=c(0,10,25,50,100,250,500,750,1000,1250,1500,1750,2000,2500,3000),
+#          col=gray.colors(14))
     points(xtot[j],ytot[j],pch=19,col="blue")
     points(xtot[j[susi]],ytot[j[susi]],pch=19,col="red")
     dev.off()
@@ -289,176 +312,296 @@ sct<-function(ixyn,
 #  MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN
 #==============================================================================
 t0<-Sys.time()
-# constants
-# define domains corners
-#  NOTE: setup to have Oslo in a single box
-lonl<-c(5,28)
-latl<-c(53.25,71.8)
-# proj4 strings
-proj4.wgs84<-"+proj=longlat +datum=WGS84"
-proj4.lcc<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
 #
-# dqc constants
-min.elev<-0 # m amsl
-max.elev<-2500 # m amsl
-# plausibility test
-# TODO: monthly thresholds
-tmin<--50
-tmax<-40
-# buddy check
-drmin.buddy<-3000 # m
-pog.max.buddy<-5 # probability of gross error, theshold
-nstat.min.buddy<-5 # minimum number of stations
-dz.max.buddy<-30 # m, elevation range (no check if elevation > dz.max.buddy) 
-# SCT (more parameter definitions, see function "sct")
-ncol.sct<-20 # define grid for SCT
-nrow.sct<-20 # define grid for SCT
+# create parser object
+p <- arg_parser("titan")
+# specify our desired options 
+# by default ArgumentParser will add an help option 
+p <- add_argument(p, "input",help="input file",type="character")
+p <- add_argument(p, "output",help="output file",type="character",
+                  default="output.txt")
+#
+p <- add_argument(p, "--debug",help="debug mode",flag=T,short="-dbg")
+p <- add_argument(p, "--debug.dir",help="directory for debug output",
+                  type="character",default=".",short="-dbgd")
+p <- add_argument(p, "--verbose",help="debug mode",flag=T,short="-v")
+# NOTE: lat-lon setup to have Oslo in a single box
+p <- add_argument(p, "--lonmin",help="longitude of south-eastern domain corner",
+                  type="numeric",default=5,short="-x")
+p <- add_argument(p, "--lonmax",help="longitude of south-western domain corner",
+                  type="numeric",default=28,short="-X")
+p <- add_argument(p, "--latmin",help="latitude of south-eastern domain corner",
+                  type="numeric",default=53.25,short="-y")
+p <- add_argument(p, "--latmax",help="latitude of north-western domain corner",
+                  type="numeric",default=71.8,short="-Y")
+#
+p <- add_argument(p, "--spatconv",help="flag for conversion of spatial coordinates before running the data quality checks",
+                  flag=T,short="-c")
+p <- add_argument(p, "--proj4from",help="proj4 string for the original coordinate reference system",
+                  type="character",default="+proj=longlat +datum=WGS84",short="-pf")
+p <- add_argument(p, "--proj4to",help="proj4 string for the coordinate reference system where the DQC is performed",
+                  type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pt")
+# metadata check
+p <- add_argument(p, "--zmin",help="minimum allowed elevation in the domain [m amsl]",
+                  type="numeric",default=0,short="-z")
+p <- add_argument(p, "--zmax",help="maximum allowed elevation in the domain [m amsl]",
+                  type="numeric",default=2500,short="-Z")
+# Plausibility check
+p <- add_argument(p, "--tmin",help="minimum allowed temperature [K or degC]",
+                  type="numeric",default=-50,short="-tP")
+p <- add_argument(p, "--tmax",help="maximum allowed temperature [K or degC]",
+                  type="numeric",default=40,short="-TP")
+# Buddy-check
+p <- add_argument(p, "--dr.buddy",help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
+                  type="numeric",default=3000,short="-dB")
+p <- add_argument(p, "--i.buddy",help="number of buddy-check iterations",
+                  type="integer",default=1,short="-iB")
+p <- add_argument(p, "--thr.buddy",help="buddy-check threshold. flag observation if: (obs-pred)^2/var > thr.buddy",
+                  type="numeric",default=5,short="-thB")
+p <- add_argument(p, "--n.buddy",help="minimum number of neighbouring observations to perform the buddy-check",
+                  type="integer",default=5,short="-nB")
+p <- add_argument(p, "--dz.buddy",help="maximum allowed range of elevation in a square-box to perform the buddy-check (i.e. no check if elevation > dz.buddy)",
+                  type="numeric",default=30,short="-zB")
 # isolated stations
-drmin.iso<-25000 # m
-ns.min.iso<-10 # number of stations, less than that and you are alone 
+p <- add_argument(p, "--dr.isol",help="check for the number of observation in a dr-by-dr square-box around each observation [m]",
+                  type="numeric",default=25000,short="-dI")
+p <- add_argument(p, "--n.isol",help="threshold (number of neighbouring observations) for the identification of isolated observations.",
+                  type="integer",default=10,short="-nI")
+# spatial consistency test
+p <- add_argument(p, "--grid.sct",help="nrow ncol (i.e. number_of_rows number_of_columns). used to define grid of boxes where the SCT is performed. SCT in each box is independent from the others",
+                  type="integer",nargs=2,default=c(20,20),short="-gS")
+p <- add_argument(p, "--i.sct",help="number of SCT iterations",
+                  type="integer",default=1,short="-iS")
+p <- add_argument(p, "--n.sct",help="minimum number of stations in a box to run SCT",
+                  type="integer",default=50,short="-nS")
+p <- add_argument(p, "--dz.sct",help="minimum range of elevation in a box to run SCT [m]",
+                  type="numeric",default=30,short="-zS")
+p <- add_argument(p, "--DhorMin.sct",help="OI, minimum allowed value for the horizontal de-correlation lenght (of the background error correlation) [m]",
+                  type="numeric",default=10000,short="-hS")
+p <- add_argument(p, "--Dver.sct",help="OI, vertical de-correlation lenght  (of the background error correlation) [m]",
+                  type="numeric",default=200,short="-vS")
+p <- add_argument(p, "--eps2.sct",help="OI, ratio between observation error variance and background error variance",
+                  type="numeric",default=0.5,short="-eS")
+p <- add_argument(p, "--thr.sct",help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct",
+                  type="numeric",default=16,short="-tS")
+argv <- parse_args(p)
 #
-debug<-F
-#
-#-----------------------------------------------------------------------------
-# Read command line arguments
-arguments <- commandArgs()
-print("Arguments")
-print(arguments)
-fin<-arguments[3]
-fout<-arguments[4]
-#
-#-----------------------------------------------------------------------------
-# read the dem (used for debugging/plots)
-if (debug) {
-  fdem<-"/lustre/storeB/project/metkl/klinogrid/geoinfo/meps_gmted2010_1km_topo_topdown.nc"
-  dem<-nc4in_easy(file=fdem,
-                  var.name="altitude",
-                  proj.name="projection_lambert",
-                  proj.att="proj4",topdown=F)
+# check if input exists
+if (!file.exists(argv$input)) {
+  print("ERROR: input file not found")
+  print(argv$input)
+  quit(status=1)
 }
+if (argv$verbose | argv$debug) print(">> TITAN <<")
+#
+#-----------------------------------------------------------------------------
+# constants
+nometa.code<-1
+p.code<-2
+buddy.code<-3
+sct.code<-4
+isol.code<-5
 #
 #-----------------------------------------------------------------------------
 # read data
-data<-read.table(file=fin,header=T,sep=";",stringsAsFactors=F,strip.white=T)
-data$lat<-as.numeric(data$lat)
-data$lon<-as.numeric(data$lon)
-data$elev<-as.numeric(data$elev)
+data<-read.table(file=argv$input,header=T,sep=";",
+                 stringsAsFactors=F,strip.white=T)
+data$lat<-suppressWarnings(as.numeric(data$lat))
+data$lon<-suppressWarnings(as.numeric(data$lon))
+data$elev<-suppressWarnings(as.numeric(data$elev))
 z<-data$elev
-data$value<-as.numeric(data$value)
+data$value<-suppressWarnings(as.numeric(data$value))
 ndata<-length(data$lat)
+if (ndata==0) {
+  print("input file is empty")
+  quit(status=0)
+}
+if (argv$verbose | argv$debug) {
+  print(paste("number of observations=",ndata))
+}
 #
 #-----------------------------------------------------------------------------
 # define dqcflag vector
 dqcflag<-vector(mode="numeric",length=ndata)
 dqcflag[]<-NA
+sctpog<-vector(mode="numeric",length=ndata)
+sctpog[]<-NA
 #
 #-----------------------------------------------------------------------------
-# test for no metadata
+# test for no metadata 
 meta<-!is.na(data$lat) & 
       !is.na(data$lon) &
-      !is.na(data$elev) &
-      data$elev>=min.elev & data$elev<=max.elev &
+      !is.na(z) & z>=argv$zmin & z<=argv$zmax &
       !is.na(data$value)
-dqcflag[which(!meta)]<-1
+if (any(!meta)) dqcflag[which(!meta)]<-nometa.code
+if (argv$verbose | argv$debug) {
+  print("test for no metdata")
+#  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
+#              z[which(!meta)],data$value[which(!meta)]))
+  print(paste("# observations lacking metadata=",length(which(!meta))))
+}
 #
 #-----------------------------------------------------------------------------
 # plausibility test
 ix<-which( is.na(dqcflag)  &
-           data$value<tmin &
-           data$value>tmax)
-dqcflag[ix]<-2
+           data$value<argv$tmin &
+           data$value>argv$tmax)
+if (length(ix)>0) dqcflag[ix]<-p.code
+if (argv$verbose | argv$debug) {
+  print("plausibility test")
+  print(paste("# suspect observations=",length(ix)))
+}
 #
 #-----------------------------------------------------------------------------
-# lat-lon to km tranformation
-coord<-SpatialPoints(cbind(data$lon,data$lat),
-                     proj4string=CRS(proj4.wgs84))
-coord.new<-spTransform(coord,CRS(proj4.lcc))
-xy.RR<-coordinates(coord.new)
-x<-round(xy.RR[,1],0)
-y<-round(xy.RR[,2],0)
-xp<-expand.grid(lonl,latl)
-coord<-SpatialPoints(xp,
-                     proj4string=CRS(proj4.wgs84))
-coord.new<-spTransform(coord,CRS(proj4.lcc))
-# define the extent for the SCT grid
-e<-extent(coord.new)
-xl<-e[1:2]
-yl<-e[3:4]
+# coordinate transformation
+if (argv$spatconv) {
+  if (argv$debug) print("spatial conversion required")
+  coord<-SpatialPoints(cbind(data$lon,data$lat),
+                       proj4string=CRS(argv$proj4from))
+  coord.new<-spTransform(coord,CRS(argv$proj4to))
+  xy.new<-coordinates(coord.new)
+  x<-round(xy.new[,1],0)
+  y<-round(xy.new[,2],0)
+  rm(xy.new)
+  xp<-expand.grid(c(argv$lonmin,argv$lonmax),c(argv$latmin,argv$latmax))
+  coord<-SpatialPoints(xp,
+                       proj4string=CRS(argv$proj4from))
+  coord.new<-spTransform(coord,CRS(argv$proj4to))
+  # define the extent for the SCT grid
+  e<-extent(coord.new)
+  xl<-e[1:2]
+  yl<-e[3:4]
+} else {
+  x<-data$lon
+  y<-data$lat
+  xl<-c(argv$lonmin,argv$lonmax)
+  yl<-c(argv$latmin,argv$latmax)
+  e<-extent(c(xl,yl))
+}
 #
 #-----------------------------------------------------------------------------
 # buddy check 
-#  compare each observation against the average of observations 
-#  within a box of /pm 1.5Km
-ix<-which(is.na(dqcflag))
-# define global 1D vector used in statSpat (1D for fast access)
-xtot<-x[ix]
-ytot<-y[ix]
-ztot<-as.numeric(data$elev[ix])
-ttot<-as.numeric(data$value[ix])
-# apply will loop over this 4D array
-ixyzt_tot<-cbind(1:length(xtot),
-                 xtot,ytot,
-                 ztot,ttot)
-stSp_3km<-apply(ixyzt_tot,FUN=statSpat,MARGIN=1,drmin=drmin.buddy)
-# probability of gross error
-pog<-(ttot-stSp_3km[3,])**2/stSp_3km[4,]**2
-# suspec: more than 5 obs in the box; all obs within 30m in the vertical; pog>5 
-sus<-which(pog>pog.max.buddy & 
-           stSp_3km[1,]>nstat.min.buddy & 
-           stSp_3km[2,]<dz.max.buddy)
-# set dqcflag
-dqcflag[ix[sus]]<-3
+#  compare each observation against the average of neighbouring observations 
+if (argv$verbose | argv$debug) nprev<-0
+for (i in 1:argv$i.buddy) {
+  # use only (probably) good observations
+  ix<-which(is.na(dqcflag))
+  if (length(ix)>0) {
+    t0a<-Sys.time()
+    # define global 1D vector used in statSpat (1D for fast access)
+    xtot<-x[ix]
+    ytot<-y[ix]
+    ztot<-as.numeric(z[ix])
+    ttot<-as.numeric(data$value[ix])
+    # apply will loop over this 4D array
+    ixyzt_tot<-cbind(1:length(xtot),xtot,ytot,ztot,ttot)
+    stSp_3km<-apply(ixyzt_tot,FUN=statSpat,MARGIN=1,drmin=argv$dr.buddy)
+    # probability of gross error
+    pog<-(ttot-stSp_3km[3,])**2/stSp_3km[4,]**2
+    # suspect if: 
+    sus<-which(pog>argv$thr.buddy & 
+               stSp_3km[1,]>argv$n.buddy & 
+               stSp_3km[2,]<argv$dz.buddy)
+    # set dqcflag
+    if (length(sus)>0) dqcflag[ix[sus]]<-buddy.code
+  } else {
+    print("no valid observations left, no buddy check")
+  }
+  if (argv$verbose | argv$debug) {
+    t1a<-Sys.time()
+    print(paste("buddy-check, iteration=",i,
+                "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+    ncur<-length(which(dqcflag==buddy.code))
+    print(paste("# suspect observations=",ncur-nprev))
+    nprev<-length(which(dqcflag==buddy.code))
+  }
+}
 #
 #-----------------------------------------------------------------------------
 # SCT - Spatial Consistency Test
-# create the grid for SCT. SCT is done independently in each box
-# NOTE: box size around 100Km should be ok
-r<-raster(e,ncol=ncol.sct,nrow=nrow.sct)
-print(r)
-xy<-xyFromCell(r,1:ncell(r))
-xr<-xy[,1]
-yr<-xy[,2]
-ir<-1:ncell(r)
-r[]<-1:ncell(r)
-# use only probably good observations
-ix<-which(is.na(dqcflag))
-# define global 1D vector used in statSpat (1D for fast access)
-xtot<-x[ix]
-ytot<-y[ix]
-ztot<-z[ix]
-ttot<-as.numeric(data$value[ix])
-dqcflagtot<-dqcflag[ix]
-# assign each station to the corresponding box
-itot<-extract(r,cbind(xtot,ytot))
-# count the number of observations in each box
-rnobs<-rasterize(cbind(xtot,ytot),r,ttot,fun=function(x,...)length(x))
-nr<-getValues(rnobs)
-# create the 4D array for the function call via apply
-ixyn<-cbind(ir,xr,yr,nr)
-# SCT within each (grid) box
-# NOTE: dqcflag is update in "sct" function
-out<-apply(ixyn,FUN=sct,MARGIN=1)
+if (argv$verbose | argv$debug) nprev<-0
+for (i in 1:argv$i.sct) {
+  # use only (probably) good observations
+  ix<-which(is.na(dqcflag))
+  if (length(ix)>0) {
+    t0a<-Sys.time()
+    # create the grid for SCT. SCT is done independently in each box
+    # NOTE: box size around 100Km should be ok
+    if (i==1) {
+      r<-raster(e,ncol=argv$grid.sct[2],nrow=argv$grid.sct[1])
+      xy<-xyFromCell(r,1:ncell(r))
+      xr<-xy[,1]
+      yr<-xy[,2]
+      ir<-1:ncell(r)
+      r[]<-1:ncell(r)
+    }
+    # define global 1D vector used in statSpat (1D for fast access)
+    xtot<-x[ix]
+    ytot<-y[ix]
+    ztot<-z[ix]
+    ttot<-as.numeric(data$value[ix])
+    dqcflagtot<-dqcflag[ix]
+    # assign each station to the corresponding box
+    itot<-extract(r,cbind(xtot,ytot))
+    # count the number of observations in each box
+    rnobs<-rasterize(cbind(xtot,ytot),r,ttot,fun=function(x,...)length(x))
+    nr<-getValues(rnobs)
+    # create the 4D array for the function call via apply
+    ixyn<-cbind(ir,xr,yr,nr)
+    # SCT within each (grid) box
+    # NOTE: dqcflag is updated in "sct" function
+    out<-apply(ixyn,FUN=sct,MARGIN=1,nmin=argv$n.sct,dzmin=argv$dz.sct,
+               Dhmin=argv$DhorMin.sct,Dz=argv$Dver.sct,eps2=argv$eps2.sct,
+               T2=argv$thr.sct,sus.code=sct.code)
+  } else {
+    print("no valid observations left, no SCT")
+  }
+  if (argv$verbose | argv$debug) {
+    t1a<-Sys.time()
+    print(paste("SCT, iteration=",i,
+                "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+    ncur<-length(which(dqcflag==sct.code))
+    print(paste("# suspect observations=",ncur-nprev))
+    nprev<-length(which(dqcflag==sct.code))
+  }
+}
 #
 #-----------------------------------------------------------------------------
 # check for isolated stations
-#  less than 10 stations in 25km
-# use only probably good observations
+# use only (probably) good observations
 ix<-which(is.na(dqcflag))
-# define global 1D vector used in statSpat (1D for fast access)
-xtot<-x[ix]
-ytot<-y[ix]
-xy<-cbind(xtot,ytot)
-ns<-apply(xy,FUN=nstat,MARGIN=1,drmin=drmin.iso)
-sus<-which(ns<ns.min.iso)
-# set dqcflag
-dqcflag[ix[sus]]<-5
+if (length(ix)>0) {
+  # define global 1D vector used in statSpat (1D for fast access)
+  xtot<-x[ix]
+  ytot<-y[ix]
+  xy<-cbind(xtot,ytot)
+  ns<-apply(xy,FUN=nstat,MARGIN=1,drmin=argv$dr.isol)
+  sus<-which(ns<argv$n.isol)
+  # set dqcflag
+  if (length(sus)>0)dqcflag[ix[sus]]<-isol.code
+} else {
+  print("no valid observations left, no check for isolated observations")
+}
+if (argv$verbose | argv$debug) {
+  print(paste("# isolated observations=",length(which(dqcflag==isol.code))))
+}
+#
+#-----------------------------------------------------------------------------
+# observations not flagged are assumed to be good observaitons 
+dqcflag[is.na(dqcflag)]<-0
+if (argv$verbose | argv$debug) {
+  print("summary")
+  print(paste("# total suspect observations=",
+              length(which(dqcflag!=0))," [",
+              round(100*length(which(dqcflag!=0))/ndata,0),
+              "%]",sep="") )
+}
 #
 #-----------------------------------------------------------------------------
 # write the output file
-cat(file=fout,"lat;lon;x;y;z;val;dqc;\n",append=F)
+cat(file=argv$output,"lat;lon;x;y;z;val;dqc;\n",append=F)
 #
-dqcflag[is.na(dqcflag)]<-0
-cat(file=fout,
+cat(file=argv$output,
     paste(data$lat,data$lon,
           x,y,z,
           data$value,
@@ -467,7 +610,7 @@ cat(file=fout,
 #
 #-----------------------------------------------------------------------------
 # Normal exit
-print("normal exit")
 t1<-Sys.time()
-print(t1-t0)
+if (argv$verbose | argv$debug) 
+ print(paste("normal exit /time",round(t1-t0,1),attr(t1-t0,"unit")))
 q(status=0)
