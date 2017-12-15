@@ -31,6 +31,14 @@ To see program options, run:
    titan.R --help
 ```
 
+run a test case with:
+
+```
+./titan.R test/TA_2017072112.txt test/dqc_2017072112.txt -c -iS 3 -iB 3 -v
+```
+
+(titan.R input output convert_lat_lon_2_km iterate_SCT_3_times iterate_BuddyCheck_3_times verbose)
+
 Copyright and license
 ---------------------
 Copyright (C) 2017 MET Norway. TITAN is licensed under [GPL
