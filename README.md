@@ -17,7 +17,7 @@ Available checks are (applied sequentially as in this list):
 
 Installation Instructions
 -------------------------
-Ensure the following R-libraries are installed:
+Ensure the following R-libraries (and their dependencies) are installed:
 
    * argparser
    * sp
