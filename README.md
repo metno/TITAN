@@ -2,13 +2,15 @@
 
 Automatic quality control of in-situ temperature observations over a geographical region.
 
-Available checks are:
+Available checks are (applied sequentially as in this list):
 
 * Plausibility check
 
 * Buddy-check
 
 * Spatial Consistency Test (SCT)
+
+* check elevations against digital elevation model
 
 * detect isolated observations
 
@@ -21,6 +23,7 @@ Ensure the following R-libraries are installed:
    * sp
    * raster
    * rgdal
+   * ncdf4 (optional, used only if additional geographical information are required)
 
 
 Running the program
