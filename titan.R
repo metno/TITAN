@@ -200,6 +200,9 @@ sct<-function(ixyn,
           as.numeric(quantile(disth,probs=0.1)))
   # background error correlation matrix
   S<-exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
+  if (argv$laf.sct) {
+    S<-S * (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
+  }
   # S+eps2I
   diag(S)<-diag(S)+eps2
   # innvoation
@@ -256,7 +259,8 @@ sct<-function(ixyn,
     if (!dir.exists(argv$debug.dir)) 
       dir.create(argv$debug.dir,showWarnings=F,recursive=T)
     f<-file.path(argv$debug.dir,
-         paste("vert_",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
+         paste("titan_sctvert_it_",formatC(i,width=2,flag="0"),
+               "_subd",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
     png(file=f,width=800,height=800)
     plot(topt,zopt,xlim=c(max(-30,min(topt)),min(30,max(topt))),
                    ylim=c(0,min(2000,max(zopt))) )
@@ -273,18 +277,22 @@ sct<-function(ixyn,
     abline(h=0,lwd=2,col="black")
     dev.off()
     f<-file.path(argv$debug.dir,
-         paste("horz_",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
+         paste("titan_scthorz_it_",formatC(i,width=2,flag="0"),
+               "_subd",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
     png(file=f,width=800,height=800)
     plot(xtot[j],ytot[j])
-#    dem1<-crop(dem$raster,
-#               extent(c(ixyn[2]-100000,
-#                        ixyn[2]+100000,
-#                        ixyn[3]-100000,
-#                        ixyn[3]+100000
-#                        )))
-#    image(dem1,add=T,
-#          breaks=c(0,10,25,50,100,250,500,750,1000,1250,1500,1750,2000,2500,3000),
-#          col=gray.colors(14))
+    if (argv$dem | argv$dem.fill) {
+      if (!exists("dem1"))
+        dem1<-crop(rdem,
+                   extent(c(ixyn[2]-100000,
+                            ixyn[2]+100000,
+                            ixyn[3]-100000,
+                            ixyn[3]+100000
+                            )))
+      image(dem1,add=T,
+            breaks=c(0,10,25,50,100,250,500,750,1000,1250,1500,1750,2000,2500,3000),
+            col=gray.colors(14))
+    }
     points(xtot[j],ytot[j],pch=19,col="blue")
     points(xtot[j[susi]],ytot[j[susi]],pch=19,col="red")
     dev.off()
@@ -368,14 +376,84 @@ p <- add_argument(p, "--eps2.sct",help="OI, ratio between observation error vari
                   type="numeric",default=0.5,short="-eS")
 p <- add_argument(p, "--thr.sct",help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct",
                   type="numeric",default=16,short="-tS")
+p <- add_argument(p, "--laf.sct",help="use land area fraction in the OI correlation function (0-100%)",
+                  flag=T,short="-lS")
+p <- add_argument(p, "--lafmin.sct",help="land area fraction influence in the OI correlation function",
+                  type="numeric",default=0.5,short="-lmS")
+p <- add_argument(p, "--laf.file",help="land area fraction file (netCDF in kilometric coordinates)",
+                  type="character",default=NULL,short="-lfS")
+p <- add_argument(p, "--proj4laf",help="proj4 string for the laf",
+                  type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pl")
+# check elevation against dem
+p <- add_argument(p, "--dem",help="check elevation against digital elevation model (dem)",
+                  flag=T,short="-dm")
+p <- add_argument(p, "--dz.dem",help="maximum allowed deviation between observation and dem elevations [m]",
+                  type="numeric",default=500,short="-zD")
+p <- add_argument(p, "--dem.fill",help="fill missing elevation with data from dem",
+                  flag=T,short="-df")
+p <- add_argument(p, "--dem.file",help="land area fraction file (netCDF in kilometric coordinates)",
+                  type="character",default=NULL,short="-dmf")
+p <- add_argument(p, "--proj4dem",help="proj4 string for the dem",
+                  type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pd")
+#
 argv <- parse_args(p)
 #
-# check if input exists
+#-----------------------------------------------------------------------------
+# checks on input arguments
 if (!file.exists(argv$input)) {
   print("ERROR: input file not found")
   print(argv$input)
   quit(status=1)
 }
+if (argv$dem | argv$dem.fill) {
+  if (!file.exists(argv$dem.file)) {
+    print("ERROR: dem file not found")
+    print(argv$dem.file)
+    quit(status=1)
+  }
+}
+if (argv$laf.sct) {
+  if (!file.exists(argv$laf.file)) {
+    print("ERROR: laf file not found")
+    print(argv$laf.file)
+    quit(status=1)
+  }
+}
+# TODO: adapt the procedure for input data others than lat-lon
+if (!argv$spatconv) {
+  print("ERROR: \"--spatconv\" (-c) option must be used onthe command line")
+  print("input metadata are expected to be lat-lon coordinates")
+  print(" some DQC tests takes place in kilometric coordinates specified by the user")
+  print("output is in lat-lon coordinates")
+  quit(status=1)
+}
+if ( argv$laf.sct & argv$proj4to!=argv$proj4laf ) {
+  print("ERROR: anomalies found in the proj4 strings:")
+  print(paste("proj4 laf=",argv$proj4laf))
+  print(paste("proj4  to=",argv$proj4to))
+  print("they must be the same")
+  quit(status=1)
+}
+if ( (argv$dem | argv$dem.fill) & argv$proj4to!=argv$proj4dem ) {
+  print("ERROR: anomalies found in the proj4 strings:")
+  print(paste("proj4 dem=",argv$proj4dem))
+  print(paste("proj4  to=",argv$proj4to))
+  print("they must be the same")
+  quit(status=1)
+}
+if (argv$laf.sct & (argv$dem | argv$dem.fill) &
+    (argv$proj4laf!=argv$proj4dem) |
+     !is.character(argv$proj4laf)  |
+     !is.character(argv$proj4dem) ) {
+  print("ERROR: anomalies found in the proj4 strings:")
+  print(paste("proj4 laf=",argv$proj4laf))
+  print(paste("proj4 dem=",argv$proj4dem))
+  quit(status=1)
+}
+if (argv$laf.sct & (argv$dem | argv$dem.fill))
+  suppressPackageStartupMessages(library("ncdf4")) 
+#
+#-----------------------------------------------------------------------------
 if (argv$verbose | argv$debug) print(">> TITAN <<")
 #
 #-----------------------------------------------------------------------------
@@ -384,7 +462,8 @@ nometa.code<-1
 p.code<-2
 buddy.code<-3
 sct.code<-4
-isol.code<-5
+dem.code<-5
+isol.code<-6
 #
 #-----------------------------------------------------------------------------
 # read data
@@ -412,31 +491,6 @@ sctpog<-vector(mode="numeric",length=ndata)
 sctpog[]<-NA
 #
 #-----------------------------------------------------------------------------
-# test for no metadata 
-meta<-!is.na(data$lat) & 
-      !is.na(data$lon) &
-      !is.na(z) & z>=argv$zmin & z<=argv$zmax &
-      !is.na(data$value)
-if (any(!meta)) dqcflag[which(!meta)]<-nometa.code
-if (argv$verbose | argv$debug) {
-  print("test for no metdata")
-#  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
-#              z[which(!meta)],data$value[which(!meta)]))
-  print(paste("# observations lacking metadata=",length(which(!meta))))
-}
-#
-#-----------------------------------------------------------------------------
-# plausibility test
-ix<-which( is.na(dqcflag)  &
-           data$value<argv$tmin &
-           data$value>argv$tmax)
-if (length(ix)>0) dqcflag[ix]<-p.code
-if (argv$verbose | argv$debug) {
-  print("plausibility test")
-  print(paste("# suspect observations=",length(ix)))
-}
-#
-#-----------------------------------------------------------------------------
 # coordinate transformation
 if (argv$spatconv) {
   if (argv$debug) print("spatial conversion required")
@@ -461,6 +515,54 @@ if (argv$spatconv) {
   xl<-c(argv$lonmin,argv$lonmax)
   yl<-c(argv$latmin,argv$latmax)
   e<-extent(c(xl,yl))
+}
+#
+#-----------------------------------------------------------------------------
+# Read (optional) geographical information
+if (argv$dem | argv$dem.fill) {
+  rdem<-raster(argv$dem.file)
+  crs(rdem)<-argv$proj4dem
+  zdem<-extract(rdem,cbind(x,y))
+  # fill missing elevation with dem
+  if (argv$dem.fill) {
+    iz<-which(is.na(z) & !is.na(zdem))
+    z[iz]<-zdem[iz]
+    rm(iz)
+  }
+}
+if (argv$laf.sct) {
+  rlaf<-raster(argv$laf.file)
+  crs(rlaf)<-argv$proj4laf
+  laf<-extract(rlaf,cbind(x,y))/100.
+} else {
+  # use a fake laf
+  laf<-rep(1,ndata)
+}
+#
+#-----------------------------------------------------------------------------
+# test for no metadata 
+meta<-!is.na(data$lat) & 
+      !is.na(data$lon) &
+      !is.na(z) & z>=argv$zmin & z<=argv$zmax &
+      !is.na(data$value) &
+      !is.na(laf)
+if (any(!meta)) dqcflag[which(!meta)]<-nometa.code
+if (argv$verbose | argv$debug) {
+  print("test for no metdata")
+#  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
+#              z[which(!meta)],data$value[which(!meta)]))
+  print(paste("# observations lacking metadata=",length(which(!meta))))
+}
+#
+#-----------------------------------------------------------------------------
+# plausibility test
+ix<-which( is.na(dqcflag)  &
+           data$value<argv$tmin &
+           data$value>argv$tmax)
+if (length(ix)>0) dqcflag[ix]<-p.code
+if (argv$verbose | argv$debug) {
+  print("plausibility test")
+  print(paste("# suspect observations=",length(ix)))
 }
 #
 #-----------------------------------------------------------------------------
@@ -523,8 +625,8 @@ for (i in 1:argv$i.sct) {
     xtot<-x[ix]
     ytot<-y[ix]
     ztot<-z[ix]
-    ttot<-as.numeric(data$value[ix])
-    dqcflagtot<-dqcflag[ix]
+    ttot<-data$value[ix]
+    laftot<-laf[ix]
     # assign each station to the corresponding box
     itot<-extract(r,cbind(xtot,ytot))
     # count the number of observations in each box
@@ -551,6 +653,24 @@ for (i in 1:argv$i.sct) {
 }
 #
 #-----------------------------------------------------------------------------
+# check elevation against dem 
+if (argv$dem) {
+  # use only (probably) good observations
+  ix<-which(is.na(dqcflag))
+  if (length(ix)>0) {
+    ixna<-which(!is.na(z) & !is.na(zdem) & is.na(dqcflag))
+    sus<-which(abs(z[ixna]-zdem[ixna])>argv$dz.dem)
+    # set dqcflag
+    if (length(sus)>0) dqcflag[ixna[sus]]<-dem.code
+  }  else {
+    print("no valid observations left, no dem check")
+  }
+  if (argv$verbose | argv$debug) {
+    print(paste("# observations too far from dem=",length(which(dqcflag==dem.code))))
+  }
+}
+#
+#-----------------------------------------------------------------------------
 # check for isolated stations
 # use only (probably) good observations
 ix<-which(is.na(dqcflag))
@@ -562,7 +682,7 @@ if (length(ix)>0) {
   ns<-apply(xy,FUN=nstat,MARGIN=1,drmin=argv$dr.isol)
   sus<-which(ns<argv$n.isol)
   # set dqcflag
-  if (length(sus)>0)dqcflag[ix[sus]]<-isol.code
+  if (length(sus)>0) dqcflag[ix[sus]]<-isol.code
 } else {
   print("no valid observations left, no check for isolated observations")
 }
