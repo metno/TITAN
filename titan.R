@@ -346,6 +346,17 @@ p <- add_argument(p, "--tmin",help="minimum allowed temperature [K or degC]",
                   type="numeric",default=-50,short="-tP")
 p <- add_argument(p, "--tmax",help="maximum allowed temperature [K or degC]",
                   type="numeric",default=40,short="-TP")
+# Cliamtological check
+# default based on Norwegian hourly temeprature from 2010-2017
+p <- add_argument(p, "--tmin.clim",help="minimum allowed temperature [K or degC]",
+                  type="numeric",nargs=12,short="-tC",
+                  default=c(-45,-45,-40,-35,-20,-15,-10,-15,-15,-20,-35,-45))
+p <- add_argument(p, "--tmax.clim",help="minimum allowed temperature [K or degC]",
+                  type="numeric",nargs=12,short="-TC",
+                  default=c(20,20,25,25,35,35,40,40,35,30,25,20))
+p <- add_argument(p, "--month.clim",help="month (number 1-12)",
+                  type="numeric",short="-mC",
+                  default=as.numeric(format(Sys.time(), "%m")))
 # Buddy-check
 p <- add_argument(p, "--dr.buddy",help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
                   type="numeric",default=3000,short="-dB")
@@ -470,6 +481,12 @@ if (argv$laf.sct & (argv$dem | argv$dem.fill) &
 if (argv$laf.sct & (argv$dem | argv$dem.fill))
   suppressPackageStartupMessages(library("ncdf4")) 
 #
+if (argv$month.clim<1 | argv$month.clim>12) {
+  print("ERROR: month number is wrong:")
+  print(paste("month number=",argv$month.clim))
+  quit(status=1)
+}
+#
 #-----------------------------------------------------------------------------
 if (argv$verbose | argv$debug) print(">> TITAN <<")
 #
@@ -477,10 +494,11 @@ if (argv$verbose | argv$debug) print(">> TITAN <<")
 # constants
 nometa.code<-1
 p.code<-2
-buddy.code<-3
-sct.code<-4
-dem.code<-5
-isol.code<-6
+clim.code<-3
+buddy.code<-4
+sct.code<-5
+dem.code<-6
+isol.code<-7
 #
 #-----------------------------------------------------------------------------
 # read data
@@ -596,6 +614,23 @@ if (length(ix)>0) dqcflag[ix]<-p.code
 if (argv$verbose | argv$debug) {
   print("plausibility test")
   print(paste("# suspect observations=",length(ix)))
+}
+#
+#-----------------------------------------------------------------------------
+# climatological check 
+# use only (probably) good observations
+ix<-which(is.na(dqcflag))
+if (length(ix)>0) {
+  sus<-which(data$value[ix]<argv$tmin.clim[argv$month.clim] | 
+             data$value[ix]>argv$tmax.clim[argv$month.clim] )
+  # set dqcflag
+  if (length(sus)>0) dqcflag[ix[sus]]<-clim.code
+} else {
+  print("no valid observations left, no climatological check")
+}
+if (argv$verbose | argv$debug) {
+  print(paste("climatological test (month=",argv$month.clim,")",sep=""))
+  print(paste("# suspect observations=",length(which(dqcflag==clim.code))))
 }
 #
 #-----------------------------------------------------------------------------
