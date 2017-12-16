@@ -312,6 +312,9 @@ p <- arg_parser("titan")
 p <- add_argument(p, "input",help="input file",type="character")
 p <- add_argument(p, "output",help="output file",type="character",
                   default="output.txt")
+# more than one provider
+p <- add_argument(p, "--input.files",help="additional input files (provider2 provider3 ...)",
+                  type="character",default=NULL,nargs=Inf,short="-i")
 #
 p <- add_argument(p, "--debug",help="debug mode",flag=T,short="-dbg")
 p <- add_argument(p, "--debug.dir",help="directory for debug output",
@@ -405,6 +408,20 @@ if (!file.exists(argv$input)) {
   print(argv$input)
   quit(status=1)
 }
+# more than oen input file
+if (!is.na(argv$input.files)) {
+  for (j in 1:length(argv$input.files)) {
+    if (!file.exists(argv$input.files[j])) {
+      print("ERROR: input file not found")
+      print(argv$input.files[j])
+      quit(status=1)
+    }
+  }
+  argv$input.files<-c(argv$input,argv$input.files)
+} else {
+  argv$input.files<-argv$input
+}
+nfin<-length(argv$input.files)
 if (argv$dem | argv$dem.fill) {
   if (!file.exists(argv$dem.file)) {
     print("ERROR: dem file not found")
@@ -467,13 +484,26 @@ isol.code<-6
 #
 #-----------------------------------------------------------------------------
 # read data
-data<-read.table(file=argv$input,header=T,sep=";",
-                 stringsAsFactors=F,strip.white=T)
-data$lat<-suppressWarnings(as.numeric(data$lat))
-data$lon<-suppressWarnings(as.numeric(data$lon))
-data$elev<-suppressWarnings(as.numeric(data$elev))
-z<-data$elev
-data$value<-suppressWarnings(as.numeric(data$value))
+first<-T
+for (f in 1:nfin) {
+  datatmp<-read.table(file=argv$input.files[f],header=T,sep=";",
+                      stringsAsFactors=F,strip.white=T)
+  datatmp$lat<-suppressWarnings(as.numeric(datatmp$lat))
+  datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
+  datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
+  z<-datatmp$elev
+  datatmp$value<-suppressWarnings(as.numeric(datatmp$value))
+  ndatatmp<-length(datatmp$lat)
+  # set provider id
+  if (ndatatmp>0) datatmp$prid<-rep(f,ndatatmp)
+  if ( first & ndatatmp>0) {
+    data<-datatmp
+    first<-F
+  } else {
+    data<-rbind(data,datatmp)
+  }
+}
+rm(datatmp)
 ndata<-length(data$lat)
 if (ndata==0) {
   print("input file is empty")
@@ -481,6 +511,9 @@ if (ndata==0) {
 }
 if (argv$verbose | argv$debug) {
   print(paste("number of observations=",ndata))
+  for (f in 1:nfin) 
+    print(paste("number of observations provider ",f,"=",
+          length(which(data$prid==f))))
 }
 #
 #-----------------------------------------------------------------------------
@@ -706,7 +739,7 @@ if (argv$verbose | argv$debug) {
 cat(file=argv$output,"prid;lat;lon;elev;value;dqc;sct;rep;\n",append=F)
 #
 cat(file=argv$output,
-    paste(NA,
+    paste(round(data$prid,0),
           round(data$lat,5),
           round(data$lon,5),
           round(z,1),
