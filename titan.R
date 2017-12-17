@@ -29,6 +29,17 @@ options(warn = 2, scipen = 999)
 #------------------------------------------------------------------------------
 # FUNCTIONS
 
+# auxiliary function to keep/blacklist observations
+setCode_lonlat<-function(lonlat,code) {
+# lonlat. vector. 1=lon; 2=lat
+  ix<-datatmp$lon==lonlat[1] & datatmp$lat==lonlat[2]
+  if (length(ix)>0)  {
+    aux[ix]<-code
+    assign("aux",aux,envir=.GlobalEnv)
+  }
+  return(length(ix))
+}
+
 #+ number of stations within "drmin" units from location "xy" 
 nstat<-function(xy,drmin) {
 # input
@@ -208,13 +219,16 @@ sct<-function(ixyn,
   # innvoation
   d<-topt-tb
   # select observations to test 
-  sel<-which(is.na(dqctmp))
+  sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+  sel2check<-which(is.na(dqctmp))
   first<-T
   # loop over SCT iterations 
   # NOTE: SCT flags at most one observation, iterate until no observations fail
   while (length(sel)>nmin) { 
     # update selection
-    sel<-which(is.na(dqctmp))
+    sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+    sel2check<-which(is.na(dqctmp))
+    if (length(sel2check)==0) break
     # first iteration, inver the matrix
     if (first) {
       SRinv<-chol2inv(chol(S))
@@ -235,27 +249,21 @@ sct<-function(ixyn,
     sctpog[ix[j[sel]]]<-pog[sel]
     assign("sctpog",sctpog,envir=.GlobalEnv)
     # check if any obs fails the test
-    if (any(pog[sel]>T2)) {
+    if (any(pog[sel2check]>T2)) {
       # flag as suspect only the observation with the largest cvres 
-      indx<-which.max(pog[sel])
-      dqctmp[sel[indx]]<-sus.code
+      indx<-which.max(pog[sel2check])
+      dqctmp[sel2check[indx]]<-sus.code
       # update global variable with flags
-      dqcflag[ix[j[sel[indx]]]]<-sus.code
+      dqcflag[ix[j[sel2check[indx]]]]<-sus.code
       assign("dqcflag",dqcflag,envir=.GlobalEnv)
-#      print("yo yb cvres cvres/sigma sig2o+sig2cv srinv.d")
-#      print(cbind(topt[sel][indx],
-#                  tb[sel][indx],
-#                  cvres[indx],
-#                  pog[sel[indx]],
-#                  round(Zinv[indx],4), 
-#                  round(SRinv[indx],4) )) 
     } else {
       break
     }
   } # end cycle SCT model
   # debug: begin
   if (argv$debug) {
-    susi<-which(!is.na(dqctmp))
+    susi<-which(!is.na(dqctmp) & dqctmp!=keep.code)
+    gold<-which(dqctmp==keep.code)
     if (!dir.exists(argv$debug.dir)) 
       dir.create(argv$debug.dir,showWarnings=F,recursive=T)
     f<-file.path(argv$debug.dir,
@@ -273,6 +281,7 @@ sct<-function(ixyn,
       points(rep(tb[1],length(zz)),zz,col="gold",pch=19,cex=0.5)
     }
     points(topt[susi],zopt[susi],pch=19,col="red")
+    if (length(gold)>0) points(topt[gold],zopt[gold],pch=19,col="gold")
     abline(h=seq(-1000,10000,by=100),col="gray",lty=2)
     abline(h=0,lwd=2,col="black")
     dev.off()
@@ -295,6 +304,7 @@ sct<-function(ixyn,
     }
     points(xtot[j],ytot[j],pch=19,col="blue")
     points(xtot[j[susi]],ytot[j[susi]],pch=19,col="red")
+    if (length(gold)>0) points(topt[gold],zopt[gold],pch=19,col="gold")
     dev.off()
   }
   # debug: end
@@ -409,6 +419,40 @@ p <- add_argument(p, "--dem.file",help="land area fraction file (netCDF in kilom
                   type="character",default=NULL,short="-dmf")
 p <- add_argument(p, "--proj4dem",help="proj4 string for the dem",
                   type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pd")
+# blacklist
+# specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
+p <- add_argument(p, "--blacklist.lat",
+                  help="observation blacklist (latitude)",
+                  type="numeric",default=NA,nargs=Inf,short="-bla")
+p <- add_argument(p, "--blacklist.lon",
+                  help="observation blacklist (longitude)",
+                  type="numeric",default=NA,nargs=Inf,short="-blo")
+p <- add_argument(p, "--blacklist.fll",
+                  help="observation blacklist (ID provider)",
+                  type="numeric",default=NA,nargs=Inf,short="-bfll")
+p <- add_argument(p, "--blacklist.idx",
+                  help="observation blacklist (position in input file)",
+                  type="numeric",default=NA,nargs=Inf,short="-bix")
+p <- add_argument(p, "--blacklist.fidx",
+                  help="observation blacklist (ID provider)",
+                  type="numeric",default=NA,nargs=Inf,short="-bfix")
+# keep (keep them)
+# specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
+p <- add_argument(p, "--keeplist.lat",
+                  help="observation keeplist (latitude)",
+                  type="numeric",default=NA,nargs=Inf,short="-kla")
+p <- add_argument(p, "--keeplist.lon",
+                  help="observation keeplist (longitude)",
+                  type="numeric",default=NA,nargs=Inf,short="-klo")
+p <- add_argument(p, "--keeplist.fll",
+                  help="observation keeplist (ID provider)",
+                  type="numeric",default=NA,nargs=Inf,short="-kfll")
+p <- add_argument(p, "--keeplist.idx",
+                  help="observation keeplist (position in input file)",
+                  type="numeric",default=NA,nargs=Inf,short="-kix")
+p <- add_argument(p, "--keeplist.fidx",
+                  help="observation keeplist (ID provider)",
+                  type="numeric",default=NA,nargs=Inf,short="-kfix")
 #
 argv <- parse_args(p)
 #
@@ -486,6 +530,60 @@ if (argv$month.clim<1 | argv$month.clim>12) {
   print(paste("month number=",argv$month.clim))
   quit(status=1)
 }
+# blacklist
+if (any(!is.na(argv$blacklist.lat)) | 
+    any(!is.na(argv$blacklist.lon)) |
+    any(!is.na(argv$blacklist.fll)) ) {
+  if ( (length(argv$blacklist.lat)!=length(argv$blacklist.lon))  |
+       (length(argv$blacklist.lat)!=length(argv$blacklist.fll))  |
+       (any(is.na(argv$blacklist.fll))) | 
+       (any(is.na(argv$blacklist.lat))) | 
+       (any(is.na(argv$blacklist.lon))) ) {
+    print("ERROR in the blacklist definition, must have same number of lat,lon,IDprovider points")
+    print(paste("lat number=",argv$blacklist.lat))
+    print(paste("lon number=",argv$blacklist.lon))
+    print(paste("ID provider number=",argv$blacklist.fll))
+    quit(status=1)
+  }
+}
+if (any(!is.na(argv$blacklist.idx)) | 
+    any(!is.na(argv$blacklist.fidx)) ) {
+  if ( (length(argv$blacklist.idx)!=length(argv$blacklist.fidx))  |
+       (any(is.na(argv$blacklist.idx))) | 
+       (any(is.na(argv$blacklist.fidx))) ) {
+    print("ERROR in the blacklist definition, must have same number of index and IDprovider points")
+    print(paste("index number=",argv$blacklist.idx))
+    print(paste("ID provider number=",argv$blacklist.fidx))
+    quit(status=1)
+  }
+}
+# keeplist
+if (any(!is.na(argv$keeplist.lat)) | 
+    any(!is.na(argv$keeplist.lon)) |
+    any(!is.na(argv$keeplist.fll)) ) {
+  if ( (length(argv$keeplist.lat)!=length(argv$keeplist.lon))  |
+       (length(argv$keeplist.lat)!=length(argv$keeplist.fll))  |
+       (any(is.na(argv$keeplist.fll))) | 
+       (any(is.na(argv$keeplist.lat))) | 
+       (any(is.na(argv$keeplist.lon))) ) {
+    print("ERROR in the keeplist definition, must have same number of lat,lon,IDprovider points")
+    print(paste("lat number=",argv$keeplist.lat))
+    print(paste("lon number=",argv$keeplist.lon))
+    print(paste("ID provider number=",argv$keeplist.fll))
+    quit(status=1)
+  }
+}
+if (any(!is.na(argv$keeplist.idx)) | 
+    any(!is.na(argv$keeplist.fidx)) ) {
+  if ( (length(argv$keeplist.idx)!=length(argv$keeplist.fidx))  |
+       (any(is.na(argv$keeplist.idx))) | 
+       (any(is.na(argv$keeplist.fidx))) ) {
+    print("ERROR in the keeplist definition, must have same number of index and IDprovider points")
+    print(paste("index number=",argv$keeplist.idx))
+    print(paste("ID provider number=",argv$keeplist.fidx))
+    quit(status=1)
+  }
+}
 #
 #-----------------------------------------------------------------------------
 if (argv$verbose | argv$debug) print(">> TITAN <<")
@@ -499,6 +597,8 @@ buddy.code<-4
 sct.code<-5
 dem.code<-6
 isol.code<-7
+black.code<-100
+keep.code<-200
 #
 #-----------------------------------------------------------------------------
 # read data
@@ -512,13 +612,35 @@ for (f in 1:nfin) {
   z<-datatmp$elev
   datatmp$value<-suppressWarnings(as.numeric(datatmp$value))
   ndatatmp<-length(datatmp$lat)
+  if (ndatatmp==0) next
   # set provider id
-  if (ndatatmp>0) datatmp$prid<-rep(f,ndatatmp)
-  if ( first & ndatatmp>0) {
+  datatmp$prid<-rep(f,ndatatmp)
+  aux<-rep(NA,length=ndatatmp)
+  if (any(!is.na(argv$blacklist.idx)) & any(argv$blacklist.fidx==f)) {
+    aux[argv$blacklist.idx[which(argv$blacklist.fidx==f)]]<-black.code  
+  }
+  if (any(!is.na(argv$blacklist.lat)) & any(argv$blacklist.fll==f)) {
+    out<-apply(cbind(argv$blacklist.lon[argv$blacklist.fll==f],
+                     argv$blacklist.lat[argv$blacklist.fll==f])
+               ,FUN=setCode_lonlat,MARGIN=1,code=black.code)
+  }
+  if (any(!is.na(argv$keeplist.idx)) & any(argv$keeplist.fidx==f)) {
+    aux[argv$keeplist.idx[which(argv$keeplist.fidx==f)]]<-keep.code  
+  }
+  if (any(!is.na(argv$keeplist.lat)) & any(argv$keeplist.fll==f)) {
+    out<-apply(cbind(argv$keeplist.lon[argv$keeplist.fll==f],
+                     argv$keeplist.lat[argv$keeplist.fll==f])
+               ,FUN=setCode_lonlat,MARGIN=1,code=keep.code)
+  }
+  if (first) {
     data<-datatmp
     first<-F
+    dqcflag<-aux
+    sctpog<-rep(NA,length=ndatatmp)
   } else {
     data<-rbind(data,datatmp)
+    dqcflag<-cbind(dqcflag,aux)
+    sctpog<-cbind(sctpog,rep(NA,length=ndatatmp))
   }
 }
 rm(datatmp)
@@ -529,17 +651,26 @@ if (ndata==0) {
 }
 if (argv$verbose | argv$debug) {
   print(paste("number of observations=",ndata))
-  for (f in 1:nfin) 
-    print(paste("number of observations provider ",f,"=",
-          length(which(data$prid==f))))
+  if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
+    print(paste("number of blacklisted observations=",
+          length(which(dqcflag==black.code))) )
+  if (any(!is.na(argv$keeplist.idx)) | any(!is.na(argv$keeplist.lat)))
+    print(paste("number of keeplisted  observations=",
+          length(which(dqcflag==keep.code))) )
+  if (nfin>1) {
+    for (f in 1:nfin) { 
+      print(paste("  number of observations provider",f,"=",
+            length(which(data$prid==f))))
+      if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
+        print(paste("  number of blacklisted observations provider",f,"=",
+              length(which(data$prid==f & dqcflag==black.code))) )
+      if (any(!is.na(argv$keeplist.idx)) | any(!is.na(argv$keeplist.lat)))
+        print(paste("  number of keeplisted  observations provider",f,"=",
+              length(which(data$prid==f & dqcflag==keep.code))) )
+    }
+  }
+  print("+---------------------------------+")
 }
-#
-#-----------------------------------------------------------------------------
-# define dqcflag vector
-dqcflag<-vector(mode="numeric",length=ndata)
-dqcflag[]<-NA
-sctpog<-vector(mode="numeric",length=ndata)
-sctpog[]<-NA
 #
 #-----------------------------------------------------------------------------
 # coordinate transformation
@@ -592,28 +723,36 @@ if (argv$laf.sct) {
 #
 #-----------------------------------------------------------------------------
 # test for no metadata 
-meta<-!is.na(data$lat) & 
-      !is.na(data$lon) &
-      !is.na(z) & z>=argv$zmin & z<=argv$zmax &
-      !is.na(data$value) &
-      !is.na(laf)
-if (any(!meta)) dqcflag[which(!meta)]<-nometa.code
+# use only (probably) good observations
+ix<-which(is.na(dqcflag) | dqcflag==keep.code)
+if (length(ix)>0) {
+  meta<-!is.na(data$lat[ix]) & 
+        !is.na(data$lon[ix]) &
+        !is.na(z[ix]) & z[ix]>=argv$zmin & z[ix]<=argv$zmax &
+        !is.na(data$value[ix]) &
+        !is.na(laf[ix])
+  if (any(!meta)) dqcflag[ix[which(!meta)]]<-nometa.code
+} else {
+  print("no valid observations left, no metadata check")
+}
 if (argv$verbose | argv$debug) {
   print("test for no metdata")
 #  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
 #              z[which(!meta)],data$value[which(!meta)]))
   print(paste("# observations lacking metadata=",length(which(!meta))))
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
 # plausibility test
-ix<-which( is.na(dqcflag)  &
+ix<-which( (is.na(dqcflag) | dqcflag==keep.code) &
            data$value<argv$tmin &
            data$value>argv$tmax)
 if (length(ix)>0) dqcflag[ix]<-p.code
 if (argv$verbose | argv$debug) {
   print("plausibility test")
   print(paste("# suspect observations=",length(ix)))
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
@@ -631,6 +770,7 @@ if (length(ix)>0) {
 if (argv$verbose | argv$debug) {
   print(paste("climatological test (month=",argv$month.clim,")",sep=""))
   print(paste("# suspect observations=",length(which(dqcflag==clim.code))))
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
@@ -639,7 +779,7 @@ if (argv$verbose | argv$debug) {
 if (argv$verbose | argv$debug) nprev<-0
 for (i in 1:argv$i.buddy) {
   # use only (probably) good observations
-  ix<-which(is.na(dqcflag))
+  ix<-which(is.na(dqcflag) | dqcflag==keep.code)
   if (length(ix)>0) {
     t0a<-Sys.time()
     # define global 1D vector used in statSpat (1D for fast access)
@@ -655,7 +795,8 @@ for (i in 1:argv$i.buddy) {
     # suspect if: 
     sus<-which(pog>argv$thr.buddy & 
                stSp_3km[1,]>argv$n.buddy & 
-               stSp_3km[2,]<argv$dz.buddy)
+               stSp_3km[2,]<argv$dz.buddy &
+               is.na(dqcflag[ix]))
     # set dqcflag
     if (length(sus)>0) dqcflag[ix[sus]]<-buddy.code
   } else {
@@ -670,13 +811,15 @@ for (i in 1:argv$i.buddy) {
     nprev<-length(which(dqcflag==buddy.code))
   }
 }
+if (argv$verbose | argv$debug) 
+  print("+---------------------------------+")
 #
 #-----------------------------------------------------------------------------
 # SCT - Spatial Consistency Test
 if (argv$verbose | argv$debug) nprev<-0
 for (i in 1:argv$i.sct) {
   # use only (probably) good observations
-  ix<-which(is.na(dqcflag))
+  ix<-which(is.na(dqcflag) | dqcflag==keep.code)
   if (length(ix)>0) {
     t0a<-Sys.time()
     # create the grid for SCT. SCT is done independently in each box
@@ -719,6 +862,8 @@ for (i in 1:argv$i.sct) {
     nprev<-length(which(dqcflag==sct.code))
   }
 }
+if (argv$verbose | argv$debug) 
+  print("+---------------------------------+")
 #
 #-----------------------------------------------------------------------------
 # check elevation against dem 
@@ -735,6 +880,7 @@ if (argv$dem) {
   }
   if (argv$verbose | argv$debug) {
     print(paste("# observations too far from dem=",length(which(dqcflag==dem.code))))
+    print("+---------------------------------+")
   }
 }
 #
@@ -756,6 +902,7 @@ if (length(ix)>0) {
 }
 if (argv$verbose | argv$debug) {
   print(paste("# isolated observations=",length(which(dqcflag==isol.code))))
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
