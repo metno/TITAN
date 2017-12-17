@@ -16,6 +16,7 @@ Available checks are (applied sequentially as in this list):
 
 * detect isolated observations
 
+Possibility to have observation black-list and keep(-it-no-matter-what)-list.
 
 Installation Instructions
 -------------------------
