@@ -80,7 +80,7 @@ tvertprof<-function(z,t0,gamma,a,h0,h1i) {
 #  using nonlinear profiles and non‐Euclidean distances.
 #  International Journal of Climatology, 34(5), 1585-1605.
 # input
-#  z= array. elevations [m]
+#  z= array. elevations [m amsl]
 #  t0= numeric. temperature at z=0 [K or degC]
 #  gamma=numeric. temperature lapse rate [K/m]
 #  a= numeric. inversion (spatial) length
@@ -109,6 +109,24 @@ tvertprof<-function(z,t0,gamma,a,h0,h1i) {
 #+ cost function used for optimization of tvertprof parameter
 tvertprof2opt<-function(par) {
   te<-tvertprof(z=zopt,t0=par[1],gamma=par[2],a=par[3],h0=par[4],h1i=par[5])
+  return(log((mean((te-topt)**2))**0.5))
+}
+
+#+ vertical profile of temperature (linear)
+tvertprof_basic<-function(z,t0,gamma) {
+# input
+#  z= array. elevations [m amsl]
+#  t0= numeric. temperature at z=0 [K or degC]
+#  gamma=numeric. temperature lapse rate [K/m]
+# Output
+#  t= array. temperature [K or degC]
+#------------------------------------------------------------------------------
+  return(t0+gamma*z)
+}
+
+#+ cost function used for optimization of tvertprof parameter
+tvertprofbasic2opt<-function(par) {
+  te<-tvertprof_basic(z=zopt,t0=par[1],gamma=gamma.standard)
   return(log((mean((te-topt)**2))**0.5))
 }
 
@@ -144,7 +162,7 @@ plotp<-function(x,y,val,br,col,
 }
 
 #+ SCT - spatial consistency test
-sct<-function(ixyn,
+sct<-function(ixynp,
               nmin=50,dzmin=30,
               Dhmin=10000,Dz=200,eps2=0.5,
               T2=16,sus.code=4) {
@@ -153,7 +171,7 @@ sct<-function(ixyn,
 #   test for surface observations from mesoscale meteorological networks.
 #   Quarterly Journal of the Royal Meteorological Society, 136(649), 1075-1088.
 # input
-#  ixyn= vector(4). 1=box identifier on the grid; 
+#  ixynp= vector(4). 1=box identifier on the grid; 
 #                   2/3=easting/northing coord (center of the box);
 #                   4=number of stations within the box
 #  NOTE: stations are associated to a box before running this function
@@ -165,23 +183,34 @@ sct<-function(ixyn,
 #  T2=numeric. SCT threshold. (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
 #  sus.code=numeric. identifier code for suspect observation
 # output
-#  number of rejected stations. NA if the function has not been applied
+#  number of rejected stations. (special cases: (i) NA if the function has not
+#   been applied; (ii) -1 if just one station in the domain
+#  
 #  NOTE: "dqcflag" global variable is also updated
 #------------------------------------------------------------------------------
-  # few stations in the box = no SCT
-  if (ixyn[4]<nmin | is.na(ixyn[4])) return(NA)
+  # something strange with the number of stations
+  if (is.na(ixynp[4]) | is.null(ixynp[4]) | !is.finite(ixynp[4]) ) return(NA)
   # j, index for the stations in the box
-  j<-which(itot==ixyn[1])
+  j<-which(itot==ixynp[1])
+  # case of just one station
+  if (ixynp[4]==1) {
+    sctpog[ix[j]]<--1
+    assign("sctpog",sctpog,envir=.GlobalEnv)
+    return(-1)
+  }
   # "zopt" and "topt" are set as global variables, so that they can be used by 
   #   other functions in the optimizaiton procedure
   assign("zopt",ztot[j],envir=.GlobalEnv)
   dz<-as.numeric(quantile(zopt,probs=0.95))-
       as.numeric(quantile(zopt,probs=0.05))
   assign("topt",ttot[j],envir=.GlobalEnv)
-  # if region is too flat, then background is the average
-  if (dz<dzmin) {
-    tb<-topt
-    tb[]<-mean(topt)
+  # if region is too flat or not enough obs, then go for a basic profile
+  if (dz<dzmin | ixynp[4]<nmin) {
+    par<-c(mean(topt))
+    opt<-optimize(f=tvertprofbasic2opt,interval=c(argv$tmin,argv$tmax))
+    tb<-tvertprof_basic(zopt,
+                        t0=opt$minimum,
+                        gamma=gamma.standard)
   # otherwise, fit a vertical profile of temperature
   } else {
     par<-c(mean(topt),-0.0065,5,
@@ -224,30 +253,37 @@ sct<-function(ixyn,
   first<-T
   # loop over SCT iterations 
   # NOTE: SCT flags at most one observation, iterate until no observations fail
-  while (length(sel)>nmin) { 
-    # update selection
-    sel<-which(is.na(dqctmp) | dqctmp==keep.code)
-    sel2check<-which(is.na(dqctmp))
-    if (length(sel2check)==0) break
+  while (length(sel)>1) { 
+#    # update selection
+#    sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+#    sel2check<-which(is.na(dqctmp))
+#    if (length(sel2check)==0) break
     # first iteration, inver the matrix
     if (first) {
       SRinv<-chol2inv(chol(S))
+      # from S+R go back to S
+      diag(S)<-diag(S)-eps2
       first<-F
     } else {
-      # Update inverse matrix (Uboldi et al 2008, Appendix and erratum)
+      # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
       aux<-SRinv
       SRinv<-aux[-indx,-indx]-
              (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
+      S<-S[-indx,-indx]
       rm(aux)
     }
     # next tree lines: compute cvres=(obs - CrossValidation_prediction)
     Zinv<-1/diag(SRinv)
     SRinv.d<-crossprod(SRinv,d[sel])
-    cvres<-Zinv*SRinv.d
-    # pog=cvres/(sig2obs+sig2CVpred)
-    pog[sel]<-cvres**2/Zinv
+    ares<-crossprod(S,SRinv.d)-d[sel] #   a-Obs
+    cvres<--Zinv*SRinv.d              # CVa-Obs
+    sig2o<-mean(d[sel]*(-ares))       # Lussana et al 2010, Eq(32)
+    if (sig2o<0.01) sig2o<-0.01       # safe threshold  
+    # pog=cvres/(sig2obs+sig2CVpred), Lussana et al 2010 Eq(20)
+    pog[sel]<-(ares*cvres)/sig2o
     sctpog[ix[j[sel]]]<-pog[sel]
     assign("sctpog",sctpog,envir=.GlobalEnv)
+    if (length(sel2check)==0) break
     # check if any obs fails the test
     if (any(pog[sel2check]>T2)) {
       # flag as suspect only the observation with the largest cvres 
@@ -256,10 +292,21 @@ sct<-function(ixyn,
       # update global variable with flags
       dqcflag[ix[j[sel2check[indx]]]]<-sus.code
       assign("dqcflag",dqcflag,envir=.GlobalEnv)
+      # update corep (useful from 2nd iteration onwards, if an obs fails the
+      # sct, then no need for representativeness
+      corep[ix[j[sel2check[indx]]]]<-NA
+      assign("corep",corep,envir=.GlobalEnv)
+      # update selection
+      sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+      sel2check<-which(is.na(dqctmp))
     } else {
       break
     }
   } # end cycle SCT model
+  # coefficient of observation representativeness
+  # this call to ecdf(x)(x) should be the same as rank(x)/length(x)
+  corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
+  assign("corep",corep,envir=.GlobalEnv)
   # debug: begin
   if (argv$debug) {
     susi<-which(!is.na(dqctmp) & dqctmp!=keep.code)
@@ -268,17 +315,18 @@ sct<-function(ixyn,
       dir.create(argv$debug.dir,showWarnings=F,recursive=T)
     f<-file.path(argv$debug.dir,
          paste("titan_sctvert_it_",formatC(i,width=2,flag="0"),
-               "_subd",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
+               "_subd",formatC(ixynp[1],width=5,flag="0"),".png",sep=""))
     png(file=f,width=800,height=800)
     plot(topt,zopt,xlim=c(max(-30,min(topt)),min(30,max(topt))),
                    ylim=c(0,min(2000,max(zopt))) )
     zz<-seq(0,2000,by=0.1)
-    if (!(dz<dzmin)) {
+    if (dz<dzmin | ixynp[4]<nmin) {
+      points(tvertprof_basic(zz,t0=opt$minimum,gamma=gamma.standard),
+             zz,col="blue",pch=19,cex=0.5)
+    } else {
       points(tvertprof(zz,t0=opt$par[1],gamma=opt$par[2],
                        a=opt$par[3],h0=opt$par[4],h1i=opt$par[5]),
-                       zz,col="blue",pch=19,cex=0.5)
-    } else {
-      points(rep(tb[1],length(zz)),zz,col="gold",pch=19,cex=0.5)
+             zz,col="blue",pch=19,cex=0.5)
     }
     points(topt[susi],zopt[susi],pch=19,col="red")
     if (length(gold)>0) points(topt[gold],zopt[gold],pch=19,col="gold")
@@ -287,16 +335,16 @@ sct<-function(ixyn,
     dev.off()
     f<-file.path(argv$debug.dir,
          paste("titan_scthorz_it_",formatC(i,width=2,flag="0"),
-               "_subd",formatC(ixyn[1],width=5,flag="0"),".png",sep=""))
+               "_subd",formatC(ixynp[1],width=5,flag="0"),".png",sep=""))
     png(file=f,width=800,height=800)
     plot(xtot[j],ytot[j])
     if (argv$dem | argv$dem.fill) {
       if (!exists("dem1"))
         dem1<-crop(rdem,
-                   extent(c(ixyn[2]-100000,
-                            ixyn[2]+100000,
-                            ixyn[3]-100000,
-                            ixyn[3]+100000
+                   extent(c(ixynp[2]-100000,
+                            ixynp[2]+100000,
+                            ixynp[3]-100000,
+                            ixynp[3]+100000
                             )))
       image(dem1,add=T,
             breaks=c(0,10,25,50,100,250,500,750,1000,1250,1500,1750,2000,2500,3000),
@@ -408,17 +456,32 @@ p <- add_argument(p, "--laf.file",help="land area fraction file (netCDF in kilom
                   type="character",default=NULL,short="-lfS")
 p <- add_argument(p, "--proj4laf",help="proj4 string for the laf",
                   type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pl")
+# observation representativeness
+p <- add_argument(p, "--mean.corep",
+                  help="average coefficient for the observation representativeness",
+                  type="numeric",default=NA,nargs=Inf,short="-avC")
+p <- add_argument(p, "--min.corep",
+     help="minimum value for the coefficient for the observation representativeness",
+                  type="numeric",default=NA,nargs=Inf,short="-mnC")
+p <- add_argument(p, "--max.corep",
+     help="maximum value for the coefficient for the observation representativeness",
+                  type="numeric",default=NA,nargs=Inf,short="-mxC")
 # check elevation against dem
-p <- add_argument(p, "--dem",help="check elevation against digital elevation model (dem)",
+p <- add_argument(p, "--dem",
+     help="check elevation against digital elevation model (dem)",
                   flag=T,short="-dm")
-p <- add_argument(p, "--dz.dem",help="maximum allowed deviation between observation and dem elevations [m]",
+p <- add_argument(p, "--dz.dem",
+     help="maximum allowed deviation between observation and dem elevations [m]",
                   type="numeric",default=500,short="-zD")
 p <- add_argument(p, "--dem.fill",help="fill missing elevation with data from dem",
                   flag=T,short="-df")
-p <- add_argument(p, "--dem.file",help="land area fraction file (netCDF in kilometric coordinates)",
+p <- add_argument(p, "--dem.file",
+     help="land area fraction file (netCDF in kilometric coordinates)",
                   type="character",default=NULL,short="-dmf")
 p <- add_argument(p, "--proj4dem",help="proj4 string for the dem",
-                  type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pd")
+                  type="character",
+     default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",
+                  short="-pd")
 # blacklist
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
 p <- add_argument(p, "--blacklist.lat",
@@ -584,6 +647,24 @@ if (any(!is.na(argv$keeplist.idx)) |
     quit(status=1)
   }
 }
+# observation representativeness
+if (any(is.na(argv$mean.corep)) | 
+    any(is.na(argv$min.corep))  | 
+    any(is.na(argv$max.corep)) ) {
+  argv$mean.corep<-rep(1,nfin)
+  argv$min.corep<-rep(.5,nfin)
+  argv$max.corep<-rep(2,nfin)
+}
+if ( (length(argv$mean.corep)!=nfin) |
+     (length(argv$min.corep)!=nfin)  |
+     (length(argv$max.corep)!=nfin) ) {
+  print("ERROR in the definitions of the coefficient for observation representativeness, there must be one coefficient for each input file (i.e. provider):")
+  print(paste("number of input files=",nfin))
+  print(paste("lenght of vector for mean value=",length(argv$mean.corep)))
+  print(paste("lenght of vector for  min value=",length(argv$min.corep)))
+  print(paste("lenght of vector for  max value=",length(argv$max.corep)))
+  quit(status=1)
+}
 #
 #-----------------------------------------------------------------------------
 if (argv$verbose | argv$debug) print(">> TITAN <<")
@@ -599,6 +680,8 @@ dem.code<-6
 isol.code<-7
 black.code<-100
 keep.code<-200
+# standard value for the moist adiabatic lapse rate
+gamma.standard<--0.0065  # (dT/dZ)
 #
 #-----------------------------------------------------------------------------
 # read data
@@ -637,10 +720,12 @@ for (f in 1:nfin) {
     first<-F
     dqcflag<-aux
     sctpog<-rep(NA,length=ndatatmp)
+    corep<-rep(NA,length=ndatatmp)
   } else {
     data<-rbind(data,datatmp)
     dqcflag<-cbind(dqcflag,aux)
     sctpog<-cbind(sctpog,rep(NA,length=ndatatmp))
+    corep<-cbind(corep,rep(NA,length=ndatatmp))
   }
 }
 rm(datatmp)
@@ -847,9 +932,15 @@ for (i in 1:argv$i.sct) {
     ixyn<-cbind(ir,xr,yr,nr)
     # SCT within each (grid) box
     # NOTE: dqcflag is updated in "sct" function
-    out<-apply(ixyn,FUN=sct,MARGIN=1,nmin=argv$n.sct,dzmin=argv$dz.sct,
-               Dhmin=argv$DhorMin.sct,Dz=argv$Dver.sct,eps2=argv$eps2.sct,
-               T2=argv$thr.sct,sus.code=sct.code)
+    out<-apply(ixyn,
+               FUN=sct,MARGIN=1,
+               nmin=argv$n.sct,
+               dzmin=argv$dz.sct,
+               Dhmin=argv$DhorMin.sct,
+               Dz=argv$Dver.sct,
+               eps2=argv$eps2.sct,
+               T2=argv$thr.sct,
+               sus.code=sct.code)
   } else {
     print("no valid observations left, no SCT")
   }
@@ -864,6 +955,37 @@ for (i in 1:argv$i.sct) {
 }
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
+#
+# coefficient of observation representativeness
+#-----------------------------------------------------------------------------
+# corep has been set by function sct to the observation error variance
+qmn<-0.25
+qmx<-0.75
+qav<-0.5
+ix<-which(!is.na(corep) & (is.na(dqcflag) | dqcflag==keep.code)) 
+if (length(ix)>0) {
+  acorep<-abs(corep[ix])
+  # ecdf(x)(x) here should give us something similar to rank(x)/length(x)
+  qcorep<-ecdf(acorep)(acorep)
+  if (any(qcorep<qmn)) qcorep[which(qcorep<qmn)]<-qmn
+  if (any(qcorep>qmx)) qcorep[which(qcorep>qmx)]<-qmx
+  for (f in 1:nfin) {
+    if (any(data$prid[ix]==f)) {
+      ip<-which(data$prid[ix]==f & qcorep<=qav)
+      if (length(ip)>0)      
+        corep[ix[ip]]<-argv$min.corep[f]+
+          (argv$mean.corep[f]-argv$min.corep[f])*(qcorep[ip]-qmn)/(qav-qmn)
+      ip<-which(data$prid[ix]==f & qcorep>qav)
+      if (length(ip)>0)      
+        corep[ix[ip]]<-argv$mean.corep[f]+
+          (argv$max.corep[f]-argv$mean.corep[f])*(qcorep[ip]-qav)/(qmx-qav)
+    } else {
+      print(paste("provider ",f,": no valid first guess for obs-err-var",sep=""))
+    }
+  }
+} else {
+  print("no valid first guess for the observation error variance found")
+}
 #
 #-----------------------------------------------------------------------------
 # check elevation against dem 
@@ -928,7 +1050,7 @@ cat(file=argv$output,
           round(data$value,1),
           dqcflag,
           round(sctpog,2),
-          NA,
+          round(corep,5),
           "",sep=";",collapse='\n'),
     append=T)
 #
