@@ -6,7 +6,7 @@ Available checks are (applied sequentially as in this list):
 
 * Plausibility check
 
-* Climatological check (monthly)
+* Climatological check, predefined range for each month (optional)
 
 * Buddy-check
 
