@@ -879,7 +879,7 @@ for (i in 1:argv$i.buddy) {
     ixyzt_tot<-cbind(1:length(xtot),xtot,ytot,ztot,ttot)
     stSp_3km<-apply(ixyzt_tot,FUN=statSpat,MARGIN=1,drmin=argv$dr.buddy)
     # probability of gross error
-    pog<-(ttot-stSp_3km[3,])**2/stSp_3km[4,]**2
+    pog<-abs(ttot-stSp_3km[3,])/stSp_3km[4,]
     # suspect if: 
     sus<-which(pog>argv$thr.buddy & 
                stSp_3km[1,]>argv$n.buddy & 
