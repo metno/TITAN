@@ -358,6 +358,32 @@ sct<-function(ixynp,
   # debug: end
   return(length(which(dqctmp==sus.code)))
 }
+
+# used for debug
+plotSCTgrid<-function() {
+  png(file="domain.png",width=800,height=800)
+  par(mar=c(1,1,1,1))
+  image(rlaf,breaks=c(0,0.000001,1),col=c("cornflowerblue","beige"),axes=F,
+        main="",xlab="",ylab="")
+  plot(e,add=T)
+  #points(xr,yr,pch=19,col="black")
+  xrv<-unique(xr)
+  yrv<-unique(yr)
+  yrmn<-min(yr,na.rm=T)-res(r)[2]/2
+  yrmx<-max(yr,na.rm=T)+res(r)[2]/2
+  xrmn<-min(xr,na.rm=T)-res(r)[1]/2
+  xrmx<-max(xr,na.rm=T)+res(r)[1]/2
+  for (iii in 1:(length(yrv))) {
+    lines(c(xrmn,xrmx),c(yrv[iii]+res(r)[2]/2,yrv[iii]+res(r)[2]/2),lwd=2.5)
+  }
+  for (iii in 1:(length(xrv))) {
+    lines(c(xrv[iii]+res(r)[1]/2,xrv[iii]+res(r)[1]/2),c(yrmn,yrmx),lwd=2.5)
+  }
+  box()
+  dev.off()
+}
+
+
 #==============================================================================
 #  MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN
 #==============================================================================
@@ -421,8 +447,8 @@ p <- add_argument(p, "--dr.buddy",help="perform the buddy-check in a dr-by-dr sq
                   type="numeric",default=3000,short="-dB")
 p <- add_argument(p, "--i.buddy",help="number of buddy-check iterations",
                   type="integer",default=1,short="-iB")
-p <- add_argument(p, "--thr.buddy",help="buddy-check threshold. flag observation if: (obs-pred)^2/var > thr.buddy",
-                  type="numeric",default=5,short="-thB")
+p <- add_argument(p, "--thr.buddy",help="buddy-check threshold. flag observation if: abs(obs-pred)/st_dev > thr.buddy",
+                  type="numeric",default=3,short="-thB")
 p <- add_argument(p, "--n.buddy",help="minimum number of neighbouring observations to perform the buddy-check",
                   type="integer",default=5,short="-nB")
 p <- add_argument(p, "--dz.buddy",help="maximum allowed range of elevation in a square-box to perform the buddy-check (i.e. no check if elevation > dz.buddy)",
@@ -796,7 +822,7 @@ if (argv$dem | argv$dem.fill) {
     iz<-which(is.na(z) & !is.na(zdem))
     z[iz]<-zdem[iz]
     rm(iz)
-  }
+  }  
 }
 if (argv$laf.sct) {
   rlaf<-raster(argv$laf.file)
