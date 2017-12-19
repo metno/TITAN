@@ -414,7 +414,8 @@ p <- add_argument(p, "--tmax.clim",help="minimum allowed temperature [K or degC]
                   default=c(20,20,25,25,35,35,40,40,35,30,25,20))
 p <- add_argument(p, "--month.clim",help="month (number 1-12)",
                   type="numeric",short="-mC",
-                  default=as.numeric(format(Sys.time(), "%m")))
+#                  default=as.numeric(format(Sys.time(), "%m")))
+                  default=NA)
 # Buddy-check
 p <- add_argument(p, "--dr.buddy",help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
                   type="numeric",default=3000,short="-dB")
@@ -588,7 +589,7 @@ if (argv$laf.sct & (argv$dem | argv$dem.fill) &
 if (argv$laf.sct & (argv$dem | argv$dem.fill))
   suppressPackageStartupMessages(library("ncdf4")) 
 #
-if (argv$month.clim<1 | argv$month.clim>12) {
+if (!is.na(argv$month.clim) & (argv$month.clim<1 | argv$month.clim>12)) {
   print("ERROR: month number is wrong:")
   print(paste("month number=",argv$month.clim))
   quit(status=1)
@@ -843,19 +844,21 @@ if (argv$verbose | argv$debug) {
 #-----------------------------------------------------------------------------
 # climatological check 
 # use only (probably) good observations
-ix<-which(is.na(dqcflag))
-if (length(ix)>0) {
-  sus<-which(data$value[ix]<argv$tmin.clim[argv$month.clim] | 
-             data$value[ix]>argv$tmax.clim[argv$month.clim] )
-  # set dqcflag
-  if (length(sus)>0) dqcflag[ix[sus]]<-clim.code
-} else {
-  print("no valid observations left, no climatological check")
-}
-if (argv$verbose | argv$debug) {
-  print(paste("climatological test (month=",argv$month.clim,")",sep=""))
-  print(paste("# suspect observations=",length(which(dqcflag==clim.code))))
-  print("+---------------------------------+")
+if (!is.na(argv$month.clim)) {
+  ix<-which(is.na(dqcflag))
+  if (length(ix)>0) {
+    sus<-which(data$value[ix]<argv$tmin.clim[argv$month.clim] | 
+               data$value[ix]>argv$tmax.clim[argv$month.clim] )
+    # set dqcflag
+    if (length(sus)>0) dqcflag[ix[sus]]<-clim.code
+  } else {
+    print("no valid observations left, no climatological check")
+  }
+  if (argv$verbose | argv$debug) {
+    print(paste("climatological test (month=",argv$month.clim,")",sep=""))
+    print(paste("# suspect observations=",length(which(dqcflag==clim.code))))
+    print("+---------------------------------+")
+  }
 }
 #
 #-----------------------------------------------------------------------------
