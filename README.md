@@ -43,14 +43,6 @@ run a test case with:
 ./titan.R test/TA_2017072112.txt test/dqc_2017072112.txt --spatconv --month.clim 7 --i.sct 3 --i.buddy 3 -v
 ```
 
-(titan.R input output convert_lat_lon_2_km month_July iterate_SCT_3_times iterate_BuddyCheck_3_times verbose_mode)
-
-run a test case using geographical information (digital elevation model and land area fraction) with:
-
-```
-./titan.R test/TA_2017121222.txt test/dqc_2017121222.txt -c --month.clim 12 -iS 3 -iB 3 -v --dem --dem.file /lustre/storeB/project/metkl/klinogrid/geoinfo/meps_gmted2010_1km_topo_topdown.nc --dem.fill --laf.sct --laf.file /lustre/storeB/project/metkl/klinogrid/geoinfo/meps_gmted2010_1km_laf_topdown.nc
-```
-
 Copyright and license
 ---------------------
 Copyright (C) 2017 MET Norway. TITAN is licensed under [GPL
