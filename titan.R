@@ -554,7 +554,7 @@ if (!file.exists(argv$input)) {
   quit(status=1)
 }
 # more than oen input file
-if (!is.na(argv$input.files)) {
+if (any(!is.na(argv$input.files))) {
   for (j in 1:length(argv$input.files)) {
     if (!file.exists(argv$input.files[j])) {
       print("ERROR: input file not found")
