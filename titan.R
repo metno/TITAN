@@ -719,7 +719,7 @@ for (f in 1:nfin) {
   datatmp$lat<-suppressWarnings(as.numeric(datatmp$lat))
   datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
   datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
-  z<-datatmp$elev
+  auxz<-datatmp$elev
   datatmp$value<-suppressWarnings(as.numeric(datatmp$value))
   ndatatmp<-length(datatmp$lat)
   if (ndatatmp==0) next
@@ -745,14 +745,16 @@ for (f in 1:nfin) {
   if (first) {
     data<-datatmp
     first<-F
+    z <- auxz
     dqcflag<-aux
     sctpog<-rep(NA,length=ndatatmp)
     corep<-rep(NA,length=ndatatmp)
   } else {
     data<-rbind(data,datatmp)
-    dqcflag<-cbind(dqcflag,aux)
-    sctpog<-cbind(sctpog,rep(NA,length=ndatatmp))
-    corep<-cbind(corep,rep(NA,length=ndatatmp))
+    dqcflag<-c(dqcflag,aux)
+    z <- c(z, auxz)
+    sctpog<-c(sctpog,rep(NA,length=ndatatmp))
+    corep<-c(corep,rep(NA,length=ndatatmp))
   }
 }
 rm(datatmp)
