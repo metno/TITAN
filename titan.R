@@ -406,13 +406,13 @@ p <- add_argument(p, "--debug.dir",help="directory for debug output",
 p <- add_argument(p, "--verbose",help="debug mode",flag=T,short="-v")
 # NOTE: lat-lon setup to have Oslo in a single box
 p <- add_argument(p, "--lonmin",help="longitude of south-eastern domain corner",
-                  type="numeric",default=5,short="-x")
+                  type="numeric",default=5,short="-lon")
 p <- add_argument(p, "--lonmax",help="longitude of south-western domain corner",
-                  type="numeric",default=28,short="-X")
+                  type="numeric",default=28,short="-lox")
 p <- add_argument(p, "--latmin",help="latitude of south-eastern domain corner",
-                  type="numeric",default=53.25,short="-y")
+                  type="numeric",default=53.25,short="-lan")
 p <- add_argument(p, "--latmax",help="latitude of north-western domain corner",
-                  type="numeric",default=71.8,short="-Y")
+                  type="numeric",default=71.8,short="-lax")
 #
 p <- add_argument(p, "--spatconv",help="flag for conversion of spatial coordinates before running the data quality checks",
                   flag=T,short="-c")
