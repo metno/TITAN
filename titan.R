@@ -413,6 +413,31 @@ p <- add_argument(p, "--latmin",help="latitude of south-eastern domain corner",
                   type="numeric",default=53.25,short="-lan")
 p <- add_argument(p, "--latmax",help="latitude of north-western domain corner",
                   type="numeric",default=71.8,short="-lax")
+# variable names
+p <- add_argument(p, "--varname.lat",
+                  help="name for the latitude variable (in/out)",
+                  type="character",default="lat",short="-vlat")
+p <- add_argument(p, "--varname.lon",
+                  help="name for the longitude variable (in/out)",
+                  type="character",default="lon",short="-vlon")
+p <- add_argument(p, "--varname.elev",
+                  help="name for the elevation variable (in/out)",
+                  type="character",default="elev",short="-vele")
+p <- add_argument(p, "--varname.value",
+                  help="name for the temperature variable (in/out)",
+                  type="character",default="value",short="-vval")
+p <- add_argument(p, "--varname.opt",
+     help="additional optional variables to be written on the output (out)",
+                  type="character",default=NA,nargs=Inf,short="-vopt")
+p<- add_argument(p, "--varname.dqc",
+                 help="name for the data quality control flag (out)",
+                 type="character",default="dqc",short="-vdqc")
+p<- add_argument(p, "--varname.sct",
+            help="name for the spatial consistency test returned value (out)",
+                 type="character",default="sct",short="-vsct")
+p<- add_argument(p, "--varname.rep",
+            help="name for the coefficient of representativeness (out)",
+                  type="character",default="rep",short="-vrep")
 #
 p <- add_argument(p, "--spatconv",help="flag for conversion of spatial coordinates before running the data quality checks",
                   flag=T,short="-c")
@@ -714,8 +739,26 @@ gamma.standard<--0.0065  # (dT/dZ)
 # read data
 first<-T
 for (f in 1:nfin) {
-  datatmp<-read.table(file=argv$input.files[f],header=T,sep=";",
+  datain<-read.table(file=argv$input.files[f],header=T,sep=";",
                       stringsAsFactors=F,strip.white=T)
+  varidx<-match(c(argv$varname.lat,
+                  argv$varname.lon,
+                  argv$varname.elev,
+                  argv$varname.val),
+                names(datain))
+  if (any(is.na(varidx))) {
+    print("ERROR in the specification of the variable names")
+    print(paste("  latitutde=",argv$varname.lat))
+    print(paste("  longitude=",argv$varname.lon))
+    print(paste("  elevation=",argv$varname.elev))
+    print(paste("temperature=",argv$varname.val))
+    print("header of input file:")
+    print(argv$input.files[f])
+    print(names(datain))
+    quit(status=1)
+  }
+  datatmp<-data.frame(datain[,varidx])
+  names(datatmp)<-c("lat","lon","elev","value")
   datatmp$lat<-suppressWarnings(as.numeric(datatmp$lat))
   datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
   datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
@@ -749,12 +792,34 @@ for (f in 1:nfin) {
     dqcflag<-aux
     sctpog<-rep(NA,length=ndatatmp)
     corep<-rep(NA,length=ndatatmp)
+    if (any(!is.na(argv$varname.opt))) {
+      varidx.opt<-match(argv$varname.opt,
+                        names(datain))
+      dataopt<-array(data=NA,dim=c(ndatatmp,
+                                   length(argv$varname.opt)))
+      dataopt<-datain[,varidx.opt[which(!is.na(varidx.opt))],drop=F]
+    }
   } else {
     data<-rbind(data,datatmp)
     dqcflag<-c(dqcflag,aux)
     z <- c(z, auxz)
     sctpog<-c(sctpog,rep(NA,length=ndatatmp))
     corep<-c(corep,rep(NA,length=ndatatmp))
+    if (any(!is.na(argv$varname.opt))) {
+      varidx.opt.check<-match(argv$varname.opt,
+                        names(datain))
+      if (any(varidx.opt.check!=varidx.opt | 
+              (is.na(varidx.opt.check) & !is.na(varidx.opt)) |
+              (is.na(varidx.opt) & !is.na(varidx.opt.check)) )) {
+        print("ERROR the header of file")
+        print(argv$input.files[f])
+        print("is different from the header of the first file")
+        print(argv$input.files[1])
+        quit(status=1)
+      }
+      dataopt<-rbind(dataopt,
+        datain[,varidx.opt[which(!is.na(varidx.opt))],drop=F])
+    }
   }
 }
 rm(datatmp)
@@ -1071,19 +1136,50 @@ if (argv$verbose | argv$debug) {
 #
 #-----------------------------------------------------------------------------
 # write the output file
-cat(file=argv$output,"prid;lat;lon;elev;value;dqc;sct;rep;\n",append=F)
-#
-cat(file=argv$output,
-    paste(round(data$prid,0),
-          round(data$lat,5),
-          round(data$lon,5),
-          round(z,1),
-          round(data$value,1),
-          dqcflag,
-          round(sctpog,2),
-          round(corep,5),
-          "",sep=";",collapse='\n'),
-    append=T)
+varidx.out<-varidx
+if (any(!is.na(argv$varname.opt))) 
+  varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))]) 
+dataout<-array(data=NA,
+               dim=c(length(data$lat),(length(varidx.out)+3)))
+ord.varidx.out<-order(varidx.out)
+str<-vector()
+for (s in 1:length(ord.varidx.out)) {
+  varidx.out.s<-varidx.out[ord.varidx.out[s]]
+  pos.s<-which(varidx.out==varidx.out.s)
+  if (pos.s>4) {
+    posopt.s<-which(varidx.opt==varidx.out.s & !is.na(varidx.opt))
+    posopt.nona.s<-which(varidx.opt[which(!is.na(varidx.opt))]==varidx.out.s)
+    str[s]<-argv$varname.opt[posopt.s]
+    dataout[,s]<-dataopt[,posopt.nona.s]
+  } else if (pos.s==1) {
+    str[s]<-"lat"
+    dataout[,s]<-round(data$lat,5)
+  } else if (pos.s==2) {
+    str[s]<-"lon"
+    dataout[,s]<-round(data$lon,5)
+  } else if (pos.s==3) {
+    str[s]<-"elev"
+    dataout[,s]<-round(z,1)
+  } else if (pos.s==4) {
+    str[s]<-"value"
+    dataout[,s]<-round(data$value,1)
+  }
+}
+str[s+1]<-argv$varname.dqc
+dataout[,(s+1)]<-dqcflag
+str[s+2]<-argv$varname.sct
+dataout[,(s+2)]<-round(sctpog,2)
+str[s+3]<-argv$varname.rep
+dataout[,(s+3)]<-round(corep,5)
+dataout<-as.data.frame(dataout,stringsAsFactors=F)
+names(dataout)<-str
+write.table(file=argv$output,
+            dataout,
+            quote=F,
+            col.names=str,
+            row.names=F,
+            dec=".",
+            sep=";")
 #
 #-----------------------------------------------------------------------------
 # Normal exit
