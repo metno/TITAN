@@ -441,7 +441,7 @@ p<- add_argument(p, "--varname.sct",
 p<- add_argument(p, "--varname.rep",
             help="name for the coefficient of representativeness (out)",
                   type="character",default="rep",short="-vrep")
-#
+# geographical parameters
 p <- add_argument(p, "--spatconv",help="flag for conversion of spatial coordinates before running the data quality checks",
                   flag=T,short="-c")
 p <- add_argument(p, "--proj4from",help="proj4 string for the original coordinate reference system",
