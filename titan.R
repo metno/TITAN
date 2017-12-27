@@ -429,6 +429,9 @@ p <- add_argument(p, "--varname.value",
 p <- add_argument(p, "--varname.opt",
      help="additional optional variables to be written on the output (out)",
                   type="character",default=NA,nargs=Inf,short="-vopt")
+p<- add_argument(p, "--varname.prid",
+                 help="name for the provider identifier (out)",
+                 type="character",default="prid",short="-vprid")
 p<- add_argument(p, "--varname.dqc",
                  help="name for the data quality control flag (out)",
                  type="character",default="dqc",short="-vdqc")
@@ -1140,7 +1143,7 @@ varidx.out<-varidx
 if (any(!is.na(argv$varname.opt))) 
   varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))]) 
 dataout<-array(data=NA,
-               dim=c(length(data$lat),(length(varidx.out)+3)))
+               dim=c(length(data$lat),(length(varidx.out)+4)))
 ord.varidx.out<-order(varidx.out)
 str<-vector()
 for (s in 1:length(ord.varidx.out)) {
@@ -1165,12 +1168,14 @@ for (s in 1:length(ord.varidx.out)) {
     dataout[,s]<-round(data$value,1)
   }
 }
-str[s+1]<-argv$varname.dqc
-dataout[,(s+1)]<-dqcflag
-str[s+2]<-argv$varname.sct
-dataout[,(s+2)]<-round(sctpog,2)
-str[s+3]<-argv$varname.rep
-dataout[,(s+3)]<-round(corep,5)
+str[s+1]<-argv$varname.prid
+dataout[,(s+1)]<-data$prid
+str[s+2]<-argv$varname.dqc
+dataout[,(s+2)]<-dqcflag
+str[s+3]<-argv$varname.sct
+dataout[,(s+3)]<-round(sctpog,2)
+str[s+4]<-argv$varname.rep
+dataout[,(s+4)]<-round(corep,5)
 dataout<-as.data.frame(dataout,stringsAsFactors=F)
 names(dataout)<-str
 write.table(file=argv$output,
