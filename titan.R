@@ -463,7 +463,7 @@ p <- add_argument(p, "--tmax",help="maximum allowed temperature [K or degC]",
 p <- add_argument(p, "--tmin.clim",help="minimum allowed temperature [K or degC]",
                   type="numeric",nargs=12,short="-tC",
                   default=c(-45,-45,-40,-35,-20,-15,-10,-15,-15,-20,-35,-45))
-p <- add_argument(p, "--tmax.clim",help="minimum allowed temperature [K or degC]",
+p <- add_argument(p, "--tmax.clim",help="maximum allowed temperature [K or degC]",
                   type="numeric",nargs=12,short="-TC",
                   default=c(20,20,25,25,35,35,40,40,35,30,25,20))
 p <- add_argument(p, "--month.clim",help="month (number 1-12)",
