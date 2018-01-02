@@ -165,7 +165,10 @@ plotp<-function(x,y,val,br,col,
 sct<-function(ixynp,
               nmin=50,dzmin=30,
               Dhmin=10000,Dz=200,eps2=0.5,
-              T2=16,sus.code=4) {
+              T2=16,
+              T2pos=NA,
+              T2neg=NA,
+              sus.code=4) {
 # ref:
 #  Lussana, C., Uboldi, F., & Salvati, M. R. (2010). A spatial consistency 
 #   test for surface observations from mesoscale meteorological networks.
@@ -181,6 +184,11 @@ sct<-function(ixynp,
 #  Dz= numeric. OI vertical decorellation length [m]
 #  eps2= numeric. OI ratio between obs_err_variance/backg_err_variance
 #  T2=numeric. SCT threshold. (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
+#  T2pos=numeric. SCT threshold. (obs-pred)>=0 AND 
+#                                (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
+#  T2neg=numeric. SCT threshold. (obs-pred) <0 AND
+#                                (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
+#  NOTE: if T2pos and T2neg are specified then they are used, otherwise use T2
 #  sus.code=numeric. identifier code for suspect observation
 # output
 #  number of rejected stations. (special cases: (i) NA if the function has not
@@ -284,8 +292,14 @@ sct<-function(ixynp,
     sctpog[ix[j[sel]]]<-pog[sel]
     assign("sctpog",sctpog,envir=.GlobalEnv)
     if (length(sel2check)==0) break
+    T2vec<-vector(length=length(sel2check),mode="numeric")
+    T2vec[]<-T2
+    if (!is.na(T2pos) & !is.na(T2neg)) {
+      T2vec[cvres>=0]<-T2pos
+      T2vec[cvres<0]<-T2neg
+    }
     # check if any obs fails the test
-    if (any(pog[sel2check]>T2)) {
+    if (any(pog[sel2check]>T2vec)) {
       # flag as suspect only the observation with the largest cvres 
       indx<-which.max(pog[sel2check])
       dqctmp[sel2check[indx]]<-sus.code
@@ -495,14 +509,24 @@ p <- add_argument(p, "--n.sct",help="minimum number of stations in a box to run 
                   type="integer",default=50,short="-nS")
 p <- add_argument(p, "--dz.sct",help="minimum range of elevation in a box to run SCT [m]",
                   type="numeric",default=30,short="-zS")
-p <- add_argument(p, "--DhorMin.sct",help="OI, minimum allowed value for the horizontal de-correlation lenght (of the background error correlation) [m]",
+p <- add_argument(p, "--DhorMin.sct",
+                  help="OI, minimum allowed value for the horizontal de-correlation lenght (of the background error correlation) [m]",
                   type="numeric",default=10000,short="-hS")
-p <- add_argument(p, "--Dver.sct",help="OI, vertical de-correlation lenght  (of the background error correlation) [m]",
+p <- add_argument(p, "--Dver.sct",
+                  help="OI, vertical de-correlation lenght  (of the background error correlation) [m]",
                   type="numeric",default=200,short="-vS")
-p <- add_argument(p, "--eps2.sct",help="OI, ratio between observation error variance and background error variance",
+p <- add_argument(p, "--eps2.sct",
+                  help="OI, ratio between observation error variance and background error variance",
                   type="numeric",default=0.5,short="-eS")
-p <- add_argument(p, "--thr.sct",help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct",
+p <- add_argument(p, "--thr.sct",
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct",
                   type="numeric",default=16,short="-tS")
+p <- add_argument(p, "--thrpos.sct",
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct AND (obs-Cross_Validation_pred)>=0 ",
+                  type="numeric",default=NA,short="-tpS")
+p <- add_argument(p, "--thrneg.sct",
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct AND (obs-Cross_Validation_pred)<0 ",
+                  type="numeric",default=NA,short="-tnS")
 p <- add_argument(p, "--laf.sct",help="use land area fraction in the OI correlation function (0-100%)",
                   flag=T,short="-lS")
 p <- add_argument(p, "--lafmin.sct",help="land area fraction influence in the OI correlation function",
@@ -581,7 +605,7 @@ if (!file.exists(argv$input)) {
   print(argv$input)
   quit(status=1)
 }
-# more than oen input file
+# more than one input file
 if (any(!is.na(argv$input.files))) {
   for (j in 1:length(argv$input.files)) {
     if (!file.exists(argv$input.files[j])) {
@@ -719,6 +743,15 @@ if ( (length(argv$mean.corep)!=nfin) |
   print(paste("lenght of vector for  min value=",length(argv$min.corep)))
   print(paste("lenght of vector for  max value=",length(argv$max.corep)))
   quit(status=1)
+}
+# SCT
+if ( (!is.na(argv$thrpos.sct) &  is.na(argv$thrneg.sct)) |
+     ( is.na(argv$thrpos.sct) & !is.na(argv$thrneg.sct)) ) {
+  print("WARNING: SCT thresholds for positive and negative deviations are not properly specified")
+  print(paste("threshold when (Obs-CVpred) <0 (thrneg.sct)",argv$thrneg.sct))
+  print(paste("threshold when (Obs-CVpred)>=0 (thrpos.sct)",argv$thrpos.sct))
+  print("==> we will use just one threshold for all the values")
+  print(paste("threshold in use (thr.sct)",argv$thr.sct))
 }
 #
 #-----------------------------------------------------------------------------
@@ -1039,6 +1072,8 @@ for (i in 1:argv$i.sct) {
                Dz=argv$Dver.sct,
                eps2=argv$eps2.sct,
                T2=argv$thr.sct,
+               T2pos=argv$thrpos.sct,
+               T2neg=argv$thrneg.sct,
                sus.code=sct.code)
   } else {
     print("no valid observations left, no SCT")
