@@ -168,7 +168,8 @@ sct<-function(ixynp,
               T2=16,
               T2pos=NA,
               T2neg=NA,
-              sus.code=4) {
+              sus.code=4,
+              faster=F) {
 # ref:
 #  Lussana, C., Uboldi, F., & Salvati, M. R. (2010). A spatial consistency 
 #   test for surface observations from mesoscale meteorological networks.
@@ -272,6 +273,12 @@ sct<-function(ixynp,
       # from S+R go back to S
       diag(S)<-diag(S)-eps2
       first<-F
+    } else if (length(indx)>1) {
+      S<-S[-indx,-indx]
+      diag(S)<-diag(S)+eps2
+      SRinv<-chol2inv(chol(S))
+      # from S+R go back to S
+      diag(S)<-diag(S)-eps2
     } else {
       # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
       aux<-SRinv
@@ -302,6 +309,11 @@ sct<-function(ixynp,
     if (any(pog[sel2check]>T2vec)) {
       # flag as suspect only the observation with the largest cvres 
       indx<-which.max(pog[sel2check])
+      # allow for more than obs being flagged at the same time
+      if (faster) {
+        if (any(pog[sel2check]>(2*T2vec)))
+          indx<-unique(c(indx,which(pog[sel2check]>(2*T2vec))))
+      }
       dqctmp[sel2check[indx]]<-sus.code
       # update global variable with flags
       dqcflag[ix[j[sel2check[indx]]]]<-sus.code
@@ -538,6 +550,9 @@ p <- add_argument(p, "--laf.file",help="land area fraction file (netCDF in kilom
                   type="character",default=NULL,short="-lfS")
 p <- add_argument(p, "--proj4laf",help="proj4 string for the laf",
                   type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pl")
+p <- add_argument(p, "--fast.sct",
+                  help="faster spatial consistency test. Allow for flagging more than one observation simulataneously",
+                  flag=T,short="-fS")
 # observation representativeness
 p <- add_argument(p, "--mean.corep",
                   help="average coefficient for the observation representativeness",
@@ -1080,7 +1095,8 @@ for (i in 1:argv$i.sct) {
                T2=argv$thr.sct,
                T2pos=argv$thrpos.sct,
                T2neg=argv$thrneg.sct,
-               sus.code=sct.code)
+               sus.code=sct.code,
+               faster=argv$fast.sct)
   } else {
     print("no valid observations left, no SCT")
   }
