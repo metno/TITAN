@@ -425,6 +425,8 @@ p <- add_argument(p, "output",help="output file",type="character",
 # more than one provider
 p <- add_argument(p, "--input.files",help="additional input files (provider2 provider3 ...)",
                   type="character",default=NULL,nargs=Inf,short="-i")
+p <- add_argument(p, "--prid",help="provider identifiers (provider1 provider2 provider3 ...)",
+                  type="character",default=NA,nargs=Inf)
 #
 p <- add_argument(p, "--debug",help="debug mode",flag=T,short="-dbg")
 p <- add_argument(p, "--debug.dir",help="directory for debug output",
@@ -637,6 +639,15 @@ if (any(!is.na(argv$input.files))) {
   argv$input.files<-argv$input
 }
 nfin<-length(argv$input.files)
+# check consistency between number of files and provider ids
+if (any(is.na(argv$prid))) {
+  argv$prid<-1:nfin
+} else {
+  if (length(argv$prid)!=nfin) {
+    print("ERROR: number of provider identifier is different from the number of input files")
+    quit(status=1)
+  }
+}
 if (argv$dem | argv$dem.fill) {
   if (!file.exists(argv$dem.file)) {
     print("ERROR: dem file not found")
@@ -824,7 +835,7 @@ for (f in 1:nfin) {
   ndatatmp<-length(datatmp$lat)
   if (ndatatmp==0) next
   # set provider id
-  datatmp$prid<-rep(f,ndatatmp)
+  datatmp$prid<-rep(argv$prid[f],ndatatmp)
   aux<-rep(NA,length=ndatatmp)
   if (any(!is.na(argv$blacklist.idx)) & any(argv$blacklist.fidx==f)) {
     aux[argv$blacklist.idx[which(argv$blacklist.fidx==f)]]<-black.code  
@@ -895,14 +906,16 @@ if (argv$verbose | argv$debug) {
           length(which(dqcflag==keep.code))) )
   if (nfin>1) {
     for (f in 1:nfin) { 
-      print(paste("  number of observations provider",f,"=",
-            length(which(data$prid==f))))
+      print(paste("  number of observations provider",argv$prid[f],"=",
+            length(which(data$prid==argv$prid[f]))))
       if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
-        print(paste("  number of blacklisted observations provider",f,"=",
-              length(which(data$prid==f & dqcflag==black.code))) )
+        print(paste("  number of blacklisted observations provider",
+              argv$prid[f],"=",
+              length(which(data$prid==argv$prid[f] & dqcflag==black.code))) )
       if (any(!is.na(argv$keeplist.idx)) | any(!is.na(argv$keeplist.lat)))
-        print(paste("  number of keeplisted  observations provider",f,"=",
-              length(which(data$prid==f & dqcflag==keep.code))) )
+        print(paste("  number of keeplisted  observations provider",
+              argv$prid[f],"=",
+              length(which(data$prid==argv$prid[f] & dqcflag==keep.code))) )
     }
   }
   print("+---------------------------------+")
@@ -1126,17 +1139,18 @@ if (length(ix)>0) {
   if (any(qcorep<qmn)) qcorep[which(qcorep<qmn)]<-qmn
   if (any(qcorep>qmx)) qcorep[which(qcorep>qmx)]<-qmx
   for (f in 1:nfin) {
-    if (any(data$prid[ix]==f)) {
-      ip<-which(data$prid[ix]==f & qcorep<=qav)
+    if (any(data$prid[ix]==argv$prid[f])) {
+      ip<-which(data$prid[ix]==argv$prid[f] & qcorep<=qav)
       if (length(ip)>0)      
         corep[ix[ip]]<-argv$min.corep[f]+
           (argv$mean.corep[f]-argv$min.corep[f])*(qcorep[ip]-qmn)/(qav-qmn)
-      ip<-which(data$prid[ix]==f & qcorep>qav)
+      ip<-which(data$prid[ix]==argv$prid[f] & qcorep>qav)
       if (length(ip)>0)      
         corep[ix[ip]]<-argv$mean.corep[f]+
           (argv$max.corep[f]-argv$mean.corep[f])*(qcorep[ip]-qav)/(qmx-qav)
     } else {
-      print(paste("provider ",f,": no valid first guess for obs-err-var",sep=""))
+      print(paste("provider ",argv$prid[f],
+                  ": no valid first guess for obs-err-var",sep=""))
     }
   }
 } else {
