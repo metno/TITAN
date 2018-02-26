@@ -973,6 +973,7 @@ if (argv$laf.sct) {
 #-----------------------------------------------------------------------------
 # test for no metadata 
 # use only (probably) good observations
+# NOTE: keep-listed stations could be flagged here
 ix<-which(is.na(dqcflag) | dqcflag==keep.code)
 if (length(ix)>0) {
   meta<-!is.na(data$lat[ix]) & 
@@ -994,6 +995,7 @@ if (argv$verbose | argv$debug) {
 #
 #-----------------------------------------------------------------------------
 # plausibility test
+# NOTE: keep-listed stations could be flagged here
 ix<-which( (is.na(dqcflag) | dqcflag==keep.code) &
            data$value<argv$tmin &
            data$value>argv$tmax)
@@ -1006,6 +1008,7 @@ if (argv$verbose | argv$debug) {
 #
 #-----------------------------------------------------------------------------
 # climatological check 
+# NOTE: keep-listed stations canNOT be flagged here
 # use only (probably) good observations
 if (!is.na(argv$month.clim)) {
   ix<-which(is.na(dqcflag))
@@ -1027,6 +1030,7 @@ if (!is.na(argv$month.clim)) {
 #-----------------------------------------------------------------------------
 # buddy check 
 #  compare each observation against the average of neighbouring observations 
+# NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$verbose | argv$debug) nprev<-0
 for (i in 1:argv$i.buddy) {
   # use only (probably) good observations
@@ -1067,6 +1071,7 @@ if (argv$verbose | argv$debug)
 #
 #-----------------------------------------------------------------------------
 # SCT - Spatial Consistency Test
+# NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$verbose | argv$debug) nprev<-0
 for (i in 1:argv$i.sct) {
   # use only (probably) good observations
@@ -1159,6 +1164,7 @@ if (length(ix)>0) {
 #
 #-----------------------------------------------------------------------------
 # check elevation against dem 
+# NOTE: keep-listed stations canNOT be flagged here
 if (argv$dem) {
   # use only (probably) good observations
   ix<-which(is.na(dqcflag))
@@ -1179,6 +1185,7 @@ if (argv$dem) {
 #-----------------------------------------------------------------------------
 # check for isolated stations
 # use only (probably) good observations
+# NOTE: keep-listed stations canNOT be flagged here
 ix<-which(is.na(dqcflag))
 if (length(ix)>0) {
   # define global 1D vector used in statSpat (1D for fast access)
