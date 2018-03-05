@@ -164,8 +164,9 @@ plotp<-function(x,y,val,br,col,
 #+ SCT - spatial consistency test
 sct<-function(ixynp,
               nmin=50,dzmin=30,
-              Dhmin=10000,Dz=200,eps2=0.5,
-              T2=16,
+              Dhmin=10000,Dz=200,
+              eps2=NA,
+              T2=NA,
               T2pos=NA,
               T2neg=NA,
               sus.code=4,
@@ -235,8 +236,29 @@ sct<-function(ixynp,
   }
   # OI for SCT (Lussana et al., 2010)
   # initialize variables
+  # expand eps2 in eps2.vec
+  eps2.vec<-vector(length=length(ix[j]))
+  t2.vec<-vector(length=length(ix[j]))
+  t2pos.vec<-vector(length=length(ix[j]))
+  t2neg.vec<-vector(length=length(ix[j]))
+  t2.vec[]<-NA
+  t2pos.vec[]<-NA
+  t2neg.vec[]<-NA
+  for (f in 1:nfin) { 
+    if (any(pridtot[j]==argv$prid[f])) {
+      ipx<-which(pridtot[j]==argv$prid[f])
+      eps2.vec[ipx]<-eps2[f]
+      if (!any(is.na(T2))) 
+        t2.vec[ipx]<-T2[f]
+      if (!any(is.na(T2pos))) 
+        t2pos.vec[ipx]<-T2pos[f]
+      if (!any(is.na(T2neg))) 
+        t2neg.vec[ipx]<-T2neg[f]
+    }
+  }
   #  dqc flags
   dqctmp<-dqcflag[ix[j]]
+  doittmp<-doit[ix[j]]
   #  probability of gross error (pog)
   pog<-dqctmp
   pog[]<-NA
@@ -253,12 +275,13 @@ sct<-function(ixynp,
     S<-S * (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
   }
   # S+eps2I
-  diag(S)<-diag(S)+eps2
+  diag(S)<-diag(S)+eps2.vec
   # innvoation
   d<-topt-tb
-  # select observations to test 
+  # select observations used in the test
   sel<-which(is.na(dqctmp) | dqctmp==keep.code)
-  sel2check<-which(is.na(dqctmp))
+  # select observations to test 
+  sel2check<-which(is.na(dqctmp) & doittmp==1)
   first<-T
   # loop over SCT iterations 
   # NOTE: SCT flags at most one observation, iterate until no observations fail
@@ -271,27 +294,29 @@ sct<-function(ixynp,
     if (first) {
       SRinv<-chol2inv(chol(S))
       # from S+R go back to S
-      diag(S)<-diag(S)-eps2
+      diag(S)<-diag(S)-eps2.vec
       first<-F
     } else if (length(indx)>1) {
       S<-S[-indx,-indx]
-      diag(S)<-diag(S)+eps2
+      eps2.vec<-eps2.vec[-indx]
+      diag(S)<-diag(S)+eps2.vec
       SRinv<-chol2inv(chol(S))
       # from S+R go back to S
-      diag(S)<-diag(S)-eps2
+      diag(S)<-diag(S)-eps2.vec
     } else {
       # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
       aux<-SRinv
       SRinv<-aux[-indx,-indx]-
              (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
       S<-S[-indx,-indx]
+      eps2.vec<-eps2.vec[-indx]
       rm(aux)
     }
     # next tree lines: compute cvres=(obs - CrossValidation_prediction)
     Zinv<-1/diag(SRinv)
     SRinv.d<-crossprod(SRinv,d[sel])
     ares<-crossprod(S,SRinv.d)-d[sel] #   a-Obs
-    cvres<--Zinv*SRinv.d              # CVa-Obs
+    cvres<--Zinv*SRinv.d              # CVa-Obs, Lussana et al 2010 Eq(A13)
     sig2o<-mean(d[sel]*(-ares))       # Lussana et al 2010, Eq(32)
     if (sig2o<0.01) sig2o<-0.01       # safe threshold  
     # pog=cvres/(sig2obs+sig2CVpred), Lussana et al 2010 Eq(20)
@@ -299,11 +324,25 @@ sct<-function(ixynp,
     sctpog[ix[j[sel]]]<-pog[sel]
     assign("sctpog",sctpog,envir=.GlobalEnv)
     if (length(sel2check)==0) break
-    T2vec<-vector(length=length(sel2check),mode="numeric")
-    T2vec[]<-T2
-    if (!is.na(T2pos) & !is.na(T2neg)) {
-      T2vec[cvres>=0]<-T2pos
-      T2vec[cvres<0]<-T2neg
+    # define the threshold for each observation
+    if (any(!is.na(t2pos.vec))) {
+      cvres<-(-cvres) # Obs-CVa 
+      # note cvres is a pos-vector, while T2vec is a pos2check-vector
+      # pos and pos2check are indxes for vectors like dqctmp, t2pos.vec...
+      # pos includes all the pos2check values, plus possibly others
+      T2vec<-vector(length=length(sel2check),mode="numeric")
+      if (any(cvres>=0 & is.na(dqctmp[sel]))) {
+        ipos2check<- which(cvres>=0 & is.na(dqctmp[sel]))
+        T2vec[ipos2check]<- t2pos.vec[sel2check[ipos2check]]
+        rm(ipos2check)
+      }
+      if (any(cvres< 0 & is.na(dqctmp[sel]))) {
+        ipos2check<- which(cvres< 0 & is.na(dqctmp[sel]))
+        T2vec[ipos2check]<- t2neg.vec[sel2check[ipos2check]]
+        rm(ipos2check)
+      }
+    } else {
+      T2vec<-t2.vec[sel2check]
     }
     # check if any obs fails the test
     if (any(pog[sel2check]>T2vec)) {
@@ -324,7 +363,7 @@ sct<-function(ixynp,
       assign("corep",corep,envir=.GlobalEnv)
       # update selection
       sel<-which(is.na(dqctmp) | dqctmp==keep.code)
-      sel2check<-which(is.na(dqctmp))
+      sel2check<-which(is.na(dqctmp) & doittmp==1)
     } else {
       break
     }
@@ -419,14 +458,25 @@ t0<-Sys.time()
 p <- arg_parser("titan")
 # specify our desired options 
 # by default ArgumentParser will add an help option 
-p <- add_argument(p, "input",help="input file",type="character")
-p <- add_argument(p, "output",help="output file",type="character",
+p <- add_argument(p, "input",
+                  help="input file",
+                  type="character")
+p <- add_argument(p, "output",
+                  help="output file",
+                  type="character",
                   default="output.txt")
 # more than one provider
-p <- add_argument(p, "--input.files",help="additional input files (provider2 provider3 ...)",
-                  type="character",default=NULL,nargs=Inf,short="-i")
-p <- add_argument(p, "--prid",help="provider identifiers (provider1 provider2 provider3 ...)",
-                  type="character",default=NA,nargs=Inf)
+p <- add_argument(p, "--input.files",
+                  help="additional input files (provider2 provider3 ...)",
+                  type="character",
+                  default=NULL,
+                  nargs=Inf,
+                  short="-i")
+p <- add_argument(p, "--prid",
+                  help="provider identifiers (provider1 provider2 provider3 ...)",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 #
 p <- add_argument(p, "--debug",help="debug mode",flag=T,short="-dbg")
 p <- add_argument(p, "--debug.dir",help="directory for debug output",
@@ -502,69 +552,139 @@ p <- add_argument(p, "--month.clim",help="month (number 1-12)",
 #                  default=as.numeric(format(Sys.time(), "%m")))
                   default=NA)
 # Buddy-check
-p <- add_argument(p, "--dr.buddy",help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
-                  type="numeric",default=3000,short="-dB")
-p <- add_argument(p, "--i.buddy",help="number of buddy-check iterations",
-                  type="integer",default=1,short="-iB")
-p <- add_argument(p, "--thr.buddy",help="buddy-check threshold. flag observation if: abs(obs-pred)/st_dev > thr.buddy",
-                  type="numeric",default=3,short="-thB")
-p <- add_argument(p, "--n.buddy",help="minimum number of neighbouring observations to perform the buddy-check",
-                  type="integer",default=5,short="-nB")
-p <- add_argument(p, "--dz.buddy",help="maximum allowed range of elevation in a square-box to perform the buddy-check (i.e. no check if elevation > dz.buddy)",
-                  type="numeric",default=30,short="-zB")
+p <- add_argument(p, "--dr.buddy",
+                  help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
+                  type="numeric",
+                  default=3000,
+                  short="-dB")
+p <- add_argument(p, "--i.buddy",
+                  help="number of buddy-check iterations",
+                  type="integer",
+                  default=1,
+                  short="-iB")
+p <- add_argument(p, "--thr.buddy",
+                  help="buddy-check threshold. flag observation if: abs(obs-pred)/st_dev > thr.buddy",
+                  type="numeric",
+                  default=3,
+                  short="-thB")
+p <- add_argument(p, "--n.buddy",
+                  help="minimum number of neighbouring observations to perform the buddy-check",
+                  type="integer",
+                  default=5,
+                  short="-nB")
+p <- add_argument(p, "--dz.buddy",
+                  help="maximum allowed range of elevation in a square-box to perform the buddy-check (i.e. no check if elevation > dz.buddy)",
+                  type="numeric",
+                  default=30,
+                  short="-zB")
 # isolated stations
-p <- add_argument(p, "--dr.isol",help="check for the number of observation in a dr-by-dr square-box around each observation [m]",
-                  type="numeric",default=25000,short="-dI")
-p <- add_argument(p, "--n.isol",help="threshold (number of neighbouring observations) for the identification of isolated observations.",
-                  type="integer",default=10,short="-nI")
+p <- add_argument(p, "--dr.isol",
+                  help="check for the number of observation in a dr-by-dr square-box around each observation [m]",
+                  type="numeric",
+                  default=25000,
+                  short="-dI")
+p <- add_argument(p, "--n.isol",
+                  help="threshold (number of neighbouring observations) for the identification of isolated observations.",
+                  type="integer",
+                  default=10,
+                  short="-nI")
 # spatial consistency test
-p <- add_argument(p, "--grid.sct",help="nrow ncol (i.e. number_of_rows number_of_columns). used to define grid of boxes where the SCT is performed. SCT in each box is independent from the others",
-                  type="integer",nargs=2,default=c(20,20),short="-gS")
-p <- add_argument(p, "--i.sct",help="number of SCT iterations",
-                  type="integer",default=1,short="-iS")
-p <- add_argument(p, "--n.sct",help="minimum number of stations in a box to run SCT",
+p <- add_argument(p, "--grid.sct",
+                  help="nrow ncol (i.e. number_of_rows number_of_columns). used to define grid of boxes where the SCT is performed. SCT in each box is independent from the others",
+                  type="integer",
+                  nargs=2,
+                  default=c(20,20),
+                  short="-gS")
+p <- add_argument(p, "--i.sct",
+                  help="number of SCT iterations",
+                  type="integer",
+                  default=1,
+                  short="-iS")
+p <- add_argument(p, "--n.sct",
+                  help="minimum number of stations in a box to run SCT",
                   type="integer",default=50,short="-nS")
-p <- add_argument(p, "--dz.sct",help="minimum range of elevation in a box to run SCT [m]",
-                  type="numeric",default=30,short="-zS")
+p <- add_argument(p, "--dz.sct",
+                  help="minimum range of elevation in a box to run SCT [m]",
+                  type="numeric",
+                  default=30,
+                  short="-zS")
 p <- add_argument(p, "--DhorMin.sct",
                   help="OI, minimum allowed value for the horizontal de-correlation lenght (of the background error correlation) [m]",
-                  type="numeric",default=10000,short="-hS")
+                  type="numeric",
+                  default=10000,
+                  short="-hS")
 p <- add_argument(p, "--Dver.sct",
                   help="OI, vertical de-correlation lenght  (of the background error correlation) [m]",
-                  type="numeric",default=200,short="-vS")
+                  type="numeric",
+                  default=200,
+                  short="-vS")
+# default=0.5
 p <- add_argument(p, "--eps2.sct",
-                  help="OI, ratio between observation error variance and background error variance",
-                  type="numeric",default=0.5,short="-eS")
+                  help="OI, ratio between observation error variance and background error variance. eps2.sct is a vector of positive values (not NAs). If eps2.sct has the same length of the number of input files, then a provider dependent eps2 will be used in the SCT. Otherwise, the value of eps2.sct[1] will be used for all providers and any other eps2.sct[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-eS")
+# default=16
 p <- add_argument(p, "--thr.sct",
-                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct",
-                  type="numeric",default=16,short="-tS")
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct. thr.sct is a vector of positive values (not NAs). If thr.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thr.sct[1] will be used for all providers and any other thr.sct[2:n] value will be ignored ",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tS")
 p <- add_argument(p, "--thrpos.sct",
-                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct AND (obs-Cross_Validation_pred)>=0 ",
-                  type="numeric",default=NA,short="-tpS")
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thrpos.sct AND (obs-Cross_Validation_pred)>=0. thrpos.sct is a vector of positive values (not NAs). If thrpos.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thrpos.sct[1] will be used for all providers and any other thrpos.sct[2:n] value will be ignored ",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tpS")
 p <- add_argument(p, "--thrneg.sct",
-                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct AND (obs-Cross_Validation_pred)<0 ",
-                  type="numeric",default=NA,short="-tnS")
-p <- add_argument(p, "--laf.sct",help="use land area fraction in the OI correlation function (0-100%)",
-                  flag=T,short="-lS")
-p <- add_argument(p, "--lafmin.sct",help="land area fraction influence in the OI correlation function",
-                  type="numeric",default=0.5,short="-lmS")
-p <- add_argument(p, "--laf.file",help="land area fraction file (netCDF in kilometric coordinates)",
-                  type="character",default=NULL,short="-lfS")
-p <- add_argument(p, "--proj4laf",help="proj4 string for the laf",
-                  type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pl")
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thrneg.sct AND (obs-Cross_Validation_pred)<0.  thrneg.sct is a vector of positive values (not NAs). If thrneg.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thrneg.sct[1] will be used for all providers and any other thrneg.sct[2:n] value will be ignored ",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tnS")
+p <- add_argument(p, "--laf.sct",
+                  help="use land area fraction in the OI correlation function (0-100%)",
+                  flag=T,
+                  short="-lS")
+p <- add_argument(p, "--lafmin.sct",
+                  help="land area fraction influence in the OI correlation function",
+                  type="numeric",
+                  default=0.5,
+                  short="-lmS")
+p <- add_argument(p, "--laf.file",
+                  help="land area fraction file (netCDF in kilometric coordinates)",
+                  type="character",
+                  default=NULL,
+                  short="-lfS")
+p <- add_argument(p, "--proj4laf",
+                  help="proj4 string for the laf",
+                  type="character",
+                  default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pl")
 p <- add_argument(p, "--fast.sct",
                   help="faster spatial consistency test. Allow for flagging more than one observation simulataneously",
-                  flag=T,short="-fS")
+                  flag=T,
+                  short="-fS")
 # observation representativeness
 p <- add_argument(p, "--mean.corep",
-                  help="average coefficient for the observation representativeness",
-                  type="numeric",default=NA,nargs=Inf,short="-avC")
+                  help="average coefficient for the observation representativeness. mean.corep is a vector of positive values (not NAs). If mean.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of mean.corep[1] will be used for all providers and any other mean.corep[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-avC")
 p <- add_argument(p, "--min.corep",
-     help="minimum value for the coefficient for the observation representativeness",
-                  type="numeric",default=NA,nargs=Inf,short="-mnC")
+     help="minimum value for the coefficient for the observation representativeness. If min.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of min.corep[1] will be used for all providers and any other min.corep[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-mnC")
 p <- add_argument(p, "--max.corep",
-     help="maximum value for the coefficient for the observation representativeness",
-                  type="numeric",default=NA,nargs=Inf,short="-mxC")
+     help="maximum value for the coefficient for the observation representativeness. If max.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of max.corep[1] will be used for all providers and any other max.corep[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-mxC")
 # check elevation against dem
 p <- add_argument(p, "--dem",
      help="check elevation against digital elevation model (dem)",
@@ -602,19 +722,66 @@ p <- add_argument(p, "--blacklist.fidx",
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
 p <- add_argument(p, "--keeplist.lat",
                   help="observation keeplist (latitude)",
-                  type="numeric",default=NA,nargs=Inf,short="-kla")
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-kla")
 p <- add_argument(p, "--keeplist.lon",
                   help="observation keeplist (longitude)",
-                  type="numeric",default=NA,nargs=Inf,short="-klo")
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-klo")
 p <- add_argument(p, "--keeplist.fll",
                   help="observation keeplist (ID provider)",
-                  type="numeric",default=NA,nargs=Inf,short="-kfll")
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-kfll")
 p <- add_argument(p, "--keeplist.idx",
                   help="observation keeplist (position in input file)",
-                  type="numeric",default=NA,nargs=Inf,short="-kix")
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf, 
+                  short="-kix")
 p <- add_argument(p, "--keeplist.fidx",
                   help="observation keeplist (ID provider)",
-                  type="numeric",default=NA,nargs=Inf,short="-kfix")
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-kfix")
+# doit flags
+comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
+p <- add_argument(p, "--doit.buddy",
+                  help=paste("customize the buddy-test application.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dob")
+p <- add_argument(p, "--doit.sct",
+                  help=paste("customize the application of SCT.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dos")
+p <- add_argument(p, "--doit.clim",
+                  help=paste("customize the application of the climatological check.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-doc")
+p <- add_argument(p, "--doit.dem",
+                  help=paste("customize the application of the test of observation elevation against the digital elevation model.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dod")
+p <- add_argument(p, "--doit.isol",
+                  help=paste("customize the application of the isolation test.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-doi")
 #
 argv <- parse_args(p)
 #
@@ -759,30 +926,79 @@ if (any(!is.na(argv$keeplist.idx)) |
 if (any(is.na(argv$mean.corep)) | 
     any(is.na(argv$min.corep))  | 
     any(is.na(argv$max.corep)) ) {
-  argv$mean.corep<-rep(1,nfin)
-  argv$min.corep<-rep(.5,nfin)
-  argv$max.corep<-rep(2,nfin)
+  print("WARNING")
+  print("parameters related to the coefficient of observation representativeness are not properly specified")
+  print("--mean.corep --min.corep and --max.corep should be specified")
+  print("Because they are not specified then it is assumed that the coefficient of observation representativeness is not considered an interesting output anf the corep parameters will be set to default values (min.corep=0.9 mean.corep=1 max.corep=1.1")
+  argv$min.corep<-0.9
+  argv$mean.corep<-1
+  argv$max.corep<-1.1
+#  quit(status=1)
 }
-if ( (length(argv$mean.corep)!=nfin) |
-     (length(argv$min.corep)!=nfin)  |
-     (length(argv$max.corep)!=nfin) ) {
-  print("ERROR in the definitions of the coefficient for observation representativeness, there must be one coefficient for each input file (i.e. provider):")
-  print(paste("number of input files=",nfin))
-  print(paste("lenght of vector for mean value=",length(argv$mean.corep)))
-  print(paste("lenght of vector for  min value=",length(argv$min.corep)))
-  print(paste("lenght of vector for  max value=",length(argv$max.corep)))
+if (length(argv$min.corep)!=nfin) 
+  argv$eps2.sct<-rep(argv$min.corep[1],length=nfin)
+if (length(argv$mean.corep)!=nfin) 
+  argv$eps2.sct<-rep(argv$mean.corep[1],length=nfin)
+if (length(argv$max.corep)!=nfin) 
+  argv$eps2.sct<-rep(argv$max.corep[1],length=nfin)
+# SCT
+# if defined, thrpos.sct and thrneg.sct have the priority on thr.sct
+if ( (any(is.na(argv$thrpos.sct)) & any(!is.na(argv$thrpos.sct))) |
+     (any(is.na(argv$thrneg.sct)) & any(!is.na(argv$thrneg.sct))) ) {
+  print("SCT thresholds for positive and negative deviations are not properly specified")
+  print(paste("threshold(s) when (Obs-CVpred) <0 (thrneg.sct)",argv$thrneg.sct))
+  print(paste("threshold(s) when (Obs-CVpred)>=0 (thrpos.sct)",argv$thrpos.sct))
   quit(status=1)
 }
-# SCT
-if ( (!is.na(argv$thrpos.sct) &  is.na(argv$thrneg.sct)) |
-     ( is.na(argv$thrpos.sct) & !is.na(argv$thrneg.sct)) ) {
-  print("WARNING: SCT thresholds for positive and negative deviations are not properly specified")
-  print(paste("threshold when (Obs-CVpred) <0 (thrneg.sct)",argv$thrneg.sct))
-  print(paste("threshold when (Obs-CVpred)>=0 (thrpos.sct)",argv$thrpos.sct))
-  print("==> we will use just one threshold for all the values")
-  print(paste("threshold in use (thr.sct)",argv$thr.sct))
+if (length(argv$thrpos.sct)!=nfin) {
+  argv$thrpos.sct<-rep(argv$thrpos.sct[1],length=nfin)
 }
-#
+if (length(argv$thrneg.sct)!=nfin) {
+  argv$thrneg.sct<-rep(argv$thrneg.sct[1],length=nfin)
+}
+if ( any(is.na(argv$thr.sct)) & 
+     is.na(argv$thrneg.sct[1]) ) {
+  print("++ ERROR")
+  print("thr.sct must be specified and it must not contain NAs")
+  quit(status=1)
+}
+if ( length(argv$thr.sct)!=nfin & 
+     is.na(argv$thrneg.sct[1])) 
+  argv$thr.sct<-rep(argv$thr.sct[1],length=nfin)
+# eps2
+if (any(is.na(argv$eps2.sct))) {
+  print("++ ERROR")
+  print("eps2.sct must not contain NAs")
+  quit(status=1)
+}
+if (length(argv$eps2.sct)!=nfin) 
+  argv$eps2.sct<-rep(argv$eps2.sct[1],length=nfin)
+# doit flags
+if (any(is.na(argv$doit.buddy))) argv$doit.buddy<-rep(1,length=nfin)
+if (any(is.na(argv$doit.sct))) argv$doit.sct<-rep(1,length=nfin)
+if (any(is.na(argv$doit.clim))) argv$doit.clim<-rep(1,length=nfin)
+if (any(is.na(argv$doit.dem))) argv$doit.dem<-rep(1,length=nfin)
+if (any(is.na(argv$doit.isol))) argv$doit.isol<-rep(1,length=nfin)
+if (any(!(argv$doit.buddy %in% c(0,1,2)))) {
+  print("doit.buddy must not contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.sct %in% c(0,1,2)))) {
+  print("doit.sct must not contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.clim %in% c(0,1,2)))) {
+  print("doit.clim must not contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.dem %in% c(0,1,2)))) {
+  print("doit.dem must not contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.isol %in% c(0,1,2)))) {
+  print("doit.isol must not contain only 0,1,2")
+  quit(status=1)
+}
 #-----------------------------------------------------------------------------
 if (argv$verbose | argv$debug) print(">> TITAN <<")
 #
@@ -1011,10 +1227,18 @@ if (argv$verbose | argv$debug) {
 # NOTE: keep-listed stations canNOT be flagged here
 # use only (probably) good observations
 if (!is.na(argv$month.clim)) {
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin)
+    doit[data$prid==argv$prid[f]]<-argv$doit.clim[f]
+  # apply the test on all the observations except blacklist/keeplist 
   ix<-which(is.na(dqcflag))
   if (length(ix)>0) {
-    sus<-which(data$value[ix]<argv$tmin.clim[argv$month.clim] | 
-               data$value[ix]>argv$tmax.clim[argv$month.clim] )
+    # flag only observations that are suspect and have doit==1
+    sus<-which( (data$value[ix]<argv$tmin.clim[argv$month.clim] | 
+                 data$value[ix]>argv$tmax.clim[argv$month.clim]) &
+                 doit[ix]==1)
     # set dqcflag
     if (length(sus)>0) dqcflag[ix[sus]]<-clim.code
   } else {
@@ -1025,6 +1249,7 @@ if (!is.na(argv$month.clim)) {
     print(paste("# suspect observations=",length(which(dqcflag==clim.code))))
     print("+---------------------------------+")
   }
+  rm(doit)
 }
 #
 #-----------------------------------------------------------------------------
@@ -1032,9 +1257,15 @@ if (!is.na(argv$month.clim)) {
 #  compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$verbose | argv$debug) nprev<-0
+# set doit vector
+doit<-vector(length=ndata,mode="numeric")
+doit[]<-NA
+for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy[f]
+# test
 for (i in 1:argv$i.buddy) {
-  # use only (probably) good observations
-  ix<-which(is.na(dqcflag) | dqcflag==keep.code)
+  # use only (probably) good observations with doit!=0
+  ix<-which( (is.na(dqcflag) | dqcflag==keep.code) &
+             doit!=0 )
   if (length(ix)>0) {
     t0a<-Sys.time()
     # define global 1D vector used in statSpat (1D for fast access)
@@ -1048,10 +1279,11 @@ for (i in 1:argv$i.buddy) {
     # probability of gross error
     pog<-abs(ttot-stSp_3km[3,])/stSp_3km[4,]
     # suspect if: 
-    sus<-which(pog>argv$thr.buddy & 
-               stSp_3km[1,]>argv$n.buddy & 
-               stSp_3km[2,]<argv$dz.buddy &
-               is.na(dqcflag[ix]))
+    sus<-which( (pog>argv$thr.buddy & 
+                 stSp_3km[1,]>argv$n.buddy & 
+                 stSp_3km[2,]<argv$dz.buddy &
+                 is.na(dqcflag[ix])) &
+                 doit[ix]==1 )
     # set dqcflag
     if (length(sus)>0) dqcflag[ix[sus]]<-buddy.code
   } else {
@@ -1066,6 +1298,7 @@ for (i in 1:argv$i.buddy) {
     nprev<-length(which(dqcflag==buddy.code))
   }
 }
+rm(doit)
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
 #
@@ -1073,9 +1306,14 @@ if (argv$verbose | argv$debug)
 # SCT - Spatial Consistency Test
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$verbose | argv$debug) nprev<-0
+# set doit vector
+doit<-vector(length=ndata,mode="numeric")
+doit[]<-NA
+for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.sct[f]
+# test
 for (i in 1:argv$i.sct) {
-  # use only (probably) good observations
-  ix<-which(is.na(dqcflag) | dqcflag==keep.code)
+  # use only (probably) good observations with doit!=0
+  ix<-which( (is.na(dqcflag) | dqcflag==keep.code) & doit!=0 )
   if (length(ix)>0) {
     t0a<-Sys.time()
     # create the grid for SCT. SCT is done independently in each box
@@ -1093,6 +1331,7 @@ for (i in 1:argv$i.sct) {
     ytot<-y[ix]
     ztot<-z[ix]
     ttot<-data$value[ix]
+    pridtot<-data$prid[ix]
     laftot<-laf[ix]
     # assign each station to the corresponding box
     itot<-extract(r,cbind(xtot,ytot))
@@ -1127,6 +1366,7 @@ for (i in 1:argv$i.sct) {
     nprev<-length(which(dqcflag==sct.code))
   }
 }
+rm(doit)
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
 #
@@ -1166,39 +1406,52 @@ if (length(ix)>0) {
 # check elevation against dem 
 # NOTE: keep-listed stations canNOT be flagged here
 if (argv$dem) {
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.dem[f]
   # use only (probably) good observations
   ix<-which(is.na(dqcflag))
   if (length(ix)>0) {
     ixna<-which(!is.na(z) & !is.na(zdem) & is.na(dqcflag))
-    sus<-which(abs(z[ixna]-zdem[ixna])>argv$dz.dem)
+    sus<-which( abs(z[ixna]-zdem[ixna])>argv$dz.dem &
+                doit[ixna]==1 )
     # set dqcflag
     if (length(sus)>0) dqcflag[ixna[sus]]<-dem.code
   }  else {
     print("no valid observations left, no dem check")
   }
   if (argv$verbose | argv$debug) {
-    print(paste("# observations too far from dem=",length(which(dqcflag==dem.code))))
+    print(paste("# observations too far from dem=",
+                length(which(dqcflag==dem.code))))
     print("+---------------------------------+")
   }
+  rm(doit)
 }
 #
 #-----------------------------------------------------------------------------
 # check for isolated stations
 # use only (probably) good observations
 # NOTE: keep-listed stations canNOT be flagged here
-ix<-which(is.na(dqcflag))
+# set doit vector
+doit<-vector(length=ndata,mode="numeric")
+doit[]<-NA
+for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.iso[f]
+#
+ix<-which(is.na(dqcflag) & doit!=0)
 if (length(ix)>0) {
   # define global 1D vector used in statSpat (1D for fast access)
   xtot<-x[ix]
   ytot<-y[ix]
   xy<-cbind(xtot,ytot)
   ns<-apply(xy,FUN=nstat,MARGIN=1,drmin=argv$dr.isol)
-  sus<-which(ns<argv$n.isol)
+  sus<-which(ns<argv$n.isol & doit[ix]==1)
   # set dqcflag
   if (length(sus)>0) dqcflag[ix[sus]]<-isol.code
 } else {
   print("no valid observations left, no check for isolated observations")
 }
+rm(doit)
 if (argv$verbose | argv$debug) {
   print(paste("# isolated observations=",length(which(dqcflag==isol.code))))
   print("+---------------------------------+")
