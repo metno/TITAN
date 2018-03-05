@@ -478,77 +478,146 @@ p <- add_argument(p, "--prid",
                   default=NA,
                   nargs=Inf)
 #
-p <- add_argument(p, "--debug",help="debug mode",flag=T,short="-dbg")
-p <- add_argument(p, "--debug.dir",help="directory for debug output",
-                  type="character",default=".",short="-dbgd")
-p <- add_argument(p, "--verbose",help="debug mode",flag=T,short="-v")
+p <- add_argument(p, "--debug",
+                  help="debug mode",
+                  flag=T,
+                  short="-dbg")
+p <- add_argument(p, "--debug.dir",
+                  help="directory for debug output",
+                  type="character",
+                  default=".",
+                  short="-dbgd")
+p <- add_argument(p, "--verbose",
+                  help="debug mode",
+                  flag=T,
+                  short="-v")
 # NOTE: lat-lon setup to have Oslo in a single box
-p <- add_argument(p, "--lonmin",help="longitude of south-eastern domain corner",
-                  type="numeric",default=5,short="-lon")
-p <- add_argument(p, "--lonmax",help="longitude of south-western domain corner",
-                  type="numeric",default=28,short="-lox")
-p <- add_argument(p, "--latmin",help="latitude of south-eastern domain corner",
-                  type="numeric",default=53.25,short="-lan")
-p <- add_argument(p, "--latmax",help="latitude of north-western domain corner",
-                  type="numeric",default=71.8,short="-lax")
+p <- add_argument(p, "--lonmin",
+                  help="longitude of south-eastern domain corner",
+                  type="numeric",
+                  default=5,
+                  short="-lon")
+p <- add_argument(p, "--lonmax",
+                  help="longitude of south-western domain corner",
+                  type="numeric",
+                  default=28,
+                  short="-lox")
+p <- add_argument(p, "--latmin",
+                  help="latitude of south-eastern domain corner",
+                  type="numeric",
+                  default=53.25,
+                  short="-lan")
+p <- add_argument(p, "--latmax",
+                  help="latitude of north-western domain corner",
+                  type="numeric",
+                  default=71.8,
+                  short="-lax")
 # variable names
 p <- add_argument(p, "--separator",
                   help="separator character",
-                  type="character",default=";")
+                  type="character",
+                  default=";")
 p <- add_argument(p, "--varname.lat",
                   help="name for the latitude variable (in/out)",
-                  type="character",default="lat",short="-vlat")
+                  type="character",
+                  default="lat",
+                  short="-vlat")
 p <- add_argument(p, "--varname.lon",
                   help="name for the longitude variable (in/out)",
-                  type="character",default="lon",short="-vlon")
+                  type="character",
+                  default="lon",
+                  short="-vlon")
 p <- add_argument(p, "--varname.elev",
                   help="name for the elevation variable (in/out)",
-                  type="character",default="elev",short="-vele")
+                  type="character",
+                  default="elev",
+                  short="-vele")
 p <- add_argument(p, "--varname.value",
                   help="name for the temperature variable (in/out)",
-                  type="character",default="value",short="-vval")
+                  type="character",
+                  default="value",
+                  short="-vval")
 p <- add_argument(p, "--varname.opt",
      help="additional optional variables to be written on the output (out)",
-                  type="character",default=NA,nargs=Inf,short="-vopt")
+                  type="character",
+                  default=NA,
+                  nargs=Inf,
+                  short="-vopt")
 p<- add_argument(p, "--varname.prid",
                  help="name for the provider identifier (out)",
-                 type="character",default="prid",short="-vprid")
+                 type="character",
+                 default="prid",
+                 short="-vprid")
 p<- add_argument(p, "--varname.dqc",
                  help="name for the data quality control flag (out)",
-                 type="character",default="dqc",short="-vdqc")
+                 type="character",
+                 default="dqc",
+                 short="-vdqc")
 p<- add_argument(p, "--varname.sct",
             help="name for the spatial consistency test returned value (out)",
-                 type="character",default="sct",short="-vsct")
+                 type="character",
+                 default="sct",
+                 short="-vsct")
 p<- add_argument(p, "--varname.rep",
             help="name for the coefficient of representativeness (out)",
-                  type="character",default="rep",short="-vrep")
+                 type="character",
+                 default="rep",
+                 short="-vrep")
 # geographical parameters
-p <- add_argument(p, "--spatconv",help="flag for conversion of spatial coordinates before running the data quality checks",
-                  flag=T,short="-c")
-p <- add_argument(p, "--proj4from",help="proj4 string for the original coordinate reference system",
-                  type="character",default="+proj=longlat +datum=WGS84",short="-pf")
-p <- add_argument(p, "--proj4to",help="proj4 string for the coordinate reference system where the DQC is performed",
-                  type="character",default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pt")
+p <- add_argument(p, "--spatconv",
+                  help="flag for conversion of spatial coordinates before running the data quality checks",
+                  flag=T,
+                  short="-c")
+p <- add_argument(p, "--proj4from",
+                  help="proj4 string for the original coordinate reference system",
+                  type="character",
+                  default="+proj=longlat +datum=WGS84",
+                  short="-pf")
+p <- add_argument(p, "--proj4to",
+                  help="proj4 string for the coordinate reference system where the DQC is performed",
+                  type="character",
+                  default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",
+                  short="-pt")
 # metadata check
-p <- add_argument(p, "--zmin",help="minimum allowed elevation in the domain [m amsl]",
-                  type="numeric",default=0,short="-z")
-p <- add_argument(p, "--zmax",help="maximum allowed elevation in the domain [m amsl]",
-                  type="numeric",default=2500,short="-Z")
+p <- add_argument(p, "--zmin",
+                  help="minimum allowed elevation in the domain [m amsl]",
+                  type="numeric",
+                  default=0,
+                  short="-z")
+p <- add_argument(p, "--zmax",
+                  help="maximum allowed elevation in the domain [m amsl]",
+                  type="numeric",
+                  default=2500,
+                  short="-Z")
 # Plausibility check
-p <- add_argument(p, "--tmin",help="minimum allowed temperature [K or degC]",
-                  type="numeric",default=-50,short="-tP")
-p <- add_argument(p, "--tmax",help="maximum allowed temperature [K or degC]",
-                  type="numeric",default=40,short="-TP")
+p <- add_argument(p, "--tmin",
+                  help="minimum allowed temperature [K or degC]",
+                  type="numeric",
+                  default=-50,
+                  short="-tP")
+p <- add_argument(p, "--tmax",
+                  help="maximum allowed temperature [K or degC]",
+                  type="numeric",
+                  default=40,
+                  short="-TP")
 # Cliamtological check
 # default based on Norwegian hourly temeprature from 2010-2017
-p <- add_argument(p, "--tmin.clim",help="minimum allowed temperature [K or degC]",
-                  type="numeric",nargs=12,short="-tC",
+p <- add_argument(p, "--tmin.clim",
+                  help="minimum allowed temperature [K or degC]",
+                  type="numeric",
+                  nargs=12,
+                  short="-tC",
                   default=c(-45,-45,-40,-35,-20,-15,-10,-15,-15,-20,-35,-45))
-p <- add_argument(p, "--tmax.clim",help="maximum allowed temperature [K or degC]",
-                  type="numeric",nargs=12,short="-TC",
+p <- add_argument(p, "--tmax.clim",
+                  help="maximum allowed temperature [K or degC]",
+                  type="numeric",
+                  nargs=12,
+                  short="-TC",
                   default=c(20,20,25,25,35,35,40,40,35,30,25,20))
-p <- add_argument(p, "--month.clim",help="month (number 1-12)",
-                  type="numeric",short="-mC",
+p <- add_argument(p, "--month.clim",
+                  help="month (number 1-12)",
+                  type="numeric",
+                  short="-mC",
 #                  default=as.numeric(format(Sys.time(), "%m")))
                   default=NA)
 # Buddy-check
@@ -926,14 +995,13 @@ if (any(!is.na(argv$keeplist.idx)) |
 if (any(is.na(argv$mean.corep)) | 
     any(is.na(argv$min.corep))  | 
     any(is.na(argv$max.corep)) ) {
-  print("WARNING")
+  print("++WARNING")
   print("parameters related to the coefficient of observation representativeness are not properly specified")
   print("--mean.corep --min.corep and --max.corep should be specified")
   print("Because they are not specified then it is assumed that the coefficient of observation representativeness is not considered an interesting output anf the corep parameters will be set to default values (min.corep=0.9 mean.corep=1 max.corep=1.1")
   argv$min.corep<-0.9
   argv$mean.corep<-1
   argv$max.corep<-1.1
-#  quit(status=1)
 }
 if (length(argv$min.corep)!=nfin) 
   argv$eps2.sct<-rep(argv$min.corep[1],length=nfin)
@@ -958,18 +1026,22 @@ if (length(argv$thrneg.sct)!=nfin) {
 }
 if ( any(is.na(argv$thr.sct)) & 
      is.na(argv$thrneg.sct[1]) ) {
-  print("++ ERROR")
-  print("thr.sct must be specified and it must not contain NAs")
-  quit(status=1)
+  print("++ WARNING")
+  print("thr.sct should be specified and it must not contain NAs")
+  print(" because either it has not been specified or it has been set to NA, ")
+  print(" then TITAN will use the default value of 16")
+  argv$thr.sct<-16
 }
 if ( length(argv$thr.sct)!=nfin & 
      is.na(argv$thrneg.sct[1])) 
   argv$thr.sct<-rep(argv$thr.sct[1],length=nfin)
 # eps2
 if (any(is.na(argv$eps2.sct))) {
-  print("++ ERROR")
-  print("eps2.sct must not contain NAs")
-  quit(status=1)
+  print("++ WARNING")
+  print("eps2.sct should be specified and it must not contain NAs")
+  print(" because either it has not been specified or it has been set to NA, ")
+  print(" then TITAN will use the default value of 0.5")
+  argv$eps2.sct<-0.5
 }
 if (length(argv$eps2.sct)!=nfin) 
   argv$eps2.sct<-rep(argv$eps2.sct[1],length=nfin)
