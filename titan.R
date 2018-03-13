@@ -237,10 +237,10 @@ sct<-function(ixynp,
   # OI for SCT (Lussana et al., 2010)
   # initialize variables
   # expand eps2 in eps2.vec
-  eps2.vec<-vector(length=length(ix[j]))
-  t2.vec<-vector(length=length(ix[j]))
-  t2pos.vec<-vector(length=length(ix[j]))
-  t2neg.vec<-vector(length=length(ix[j]))
+  eps2.vec<-vector(length=length(j))
+  t2.vec<-vector(length=length(j))
+  t2pos.vec<-vector(length=length(j))
+  t2neg.vec<-vector(length=length(j))
   t2.vec[]<-NA
   t2pos.vec[]<-NA
   t2neg.vec[]<-NA
@@ -327,31 +327,34 @@ sct<-function(ixynp,
     # define the threshold for each observation
     if (any(!is.na(t2pos.vec))) {
       cvres<-(-cvres) # Obs-CVa 
-      # note cvres is a pos-vector, while T2vec is a pos2check-vector
-      # pos and pos2check are indxes for vectors like dqctmp, t2pos.vec...
-      # pos includes all the pos2check values, plus possibly others
+      # cvres is a sel-vector, while T2vec is a sel2check-vector
+      # sel includes all the sel2check values, plus possibly others
       T2vec<-vector(length=length(sel2check),mode="numeric")
-      if (any(cvres>=0 & is.na(dqctmp[sel]))) {
-        ipos2check<- which(cvres>=0 & is.na(dqctmp[sel]))
+      match<-match(sel2check,sel)
+      ipos2check<-which(cvres[match]>=0 & is.na(dqctmp[sel2check]))
+      if (length(ipos2check)>0) 
         T2vec[ipos2check]<- t2pos.vec[sel2check[ipos2check]]
-        rm(ipos2check)
-      }
-      if (any(cvres< 0 & is.na(dqctmp[sel]))) {
-        ipos2check<- which(cvres< 0 & is.na(dqctmp[sel]))
+      ipos2check<-which(cvres[match]<0 & is.na(dqctmp[sel2check]))
+      if (length(ipos2check)>0)
         T2vec[ipos2check]<- t2neg.vec[sel2check[ipos2check]]
-        rm(ipos2check)
-      }
+      rm(ipos2check)
     } else {
       T2vec<-t2.vec[sel2check]
     }
     # check if any obs fails the test
     if (any(pog[sel2check]>T2vec)) {
       # flag as suspect only the observation with the largest cvres 
-      indx<-which.max(pog[sel2check])
       # allow for more than obs being flagged at the same time
       if (faster) {
-        if (any(pog[sel2check]>(2*T2vec)))
-          indx<-unique(c(indx,which(pog[sel2check]>(2*T2vec))))
+        if (any(pog[sel2check]>(2*T2vec))) {
+          indx<-which(pog[sel2check]>(2*T2vec))
+        } else {
+          ixprobsus<-which(pog[sel2check]>T2vec)
+          indx<-ixprobsus[which.max(pog[ixprobsus])]
+        }
+      } else {
+        ixprobsus<-which(pog[sel2check]>T2vec)
+        indx<-ixprobsus[which.max(pog[ixprobsus])]
       }
       dqctmp[sel2check[indx]]<-sus.code
       # update global variable with flags
