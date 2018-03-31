@@ -1288,8 +1288,7 @@ if (argv$verbose | argv$debug) {
 # plausibility test
 # NOTE: keep-listed stations could be flagged here
 ix<-which( (is.na(dqcflag) | dqcflag==keep.code) &
-           data$value<argv$tmin &
-           data$value>argv$tmax)
+           (data$value<argv$tmin | data$value>argv$tmax))
 if (length(ix)>0) dqcflag[ix]<-p.code
 if (argv$verbose | argv$debug) {
   print("plausibility test")
