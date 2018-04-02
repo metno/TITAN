@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# + TITAN - Temperature spatIal daTa quAlity coNtrol
+# + TITAN - spatial data quality control for in-situ observations
 # mailto: cristianl@met.no
 # # https://github.com/metno/TITAN
 #
@@ -54,7 +54,7 @@ nstat<-function(xy,drmin) {
 }
 
 #+ summary statistics in a box of /pm "drmin" centered on location "ixyz" 
-statSpat<-function(ixyzt,drmin) {
+statSpat<-function(ixyzt,drmin,gamma=-0.0065) {
 # input
 # ixyz=vector. 1=index;2=x;3=y;4=z;5=t
 # output
@@ -66,11 +66,24 @@ statSpat<-function(ixyzt,drmin) {
            abs(ixyzt[3]-ytot)<=drmin)
   if (length(i)==1) return(c(1,NA,NA,NA))
   dz<-ztot[i]-ixyzt[4]
-  tcor<-ttot[i]+0.0065*dz
+  if (argv$variable=="T") {
+    tcor<-ttot[i]-gamma*dz
+  } else {
+    tcor<-ttot[i]
+  }
   tmean<-mean(tcor) 
   tsd<-sd(tcor) 
   dz_mx<-max(abs(dz))
   return(c(length(i),round(dz_mx,0),round(tmean,1),round(tsd,3)))
+}
+
+#+ Box-Cox transformation
+boxcox<-function(x,lambda) {
+  if (lambda==0) {
+    return(log(x))
+  } else {
+    return((x**lambda-1)/lambda)
+  }
 }
 
 #+ vertical profile of temperature (Frei, 2014)
@@ -126,7 +139,7 @@ tvertprof_basic<-function(z,t0,gamma) {
 
 #+ cost function used for optimization of tvertprof parameter
 tvertprofbasic2opt<-function(par) {
-  te<-tvertprof_basic(z=zopt,t0=par[1],gamma=gamma.standard)
+  te<-tvertprof_basic(z=zopt,t0=par[1],gamma=argv$gamma.standard)
   return(log((mean((te-topt)**2))**0.5))
 }
 
@@ -163,8 +176,12 @@ plotp<-function(x,y,val,br,col,
 
 #+ SCT - spatial consistency test
 sct<-function(ixynp,
-              nmin=50,dzmin=30,
-              Dhmin=10000,Dz=200,
+              nmin=50,
+              dzmin=30,
+              Dhmin=10000,
+              Dz=200,
+              Dz.bg=1500,
+              eps2.bg=0.5,
               eps2=NA,
               T2=NA,
               T2pos=NA,
@@ -184,6 +201,9 @@ sct<-function(ixynp,
 #  dzmin= numeric. minimum elevation range to fit a vertical profile [m]
 #  Dhmin= numeric. minimum value for OI horizontal decorellation length [m]
 #  Dz= numeric. OI vertical decorellation length [m]
+#  Dz.bg= numeric. OI vertical decorellation length 
+#         for the construction of the background (RH,RR) [m]
+#  eps2.bg= numeric. OI ratio between obs_err_variance/backg_err_variance
 #  eps2= numeric. OI ratio between obs_err_variance/backg_err_variance
 #  T2=numeric. SCT threshold. (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
 #  T2pos=numeric. SCT threshold. (obs-pred)>=0 AND 
@@ -201,7 +221,14 @@ sct<-function(ixynp,
   # something strange with the number of stations
   if (is.na(ixynp[4]) | is.null(ixynp[4]) | !is.finite(ixynp[4]) ) return(NA)
   # j, index for the stations in the box
-  j<-which(itot==ixynp[1])
+  if (argv$usefge.sct) {
+    j<-which(itot==ixynp[1] & !is.na(fge.mu[ix]))
+  } else if (argv$usefg.sct) {
+    j<-which(itot==ixynp[1] & !is.na(fg[ix]))
+  } else {
+    j<-which(itot==ixynp[1])
+  }
+  if (length(j)==0) return(-1)
   # case of just one station
   if (ixynp[4]==1) {
     sctpog[ix[j]]<--1
@@ -209,31 +236,74 @@ sct<-function(ixynp,
     return(-1)
   }
   # "zopt" and "topt" are set as global variables, so that they can be used by 
-  #   other functions in the optimizaiton procedure
+  #   other functions in the optimization procedure
   assign("zopt",ztot[j],envir=.GlobalEnv)
   dz<-as.numeric(quantile(zopt,probs=0.95))-
       as.numeric(quantile(zopt,probs=0.05))
   assign("topt",ttot[j],envir=.GlobalEnv)
-  # if region is too flat or not enough obs, then go for a basic profile
-  if (dz<dzmin | ixynp[4]<nmin) {
-    par<-c(mean(topt))
-    opt<-optimize(f=tvertprofbasic2opt,interval=c(argv$tmin,argv$tmax))
-    tb<-tvertprof_basic(zopt,
-                        t0=opt$minimum,
-                        gamma=gamma.standard)
-  # otherwise, fit a vertical profile of temperature
-  } else {
-    par<-c(mean(topt),-0.0065,5,
-           as.numeric(quantile(zopt,probs=0.1)),
-           as.numeric(quantile(zopt,probs=0.9)))
-    opt<-optim(par,tvertprof2opt)
-    tb<-tvertprof(zopt,
-                  t0=opt$par[1],
-                  gamma=opt$par[2],
-                  a=opt$par[3],
-                  h0=opt$par[4],
-                  h1i=opt$par[5])
+  # distance matrices
+  disth<-(outer(xtot[j],xtot[j],FUN="-")**2.+
+          outer(ytot[j],ytot[j],FUN="-")**2.)**0.5
+  distz<-abs(outer(ztot[j],ztot[j],FUN="-"))
+  # if the background is derived from a first-guess field
+  if (argv$usefge.sct) {
+#    j<-which(itot==ixynp[1] & !is.na(fge.mu[ix]))
+    tb<-fge.mu[ix[j]]
+  } else if (argv$usefg.sct) {
+#    j<-which(itot==ixynp[1] & !is.na(fg[ix]))
+    tb<-fg[ix[j]]
+  # no external first-guess AND variable is temperature
+  } else if (argv$variable=="T") {
+    # if region is too flat or not enough obs, then go for a basic profile
+    if (dz<dzmin | ixynp[4]<nmin) {
+      par<-c(mean(topt))
+      opt<-optimize(f=tvertprofbasic2opt,interval=c(argv$vmin,argv$vmax))
+      tb<-tvertprof_basic(zopt,
+                          t0=opt$minimum,
+                          gamma=argv$gamma.standard)
+    # otherwise, fit a vertical profile of temperature
+    } else {
+      par<-c(mean(topt),argv$gamma.standard,5,
+             as.numeric(quantile(zopt,probs=0.1)),
+             as.numeric(quantile(zopt,probs=0.9)))
+      opt<-optim(par,tvertprof2opt)
+      tb<-tvertprof(zopt,
+                    t0=opt$par[1],
+                    gamma=opt$par[2],
+                    a=opt$par[3],
+                    h0=opt$par[4],
+                    h1i=opt$par[5])
+    }
+  } else if (argv$variable %in% c("RH","RR")) {
+    tb<-vector(mode="numeric",length=ixynp[4])
+    # if less than five observations in the box... not that much one can do 
+    if (ixynp[4]<5) {
+      tb[]<-mean(topt)
+    } else {
+      # set the reference length for the box-dependent large-scale 
+      Dh.bg<-max((3*Dhmin),
+                 mean(apply(cbind(1:nrow(disth),disth),
+                     MARGIN=1,
+                     FUN=function(x)
+          {as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],
+                      probs=0.75))})))
+      # background error correlation matrix
+      S.bg<-exp(-0.5*(disth/Dh.bg)**2.-0.5*(distz/Dz.bg)**2.)
+      if (argv$laf.sct) {
+        S.bg<-S.bg * 
+              (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
+      }
+      # background=OI(obs-mean(obs)) with Dh.bg,Dz.bg,eps2.bg
+      tb[]<-mean(topt)+
+            crossprod(S.bg,
+                      crossprod(chol2inv(chol((S.bg+eps2.bg*diag(ncol(S.bg))))),
+                      (topt-mean(topt))))
+      rm(S.bg,Dh.bg)
+    }
   }
+#  if (any(is.na(tb))) return(NULL)
+  if (any(tb<sctvmin)) tb[which(tb<sctvmin)]<-sctvmin
+  if (any(tb>sctvmax)) tb[which(tb>sctvmax)]<-sctvmax
   # OI for SCT (Lussana et al., 2010)
   # initialize variables
   # expand eps2 in eps2.vec
@@ -262,13 +332,15 @@ sct<-function(ixynp,
   #  probability of gross error (pog)
   pog<-dqctmp
   pog[]<-NA
-  # distance matrices
-  disth<-(outer(xtot[j],xtot[j],FUN="-")**2.+
-          outer(ytot[j],ytot[j],FUN="-")**2.)**0.5
-  distz<-abs(outer(ztot[j],ztot[j],FUN="-"))
-  # set to optimal Dh
+  # set to optimal Dh for the SCT
+  # either Dhmin or the average 10-percentile of the set of distances between a 
+  # station and all the others
   Dh<-max(Dhmin,
-          as.numeric(quantile(disth,probs=0.1)))
+          mean(apply(cbind(1:nrow(disth),disth),
+                     MARGIN=1,
+                     FUN=function(x){
+       as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],
+                          probs=0.1))})))
   # background error correlation matrix
   S<-exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
   if (argv$laf.sct) {
@@ -279,7 +351,7 @@ sct<-function(ixynp,
   # innvoation
   d<-topt-tb
   # select observations used in the test
-  sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+  sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
   # select observations to test 
   sel2check<-which(is.na(dqctmp) & doittmp==1)
   first<-T
@@ -287,7 +359,7 @@ sct<-function(ixynp,
   # NOTE: SCT flags at most one observation, iterate until no observations fail
   while (length(sel)>1) { 
 #    # update selection
-#    sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+#    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
 #    sel2check<-which(is.na(dqctmp))
 #    if (length(sel2check)==0) break
     # first iteration, inver the matrix
@@ -365,7 +437,7 @@ sct<-function(ixynp,
       corep[ix[j[sel2check[indx]]]]<-NA
       assign("corep",corep,envir=.GlobalEnv)
       # update selection
-      sel<-which(is.na(dqctmp) | dqctmp==keep.code)
+      sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
       sel2check<-which(is.na(dqctmp) & doittmp==1)
     } else {
       break
@@ -376,63 +448,642 @@ sct<-function(ixynp,
   corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
   assign("corep",corep,envir=.GlobalEnv)
   # debug: begin
-  if (argv$debug) {
-    susi<-which(!is.na(dqctmp) & dqctmp!=keep.code)
-    gold<-which(dqctmp==keep.code)
-    if (!dir.exists(argv$debug.dir)) 
-      dir.create(argv$debug.dir,showWarnings=F,recursive=T)
-    f<-file.path(argv$debug.dir,
-         paste("titan_sctvert_it_",formatC(i,width=2,flag="0"),
-               "_subd",formatC(ixynp[1],width=5,flag="0"),".png",sep=""))
-    png(file=f,width=800,height=800)
-    plot(topt,zopt,xlim=c(max(-30,min(topt)),min(30,max(topt))),
-                   ylim=c(0,min(2000,max(zopt))) )
-    zz<-seq(0,2000,by=0.1)
-    if (dz<dzmin | ixynp[4]<nmin) {
-      points(tvertprof_basic(zz,t0=opt$minimum,gamma=gamma.standard),
-             zz,col="blue",pch=19,cex=0.5)
-    } else {
-      points(tvertprof(zz,t0=opt$par[1],gamma=opt$par[2],
-                       a=opt$par[3],h0=opt$par[4],h1i=opt$par[5]),
-             zz,col="blue",pch=19,cex=0.5)
-    }
-    points(topt[susi],zopt[susi],pch=19,col="red")
-    if (length(gold)>0) points(topt[gold],zopt[gold],pch=19,col="gold")
-    abline(h=seq(-1000,10000,by=100),col="gray",lty=2)
-    abline(h=0,lwd=2,col="black")
-    dev.off()
-    f<-file.path(argv$debug.dir,
-         paste("titan_scthorz_it_",formatC(i,width=2,flag="0"),
-               "_subd",formatC(ixynp[1],width=5,flag="0"),".png",sep=""))
-    png(file=f,width=800,height=800)
-    plot(xtot[j],ytot[j])
-    if (argv$dem | argv$dem.fill) {
-      if (!exists("dem1"))
-        dem1<-crop(rdem,
-                   extent(c(ixynp[2]-100000,
-                            ixynp[2]+100000,
-                            ixynp[3]-100000,
-                            ixynp[3]+100000
-                            )))
-      image(dem1,add=T,
-            breaks=c(0,10,25,50,100,250,500,750,1000,1250,1500,1750,2000,2500,3000),
-            col=gray.colors(14))
-    }
-    points(xtot[j],ytot[j],pch=19,col="blue")
-    points(xtot[j[susi]],ytot[j[susi]],pch=19,col="red")
-    if (length(gold)>0) points(topt[gold],zopt[gold],pch=19,col="gold")
-    dev.off()
-  }
+#  if (argv$debug) {
+#  }
   # debug: end
   return(length(which(dqctmp==sus.code)))
 }
 
-# used for debug
+# + STEVE - iSolaTed EVent tEst
+steve<-function(obs,
+                thres=1,
+                gt_or_lt="gt", #event definition: greater than or less than...
+                pmax=20, 
+                dmax=150000,
+                n.sector=16,
+                n.connected_eveYES=1,
+                frac.eveYES_in_the_clump=1,
+                dmin.next_eveYES=150000) {
+#------------------------------------------------------------------------------
+  p<-length(obs$x)
+  pmax<-min(p,pmax)
+  psub<-vector(mode="numeric",length=p)
+  psub[]<-NA
+  sector.angle<-360/n.sector
+  ydqc.flag<-vector(mode="numeric",length=p)
+  ydqc.flag[]<-0
+# eix: vector of positions to observations that are equivalent to eventYES
+  if (gt_or_lt=="gt") {
+    eix<-which(obs$yo>thres)
+  } else if (gt_or_lt=="lt") {
+    eix<-which(obs$yo<thres)
+  } else if (gt_or_lt=="le") {
+    eix<-which(obs$yo<=thres)
+  } else if (gt_or_lt=="ge") {
+    eix<-which(obs$yo>=thres)
+  }
+  # no events= no isolated events
+  if (length(eix)==0) return(ydqc.flag)
+  # group eventsYES/NO into clumps of connected eventYES
+  # vectors:
+  # +neve.vec>number of eventYES clumps
+  # +Leve.vec[i]>(i=1,..,neve.vec) number of stns in i-th clump 
+  # +eve.vec[i,n]-> n-th stn (i.e. pointers to obs) in i-th clump
+  #  matrix(i,j) i=1,neve.vec j=1,Leve.vec[i]
+  #  note: a clumps of connected eventYES points may include eventNO points too
+  #        provided that an eventNO point is connected to eventYES points
+  eve.vec<-matrix(data=NA,ncol=p,nrow=p)
+  Leve.vec<-vector(mode="numeric",length=p)
+  Leve.vec[]<-NA
+  neve.vec<-0
+  eve.aux<-matrix(data=NA,ncol=p,nrow=p)
+  Leve.aux<-vector(mode="numeric",length=p)
+  Leve.aux[]<-NA
+  neve.aux<-0
+  for (b in eix) {  # START: Cycle over eventYES points 
+    # a. identify the closest points to the b-th eventYES point 
+    #  outputs: -close2b-> pointer to the closest points
+    #            constraints: distance must be less than Lsubsample.DHmax 
+    #                         max number of points allowed is Lsubsample.max
+    #           -psub[b]-> actual number of points used
+    Disth<-sqrt((obs$y[b]-obs$y)**2.+(obs$x[b]-obs$x)**2.)
+    if (any(Disth<=dmax)) {
+      ix<-which(Disth<=dmax)
+      psub[b]<-min(pmax,length(ix))
+      c2b<-order(Disth,decreasing=F)[1:psub[b]]
+    } else {
+      psub[b]<-0
+    }
+    if (psub[b]<3) next
+    close2b<-c2b[1:psub[b]]
+    rm(c2b)
+    # c. Establish (local-) triangulation (Delauney)
+    #    note: all points are used, despite the YES/NO thing
+    aux<-cbind(obs$x[close2b],obs$y[close2b])
+    nokloop<-1
+    # tri.mesh is not happy with duplicates, then we use the jitter option
+    jit<-1/mean(c(diff(range(obs$x[close2b])),diff(range(obs$x[close2b]))))
+    aux<-cbind(obs$x[close2b],obs$y[close2b])
+    nokloop<-1
+    while (anyDuplicated(aux)) {
+      if (nokloop%%2==0) {
+        obs$x[close2b][which(duplicated(aux))]<-obs$x[close2b][which(duplicated(aux))]+1
+      } else {
+        obs$y[close2b][which(duplicated(aux))]<-obs$y[close2b][which(duplicated(aux))]+1
+      }
+      aux<-cbind(obs$x[close2b],obs$y[close2b])
+      nokloop<-nokloop+1
+      if (nokloop>10) {
+        print("ERROR: check the input data for too many duplicated stations")
+        quit(status=1)
+      }
+    }
+    tri.rr<-tri.mesh(obs$x[close2b],obs$y[close2b],
+                     jitter=jit,jitter.iter=20,jitter.random=T)
+    # d. identify all the points (wheter YES or NO) which belongs
+    #    to adjacent nodes (respect to the b-th YES point node)
+    #  procedure: tri.find-> returns the three vertex indexes of triangle
+    #   containing the specified point. To find all the neighbouring 
+    #   triangles just span the area surrounding the b-th YES point
+    #   (circle of radius=1Km)
+    #  output: nodes-> point position respect to obs
+    nodes<-vector(mode="numeric")
+    tri.loc<-tri.find(tri.rr,obs$x[b],obs$y[b])
+    # note: due to the fact that (obs$x[b],obs$y[b]) belongs to the mesh
+    # used to establish the triangulation, ...i1,i2,i3 must be >0
+    nodes<-close2b[c(tri.loc$i1,tri.loc$i2,tri.loc$i3)]
+    for (cont.clock in 1:n.sector) {
+      x.aux<-obs$x[b]+sin(sector.angle*(cont.clock-1)*pi/180.)
+      y.aux<-obs$y[b]+cos(sector.angle*(cont.clock-1)*pi/180.)
+      tri.loc<-tri.find(tri.rr,x.aux,y.aux)
+      nodes.aux<-close2b[c(tri.loc$i1,tri.loc$i2,tri.loc$i3)]
+      nodes<-c(nodes,
+               nodes.aux[which( (!(nodes.aux %in% nodes)) &
+                                  (nodes.aux>0) )])
+    }
+    rm(x.aux,y.aux,tri.loc,nodes.aux)
+    lnodes<-length(nodes)
+    # e. update the temporary structure used to identify eve 
+    #    merge in a (new) eve all the (old) temporary eve (if any) 
+    #    which contain at least one point present in nodes (avoiding
+    #    repetition); erase (i.e. set to NAs) the (old) temporary eve merged
+    aux<-vector()
+    if (neve.aux>0) {
+      for (eve in 1:neve.aux) {
+        if (Leve.aux[eve]==0) next
+        if ( any(nodes %in% eve.aux[eve,1:Leve.aux[eve]]) ) {
+          aux<-c(aux[which(!(aux %in% eve.aux[eve,1:Leve.aux[eve]]))],
+                 eve.aux[eve,1:Leve.aux[eve]])
+          eve.aux[eve,]<-NA
+          Leve.aux[eve]<-0
+        }
+      }
+    }
+    neve.aux<-neve.aux+1
+    Leve.aux[neve.aux]<-length(c(aux,nodes[which(!(nodes%in%aux))]))
+    eve.aux[neve.aux,1:Leve.aux[neve.aux]]<-c(aux,nodes[which(!(nodes%in%aux))])
+  } # END: Cycle over the eventYES points
+# Reorganise eventYES clump labels
+  y.eve<-vector(length=p)
+  y.eve[1:p]<-NA
+  neve.vec<-0
+  if (neve.aux>0) {
+    for (eve in 1:neve.aux) {
+      if (Leve.aux[eve]==0) next
+      neve.vec<-neve.vec+1
+      Leve.vec[neve.vec]<-Leve.aux[eve]
+      eve.vec[neve.vec,1:Leve.vec[neve.vec]]<-eve.aux[eve,1:Leve.aux[eve]]
+      y.eve[eve.vec[neve.vec,1:Leve.vec[neve.vec]]]<-neve.vec
+    }
+  }
+  rm(eve.aux,Leve.aux,neve.aux)
+# identify eventYES points surrounded only by eventNO points (close enough)
+  if (neve.vec>0) {
+    for (j in 1:neve.vec) {
+      eve.j<-eve.vec[j,1:Leve.vec[j]]
+      ix.eY.pts<-which(eve.j %in% eix)
+      n.eY<-length(ix.eY.pts)
+      frac.eY<-n.eY/Leve.vec[j]
+      if (n.eY<n.connected_eveYES & frac.eY<frac.eveYES_in_the_clump) {
+        eve.j.eY<-eve.j[ix.eY.pts]
+        aux.dist<-(outer(obs$y[eve.j.eY],obs$y[eve.j],FUN="-")**2.+
+                   outer(obs$x[eve.j.eY],obs$x[eve.j],FUN="-")**2.)**0.5
+        min.dist.from.eY.stn<-min(aux.dist[aux.dist>0])
+        if (min.dist.from.eY.stn<dmin.next_eveYES) 
+          ydqc.flag[eve.j.eY]<-200
+      }
+    }
+    rm(eve.j,ix.eY.pts)
+  }
+  if (exists("aux.dist")) rm(aux.dist,min.dist.from.eY.stn,eve.j.eY)
+  ydqc.flag
+}
+
+`nc4.getTime` <-
+function(file.name,varid="time") {
+    # open netCDF file
+    defs<-nc_open(file.name)
+    tcors <- ncvar_get(defs, varid=varid)
+    tunits <- ncatt_get(defs, varid,"units")$value
+    tt <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
+    # close file
+    nc_close(defs)
+    # return the result
+    tt    
+}
+
+`nc4.getDim` <-
+function(file.name,varid="ensemble_member") {
+    # open netCDF file
+    defs<-nc_open(file.name)
+    vals<-ncvar_get(defs, varid=varid)
+    # close file
+    nc_close(defs)
+    # return the result
+    vals    
+}
+
+
+`str2Rdate` <-
+function(ts,format="%Y-%m-%d %H:%M:%S") {
+# Author: Christoph Frei
+# ===========================================================================
+# converts a string into an R (POSIXt,POSIXct) date object
+# date objects can be used with arithmetic operations +/-
+# ts is a character or a vector of characters with date information
+# in the format specified in format
+# Output is a date object
+
+     # the lengthy bunch of testing is necessary because strptime needs
+     # explicit specifications for month and day, otherwise it returns NA.
+     # this extension allows inputs of the format "%Y-%m" in which case the
+     # the first day of the month is taken as a reference.
+
+     #Êcheck if year/month/day is specified
+     ysp <- length(c(grep("%Y",format,fixed=TRUE),
+                     grep("%y",format,fixed=TRUE)))
+     msp <- length(c(grep("%m",format,fixed=TRUE),
+                     grep("%b",format,fixed=TRUE),
+                     grep("%B",format,fixed=TRUE)))
+     jsp <- length(c(grep("%j",format,fixed=TRUE)))
+     dsp <- length(c(grep("%d",format,fixed=TRUE)))
+     if (ysp > 1) { stop("ERROR: Multiple specification of year in 
+                         date format.") }
+     if (ysp == 0) { stop("ERROR: No year specification in 
+                         date format.") }
+     if (msp > 1) { stop("ERROR: Multiple specification of month in 
+                         date format.") }
+     if (dsp > 1) { stop("ERROR: Multiple specification of day in 
+                         date format.") }
+
+     # append month or day if not specified
+     tss <- ts
+     formati <- format
+     if (jsp == 0) {
+     if (msp == 0) { 
+        tss <- paste(tss,"01",sep="")
+        formati <- paste(formati,"%m",sep="")
+     }
+     if (dsp == 0) { 
+        tss <- paste(tss,"01",sep="") 
+        formati <- paste(formati,"%d",sep="")
+     }
+     }
+
+     # this is necessary because strptime() returns NA otherwise
+     as.POSIXct(strptime(tss,format=formati),tz="GMT")
+}
+
+`Rdate2str` <-
+function(date,format="%Y-%m-%d %H:%M:%S") {
+#Author: Christoph Frei
+# ===========================================================================
+# converts a R (POSIXt,POSIXct) date object into a string
+# date is one or a vector of R date-time objects
+# format specifies the desired character format analogous to str2Rdate
+# Output is one or a vector of characters
+     format(date,format=format,tz="GMT")
+}
+
+
+`nc4t2str` <- 
+function (nct, nct.unit, format = "%Y%m%d%H%M") {
+#Author: Christoph Frei
+    fmt.nc <- "%Y-%m-%d %H:%M:00"
+    rd.expl <- str2Rdate("190001010000", format = "%Y%m%d%H%M")
+    ss.expl <- Rdate2str(rd.expl, format = fmt.nc)
+    ll <- nchar(ss.expl)
+    reference <- nct.unit
+    t.unit <- switch(substr(reference, 1, 4), 
+                     minu = "T",
+                     hour = "H", 
+                     days = "D",
+                     mont = "M",
+                     year = "Y",
+                     seco = "S")
+    c.start <- switch(t.unit, T = 15, H = 13, D = 12, M = 14, Y = 13, S=15)
+    ref.date.str <- substr(reference, c.start, stop = c.start + ll - 1)
+    if (nchar(ref.date.str)<nchar(ss.expl)) {
+      ll1 <- nchar(ref.date.str)
+      aux<- substr(ss.expl, (ll1+1), stop = ll)
+      ref.date.str<-paste(ref.date.str,":00",sep="")
+    }
+#           ref.date <- str2Rdate(ref.date.str, format = fmt.nc)
+    ref.date <- str2Rdate(ref.date.str)
+    if (!(t.unit %in% c("Y", "M", "T", "H", "D", "S"))) {
+        stop("Time conversion not available")
+    }
+    if (t.unit %in% c("T", "H", "D", "S")) {
+        t.scal <- switch(t.unit, T = 60, H = 3600, D = 86400, S=1)
+        secs.elapsed <- nct * t.scal
+        r.tims <- ref.date + secs.elapsed
+    }
+    if (t.unit == "Y") {
+        yy.ref <- as.numeric(Rdate2str(ref.date, format = "%Y"))
+        rr.ref <- Rdate2str(ref.date, format = "%m%d%H%M")
+        yy.ch <- sprintf("%03d", nct + yy.ref)
+        dd.ch <- sapply(yy.ch, FUN = function(x) paste(x, rr.ref, 
+            sep = ""))
+        r.tims <- str2Rdate(dd.ch, format = "%Y%m%d%H%M")
+    }
+    if (t.unit == "M") {
+        yy.ref <- as.numeric(Rdate2str(ref.date, format = "%Y"))
+        mm.ref <- as.numeric(Rdate2str(ref.date, format = "%m"))
+        rr.ref <- Rdate2str(ref.date, format = "%d%H%M")
+        mm <- nct + (yy.ref * 12 + mm.ref)
+        hhy <- trunc((mm - 1)/12)
+        hhm <- mm - hhy * 12
+        dd.ch <- sapply(1:length(hhy), 
+                 FUN = function(ii) paste(sprintf("%04d", 
+                     hhy[ii]), sprintf("%02d", hhm[ii]), rr.ref, sep = ""))
+        r.tims <- str2Rdate(dd.ch, format = "%Y%m%d%H%M")
+    }
+    Rdate2str(r.tims, format = format)
+}
+
+
+# read netCDF file format
+nc4in<-function(nc.file,nc.varname,
+                topdown=F,
+                out.dim=NULL,
+                proj4=NULL,
+                nc.proj4=NULL,
+                selection=NULL,
+                verbose=F) {
+#-------------------------------------------------------------------------------
+# Read data from ncdf file.
+# out.dim must contain the same number of dimension as the variable one want to 
+#  read from the file.
+# 
+# ..............................................................................
+# out.dim. list of variables describing the dimensions
+# out.dim$
+#  ndim. integer. number of dimension for the output structure.
+#  tpos. integer
+#  epos. integer
+#  zpos. integer
+#  names. vector (1...ndim). related to names(nc$dim)
+#         names[1]=x
+#         names[2]=y
+#         ...
+#
+# selection$
+#  t
+#  z
+#  e
+#
+# proj4. character. proj4 string set by the user 
+# 
+# nc.proj4. read proj4 string from file
+# nc.proj4$
+#  var. variable which contains proj4 attribute
+#  att. attribute of var which contains proj4 string
+#
+# 
+# out... output 
+# nc... whole nc
+# var... nc variable
+#
+# example:
+# file<-"/lustre/storeB/project/metproduction/products/meps/meps_extracted_2_5km_20161230T06Z.nc"
+# nc.varname<-"precipitation_amount_acc"
+# ndim<-4
+# tpos<-4
+# epos<-3
+# names<-vector(length=4,mode="character")
+# names<-c("x","y","ensemble_member","time") # same names as the nc dimensions
+#   # morevoer, these must be all the dimensions of the nc.varname in the nc file
+#   # (apart from dimensions that have just 1-field, i.e. they are not really 
+#   #  useful dimensions)
+#===============================================================================
+  # open/read/close netcdf file
+  if (!file.exists(nc.file)) return(NULL)
+  nc <- nc_open(nc.file)
+  nc.varnames<-attr(nc$var,"names")
+  nc.dimnames<-attr(nc$dim,"names")
+  if (is.null(out.dim)) {
+    ndim<-2
+    names<-vector(length=ndim,mode="character")
+    names<-c(dim.names[1],dim.names[2])
+    out.dim<-list(ndim=ndim,names=names)
+    rm(ndim,names)
+  }
+  out.dimids4nc<-match(out.dim$names,nc.dimnames)
+  if (any(is.na(out.dimids4nc))) return(NULL)
+  if (!(nc.varname%in%nc.varnames)) return(NULL)
+  # proj4 string is needed either (1) set by the user or (2) read from nc
+  if (is.null(proj4)) {
+    aux<-ncatt_get(nc,nc.proj4$var,nc.proj4$att)
+    if (!aux$hasatt) return(NULL)
+    proj4<-aux$value
+  }
+  idx<-which(nc.varnames==nc.varname)
+  var<-nc$var[[idx]]
+  var.size  <- var$varsize
+  var.ndims <- var$ndims
+  var.dimids<- var$dimids + 1
+  out.dimids4var<-match(out.dimids4nc,var.dimids)
+  if (any(is.na(out.dimids4var))) return(NULL)
+  # define raster
+  text.xdim<-paste("nc$dim$",out.dim$names[1],"$vals",sep="")
+  text.ydim<-paste("nc$dim$",out.dim$names[2],"$vals",sep="")
+  dx<-abs(eval(parse(text=paste(text.xdim,"[1]",sep="")))-
+          eval(parse(text=paste(text.xdim,"[2]",sep=""))))
+  ex.xmin<-min(eval(parse(text=text.xdim)))-dx/2
+  ex.xmax<-max(eval(parse(text=text.xdim)))+dx/2
+  dy<-abs(eval(parse(text=paste(text.ydim,"[1]",sep="")))-
+          eval(parse(text=paste(text.ydim,"[2]",sep=""))))
+  ex.ymin<-min(eval(parse(text=text.ydim)))-dy/2
+  ex.ymax<-max(eval(parse(text=text.ydim)))+dy/2
+  nx<-eval(parse(text=paste("nc$dim$",out.dim$names[1],"$len",sep="")))
+  ny<-eval(parse(text=paste("nc$dim$",out.dim$names[2],"$len",sep="")))
+
+  if (nx>1 & ny>1) {
+    is.raster<-T
+    r <-raster(ncol=nx, nrow=ny,
+               xmn=ex.xmin, xmx=ex.xmax,
+               ymn=ex.ymin, ymx=ex.ymax,
+               crs=proj4)
+    r[]<-NA
+  } else {
+    is.raster<-F
+    s<-NULL
+  }
+  # time coordinate
+  tcors  <- ncvar_get(nc, varid=out.dim$names[out.dim$tpos])
+  tunits <- ncatt_get(nc, out.dim$names[out.dim$tpos],"units")$value
+  tall <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
+  ntall<-length(tall)
+  tsel<-1:ntall
+  if (!is.null(selection)) {
+    if (!is.null(selection$t)) {
+      if (any(selection$t %in% tall)) {
+        tsel<-which(tall %in% selection$t)
+      }
+    }
+  }
+  ntsel<-length(tsel)
+  # ensemble member
+  esel<-NULL
+  nesel<-0
+  if (!is.null(out.dim$epos)) {
+    ecors<-ncvar_get(nc, varid=out.dim$names[out.dim$epos])
+    eall<-ecors
+    neall<-length(ecors)
+    esel<-1:neall
+    if (!is.null(selection)) {
+      if (!is.null(selection$e)) {
+        if (any(selection$e %in% eall)) {
+          esel<-which(eall %in% selection$e)
+          nesel<-length(esel)
+        }
+      }
+    }
+  }
+  # elevation
+  zsel<-NULL
+  nzsel<-0
+  if (!is.null(out.dim$zpos)) {
+    zcors<-ncvar_get(nc, varid=out.dim$names[out.dim$zpos])
+    zall<-zcors
+    nzall<-length(zcors)
+    zsel<-1:nzall
+    if (!is.null(selection)) {
+      if (!is.null(selection$z)) {
+        if (any(selection$z %in% zall)) {
+          zsel<-which(zall %in% selection$z)
+          nzsel<-length(zsel)
+        }
+      }
+    }
+  }
+  # labels
+  jtot<-ntsel
+  if (nzsel>0) jtot<-jtot*nzsel
+  if (nesel>0) jtot<-jtot*nesel
+  j<-0
+  tlab<-vector(mode="character",length=jtot)
+  if (nesel>0) {
+    elab<-vector(mode="character",length=jtot)
+  } else {
+    elab<-NULL
+  }
+  zlab<-vector(mode="character",length=jtot)
+  if (nesel>0) {
+    zlab<-vector(mode="character",length=jtot)
+  } else {
+    zlab<-NULL
+  }
+  labels<-list(t=tlab,e=elab,z=zlab)
+  data.vec<-array(data=NA,dim=c(nx*ny,jtot))
+  for (t in tsel) {
+    # == cycle for data with 5 dimension (x,y,z,e,t)
+    if ((nzsel>0) & (nesel>0)) {
+      for (e in esel) {
+        for (z in zsel) {
+          j<-j+1
+          start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+          start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
+                                                   # to read timestep t
+          start[out.dimids4var[out.dim$epos]] <- e # change to start=(1,1,1,...,t) 
+                                                   # to read timestep t, ens e
+          start[out.dimids4var[out.dim$zpos]] <- z # change to start=(1,1,1,...,t) 
+                                                   # to read timestep t, ens e, lev z
+          count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+          count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                   # to read 1 tstep
+          count[out.dimids4var[out.dim$epos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                   # to read 1 tstep, 1ens
+          count[out.dimids4var[out.dim$zpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                   # to read 1 tstep, 1ens, 1z
+          data <- ncvar_get( nc, var, start=start, count=count )
+          if (length(dim(data))!=2) return(NULL)
+          if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+          if (is.raster) {
+            r[]<-t(data)
+            data.vec[,j]<-getValues(r)
+            if (j==1) {
+              s<-r
+            } else {
+              s<-stack(s,r)
+            }
+          }
+          labels$t[j]<-tall[t]
+          labels$e[j]<-eall[e]
+          labels$z[j]<-zall[z]
+          if (verbose) print(paste("Data for variable",nc.varname,
+                                   "at timestep",labels$t[j],
+                                   "for ensemble_member",labels$e[j],
+                                   "at elevation",labels$z[j]))
+        } # end for z
+      } # end for e
+    # == cycle for data with 4 dimension (x,y,z,t)
+    } else if (nzsel>0) {
+      for (z in zsel) {
+        j<-j+1
+        start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+        start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
+                                                 # to read timestep t
+        start[out.dimids4var[out.dim$zpos]] <- z # change to start=(1,1,1,...,t) 
+                                                 # to read timestep t, ens e, lev z
+        count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+        count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                 # to read 1 tstep
+        count[out.dimids4var[out.dim$zpos]] <- 1 # change to count=(nx,ny,nz,...,1) 
+                                                 # to read 1 tstep, 1ens, 1z
+        data <- ncvar_get( nc, var, start=start, count=count )
+        if (length(dim(data))!=2) return(NULL)
+        if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+        if (is.raster) {
+          r[]<-t(data)
+          data.vec[,j]<-getValues(r)
+          if (j==1) {
+            s<-r
+          } else {
+            s<-stack(s,r)
+          }
+        }
+        labels$t[j]<-tall[t]
+        labels$z[j]<-zall[z]
+        if (verbose) print(paste("Data for variable",nc.varname,
+                                 "at timestep",labels$t[j],
+                                 "at elevation",labels$z[j]))
+      } # end for z
+    # == cycle for data with 4 dimension (x,y,e,t)
+    } else if (nesel>0) {
+      for (e in esel) {
+        j<-j+1
+        start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+        start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
+                                                 # to read timestep t
+        start[out.dimids4var[out.dim$epos]] <- e # change to start=(1,1,1,...,t) 
+                                               # to read timestep t, ens e, lev z
+        count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+        count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                 # to read 1 tstep
+        count[out.dimids4var[out.dim$epos]] <- 1 # change to count=(nx,ny,nz,...,1) 
+                                                 # to read 1 tstep, 1ens, 1z
+        data <- ncvar_get( nc, var, start=start, count=count )
+        if (is.raster) {
+          if (length(dim(data))!=2) return(NULL)
+          if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+          r[]<-t(data)
+          data.vec[,j]<-getValues(r)
+          if (j==1) {
+            s<-r
+          } else {
+            s<-stack(s,r)
+          }
+        } else {
+          if (topdown) data[1:length(data)]<-data[length(data):1]
+          data.vec[,j]<-data
+        }
+        labels$t[j]<-tall[t]
+        labels$e[j]<-eall[e]
+        if (verbose) print(paste("Data for variable",nc.varname,
+                                 "at timestep",labels$t[j],
+                                 "for ensemble_member",labels$e[j]))
+      } # end for e
+    # == cycle for data with 3 dimension (x,y,t)
+    } else {
+      j<-j+1
+      start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+      start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
+                                               # to read timestep t
+      count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+      count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1) 
+                                               # to read 1 tstep
+      data <- ncvar_get( nc, var, start=start, count=count )
+      if (length(dim(data))!=2) return(NULL)
+      if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+      if (is.raster) {
+        r[]<-t(data)
+        data.vec[,j]<-getValues(r)
+        if (exists("s")) s<-stack(s,r)
+        if (j==1) {
+          s<-r
+        } else {
+          s<-stack(s,r)
+        }
+      }
+      labels$t[j]<-tall[t]
+      if (verbose) print(paste("Data for variable",nc.varname,
+                               "at timestep",labels$t[j]))
+    } 
+  } # end for "time"
+  nc_close(nc)
+  return(list(data=data.vec,stack=s,labels=labels))
+}
+
+# debug
 plotSCTgrid<-function() {
-  png(file="domain.png",width=800,height=800)
+  r<-raster(e,ncol=argv$grid.sct[2],nrow=argv$grid.sct[1])
+  xy<-xyFromCell(r,1:ncell(r))
+  xr<-xy[,1]
+  yr<-xy[,2]
+  ir<-1:ncell(r)
+  r[]<-1:ncell(r)
   par(mar=c(1,1,1,1))
-  image(rlaf,breaks=c(0,0.000001,1),col=c("cornflowerblue","beige"),axes=F,
-        main="",xlab="",ylab="")
   plot(e,add=T)
   #points(xr,yr,pch=19,col="black")
   xrv<-unique(xr)
@@ -448,19 +1099,19 @@ plotSCTgrid<-function() {
     lines(c(xrv[iii]+res(r)[1]/2,xrv[iii]+res(r)[1]/2),c(yrmn,yrmx),lwd=2.5)
   }
   box()
-  dev.off()
 }
-
 
 #==============================================================================
 #  MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN
 #==============================================================================
 t0<-Sys.time()
 #
+proj4default<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
 # create parser object
 p <- arg_parser("titan")
-# specify our desired options 
-# by default ArgumentParser will add an help option 
+# specify our desired options
+#.............................................................................. 
+# REQUIRED input 
 p <- add_argument(p, "input",
                   help="input file",
                   type="character")
@@ -468,7 +1119,20 @@ p <- add_argument(p, "output",
                   help="output file",
                   type="character",
                   default="output.txt")
-# more than one provider
+#.............................................................................. 
+# VARIABLE definition 
+p<- add_argument(p, "--variable",
+                 help=paste("meteorological variable (T temperature,",
+                            " RR precipitation, RH relative humidity)"),
+                 type="character",
+                 default="T",
+                 short="-var")
+# parameter for the Box-Cox transformation (rquired for var=RR)
+p <- add_argument(p, "--boxcox.lambda",
+                  help="parameter used in the Box-Cox transformation (var RR)",
+                  type="numeric",default=0.5,short="-l")
+#.............................................................................. 
+# ADDITIONAL input files / providers
 p <- add_argument(p, "--input.files",
                   help="additional input files (provider2 provider3 ...)",
                   type="character",
@@ -479,8 +1143,34 @@ p <- add_argument(p, "--prid",
                   help="provider identifiers (provider1 provider2 provider3 ...)",
                   type="character",
                   default=NA,
-                  nargs=Inf)
-#
+                  nargs=Inf,
+                  short="-pr")
+p <- add_argument(p, "--input.offset",
+   help="offset applied to the input files (one for each provider, default=0)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-io")
+p <- add_argument(p, "--input.negoffset",
+                  help="sign for the offsets (1=negative; 0=positive, def=0)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-ion")
+p <- add_argument(p, "--input.cfact",
+   help="correction factor applied to the input files (one for each provider, default=1)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf, 
+                  short="-icf")
+p <- add_argument(p, "--input.negcfact",
+                  help="sign for the correction factors (1=negative; 0=positive, def=0)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-icfn")
+#.............................................................................. 
+# DEBUG
 p <- add_argument(p, "--debug",
                   help="debug mode",
                   flag=T,
@@ -494,6 +1184,76 @@ p <- add_argument(p, "--verbose",
                   help="debug mode",
                   flag=T,
                   short="-v")
+#.............................................................................. 
+# Quality control codes
+p <- add_argument(p, "--nometa.code",
+                  help="quality code returned in case of missing metadata",
+                  type="numeric",
+                  default=1,
+                  short="-nometac")
+p <- add_argument(p, "--p.code",
+  help="quality code returned in case of the check on plausible values fails",
+                  type="numeric",
+                  default=2,
+                  short="-pcodec")
+p <- add_argument(p, "--clim.code",
+ help="quality code returned in case of the check on climatological values fails",
+                  type="numeric",
+                  default=3,
+                  short="-climc")
+p <- add_argument(p, "--buddy.code",
+  help="quality code returned in case of the buddy check fails",
+                  type="numeric",
+                  default=4,
+                  short="-buddyc")
+p <- add_argument(p, "--sct.code",
+                  help="quality code returned in case of SCT fails",
+                  type="numeric",
+                  default=5,
+                  short="-sctc")
+p <- add_argument(p, "--dem.code",
+                  help="quality code returned in case of SCT fails",
+                  type="numeric",
+                  default=6,
+                  short="-demc")
+p <- add_argument(p, "--isol.code",
+        help="quality code returned in case of isolation check fails",
+                  type="numeric",
+                  default=7,
+                  short="-isolc")
+p <- add_argument(p, "--fg.code",
+ help="quality code returned in case of check against a first-guess field (deterministic) fails",
+                  type="numeric",
+                  default=8,
+                  short="-fgc")
+p <- add_argument(p, "--fge.code",
+ help="quality code returned in case of check against a first-guess field (ensemble) fails",
+                  type="numeric",
+                  default=10,
+                  short="-fgc")
+p <- add_argument(p, "--steve.code",
+                  help="quality code returned in case of STEVE fails",
+                  type="numeric",
+                  default=9,
+                  short="-stevec")
+p <- add_argument(p, "--black.code",
+    help="quality code assigned to observations listed in the blacklist",
+                  type="numeric",
+                  default=100,
+                  short="-blackc")
+p <- add_argument(p, "--keep.code",
+    help="quality code assigned to observations listed in the keep-list",
+                  type="numeric",
+                  default=100,
+                  short="-keepc")
+#.............................................................................. 
+# standard value for the moist adiabatic lapse rate
+p <- add_argument(p, "--gamma.standard",
+  help="standard value for the moist adiabatic temperature lapse rate dT/dz",
+                  type="numeric",
+                  default=-0.0065)
+#.............................................................................. 
+# GEOGRAPHICAL domain definition  
 # NOTE: lat-lon setup to have Oslo in a single box
 p <- add_argument(p, "--lonmin",
                   help="longitude of south-eastern domain corner",
@@ -515,31 +1275,69 @@ p <- add_argument(p, "--latmax",
                   type="numeric",
                   default=71.8,
                   short="-lax")
-# variable names
+# transformation between coordinate reference systems
+p <- add_argument(p, "--spatconv",
+                  help="flag for conversion of spatial coordinates before running the data quality checks",
+                  flag=T,
+                  short="-c")
+p <- add_argument(p, "--proj4from",
+                  help="proj4 string for the original coordinate reference system",
+                  type="character",
+                  default="+proj=longlat +datum=WGS84",
+                  short="-pf")
+p <- add_argument(p, "--proj4to",
+                  help="proj4 string for the coordinate reference system where the DQC is performed",
+                  type="character",
+                  default=proj4default,
+                  short="-pt")
+#.............................................................................. 
+# INPUT/OUTPUT names
 p <- add_argument(p, "--separator",
-                  help="separator character",
+                  help="character vector, input file(s) separator character(s) (default '';'')",
+                  type="character",
+                  nargs=Inf,
+                  default=NA)
+p <- add_argument(p, "--separator.out",
+                  help="separator character in the output file",
                   type="character",
                   default=";")
 p <- add_argument(p, "--varname.lat",
-                  help="name for the latitude variable (in/out)",
+                  help="character vector, latitude variable name(s) in the input file (default ''lat'')",
                   type="character",
-                  default="lat",
+                  nargs=Inf,
                   short="-vlat")
+p <- add_argument(p, "--varname.lat.out",
+                  help="latitude variable name in the output file",
+                  type="character",
+                  default="lat")
 p <- add_argument(p, "--varname.lon",
-                  help="name for the longitude variable (in/out)",
+                  help="character vector, longitude variable name(s) in the input file (default ''lon'')",
                   type="character",
-                  default="lon",
+                  nargs=Inf,
                   short="-vlon")
+p <- add_argument(p, "--varname.lon.out",
+                  help="longitude variable name in the output file",
+                  type="character",
+                  default="lon")
 p <- add_argument(p, "--varname.elev",
-                  help="name for the elevation variable (in/out)",
+                  help="character vector, elevation variable names(s) in the input file (default ''elev'')",
                   type="character",
-                  default="elev",
+                  nargs=Inf,
                   short="-vele")
-p <- add_argument(p, "--varname.value",
-                  help="name for the temperature variable (in/out)",
+p <- add_argument(p, "--varname.elev.out",
+                  help="elevation variable name in the output file",
                   type="character",
-                  default="value",
+                  default="elev")
+p <- add_argument(p, "--varname.value",
+                  help="character vector, variable name(s) in the input file (default ''value'')",
+                  type="character",
+                  nargs=Inf,
                   short="-vval")
+p <- add_argument(p, "--varname.value.out",
+                  help="name for the variable values (in/out)",
+                  type="character",
+                  default="value")
+# output file
 p <- add_argument(p, "--varname.opt",
      help="additional optional variables to be written on the output (out)",
                   type="character",
@@ -566,21 +1364,7 @@ p<- add_argument(p, "--varname.rep",
                  type="character",
                  default="rep",
                  short="-vrep")
-# geographical parameters
-p <- add_argument(p, "--spatconv",
-                  help="flag for conversion of spatial coordinates before running the data quality checks",
-                  flag=T,
-                  short="-c")
-p <- add_argument(p, "--proj4from",
-                  help="proj4 string for the original coordinate reference system",
-                  type="character",
-                  default="+proj=longlat +datum=WGS84",
-                  short="-pf")
-p <- add_argument(p, "--proj4to",
-                  help="proj4 string for the coordinate reference system where the DQC is performed",
-                  type="character",
-                  default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",
-                  short="-pt")
+#.............................................................................. 
 # metadata check
 p <- add_argument(p, "--zmin",
                   help="minimum allowed elevation in the domain [m amsl]",
@@ -592,37 +1376,75 @@ p <- add_argument(p, "--zmax",
                   type="numeric",
                   default=2500,
                   short="-Z")
+#.............................................................................. 
 # Plausibility check
 p <- add_argument(p, "--tmin",
-                  help="minimum allowed temperature [K or degC]",
+                  help="minimum allowed temperature [K or degC] (deprecated, use vmin instead)",
                   type="numeric",
-                  default=-50,
+                  default=NA,
                   short="-tP")
 p <- add_argument(p, "--tmax",
-                  help="maximum allowed temperature [K or degC]",
+                  help="maximum allowed temperature [K or degC] (deprecated, use vmax instead)",
                   type="numeric",
-                  default=40,
+                  default=NA,
                   short="-TP")
-# Cliamtological check
-# default based on Norwegian hourly temeprature from 2010-2017
+p <- add_argument(p, "--vmin",
+                  help="minimum allowed value [units of the variable specified]",
+                  type="numeric",
+                  default=-50)
+p <- add_argument(p, "--vmax",
+                  help="maximum allowed value [units of the variable specified]",
+                  type="numeric",
+                  default=40)
+p <- add_argument(p, "--vminsign",
+                  help="minimum allowed value, sign [1=neg, 0=pos]",
+                  type="numeric",
+                  default=0)
+p <- add_argument(p, "--vmaxsign",
+                  help="maximum allowed value, sign [1=neg, 0=pos]",
+                  type="numeric",
+                  default=0)
+#.............................................................................. 
+# Climatological check
+# default based on Norwegian hourly temperature from 2010-2017
 p <- add_argument(p, "--tmin.clim",
-                  help="minimum allowed temperature [K or degC]",
+                  help="minimum allowed temperature [K or degC] (deprecated)",
                   type="numeric",
                   nargs=12,
                   short="-tC",
-                  default=c(-45,-45,-40,-35,-20,-15,-10,-15,-15,-20,-35,-45))
+                  default=rep(NA,12))
 p <- add_argument(p, "--tmax.clim",
-                  help="maximum allowed temperature [K or degC]",
+                  help="maximum allowed temperature [K or degC] (deprecated)",
                   type="numeric",
                   nargs=12,
                   short="-TC",
+                  default=rep(NA,12))
+p <- add_argument(p, "--vmin.clim",
+                  help="minimum allowed value [units of the variable specified]",
+                  type="numeric",
+                  nargs=12,
+                  default=c(45,45,40,35,20,15,10,15,15,20,35,45))
+p <- add_argument(p, "--vmax.clim",
+                  help="maximum allowed value [units of the variable specified]",
+                  type="numeric",
+                  nargs=12,
                   default=c(20,20,25,25,35,35,40,40,35,30,25,20))
 p <- add_argument(p, "--month.clim",
                   help="month (number 1-12)",
                   type="numeric",
                   short="-mC",
-#                  default=as.numeric(format(Sys.time(), "%m")))
                   default=NA)
+p <- add_argument(p, "--vminsign.clim",
+                  help="minimum allowed value, sign [1=neg, 0=pos]",
+                  type="numeric",
+                  nargs=12,
+                  default=c(1,1,1,1,1,1,1,1,1,1,1,1))
+p <- add_argument(p, "--vmaxsign.clim",
+                  help="maximum allowed value, sign [1=neg, 0=pos]",
+                  type="numeric",
+                  nargs=12,
+                  default=c(0,0,0,0,0,0,0,0,0,0,0,0))
+#.............................................................................. 
 # Buddy-check
 p <- add_argument(p, "--dr.buddy",
                   help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
@@ -649,6 +1471,390 @@ p <- add_argument(p, "--dz.buddy",
                   type="numeric",
                   default=30,
                   short="-zB")
+#.............................................................................. 
+# first-guess or background file / deterministic
+p <- add_argument(p, "--fg",
+        help="check against a deteministic first-guess (fg) field on a regular grid",
+                  flag=T)
+p <- add_argument(p, "--thr.fg",
+     help="maximum allowed deviation between observation and fg",
+                  type="numeric",
+                  default=50)
+p <- add_argument(p, "--thrpos.fg",
+     help="maximum allowed deviation between observation and fg (if obs>fg)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--thrneg.fg",
+     help="maximum allowed deviation between observation and fg (if obs<fg)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p,"--fg.type",
+                  help="file type for the first-guess (e.g., meps)",
+                  type="character",
+                  default=NULL,
+                  short="-fgty")
+p <- add_argument(p,"--fg.file",
+                  help="first-guess or background file",
+                  type="character",
+                  default=NULL,
+                  short="-fgf")
+p <- add_argument(p, "--fg.offset",
+                  help="offset",
+                  type="numeric",
+                  default=0,
+                  short="-fgoff")
+p <- add_argument(p, "--fg.cfact",
+                  help="correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-fgcf")
+p <- add_argument(p, "--fg.negoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgnoff")
+p <- add_argument(p, "--fg.negcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgncf")
+p <- add_argument(p, "--proj4fg",
+                  help="proj4 string for the first-guess file",
+                  type="character",
+                  default=proj4default,
+                  short="-pfg")
+p <- add_argument(p, "--usefg.sct",
+         help="use the first-guess field provided as the SCT-background",
+                  flag=T)
+p <- add_argument(p, "--fg.varname",
+                  help="variable name in the netCDF file",
+                  type="character",
+                  default="land_area_fraction",
+                  short="-fgv")
+p <- add_argument(p, "--fg.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the fg upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-fgtd")
+p <- add_argument(p, "--fg.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgnd")
+p <- add_argument(p, "--fg.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgti")
+p <- add_argument(p, "--fg.epos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgti")
+p <- add_argument(p, "--fg.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-fgna",
+                  nargs=Inf)
+p <- add_argument(p, "--fg.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-fgp4v")
+p <- add_argument(p, "--fg.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-fgp4a")
+p <- add_argument(p, "--fg.t",
+                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-fgtt")
+p <- add_argument(p, "--fg.e",
+                  help="ensemble member to read in the netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-fgee")
+p <- add_argument(p, "--fg.acc",
+                  help="first-guess field is accumulated",
+                  flag=T,
+                  short="-fgacc")
+p <- add_argument(p,"--fg.demfile",
+                  help="dem file associated to the first-guess or background file",
+                  type="character",
+                  default=NULL,
+                  short="-fgdf")
+p <- add_argument(p, "--fg.demoffset",
+                  help="offset",
+                  type="numeric",
+                  default=0,
+                  short="-fgdoff")
+p <- add_argument(p, "--fg.demcfact",
+                  help="correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-fgdcf")
+p <- add_argument(p, "--fg.demnegoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgdnoff")
+p <- add_argument(p, "--fg.demnegcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgdncf")
+p <- add_argument(p, "--fg.demt",
+                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-fgdt")
+p <- add_argument(p, "--fg.demvarname",
+                  help="variable name in the netCDF file (dem associated to the first-guess)",
+                  type="character",
+                  default="none",
+                  short="-fgdv")
+p <- add_argument(p, "--fg.demtopdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-fgdtd")
+p <- add_argument(p, "--fg.demndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgdnd")
+p <- add_argument(p, "--fg.demepos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgdti")
+p <- add_argument(p, "--fg.demtpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgdti")
+p <- add_argument(p, "--fg.deme",
+                  help="ensemble member to read in the netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-fgdee")
+p <- add_argument(p, "--fg.demdimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-fgdna",
+                  nargs=Inf)
+#.............................................................................. 
+# first-guess or background file / ensemble
+p <- add_argument(p, "--fge",
+        help="check against an ensemble of first-guess (fge) fields on a regular grid",
+                  flag=T)
+p <- add_argument(p, "--thr.fge",
+     help="maximum allowed deviation between observation and fg",
+                  type="numeric",
+                  default=50)
+p <- add_argument(p, "--thrpos.fge",
+     help="maximum allowed deviation between observation and fg (if obs>fg)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--thrneg.fge",
+     help="maximum allowed deviation between observation and fg (if obs<fg)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p,"--fge.type",
+                  help="file type for the ensemble first-guess (e.g., meps)",
+                  type="character",
+                  default=NULL,
+                  short="-fgety")
+p <- add_argument(p, "--fge.offset",
+                  help="offset",
+                  type="numeric",
+                  default=0,
+                  short="-fgedoff")
+p <- add_argument(p, "--fge.cfact",
+                  help="correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-fgedcf")
+p <- add_argument(p, "--fge.negoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgednoff")
+p <- add_argument(p, "--fge.negcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgedncf")
+p <- add_argument(p,"--fge.file",
+                  help="file with the ensemble members",
+                  type="character",
+                  default=NULL,
+                  short="-fgef")
+p <- add_argument(p, "--proj4fge",
+                  help="proj4 string for the first-guess file",
+                  type="character",
+                  default=proj4default,
+                  short="-pfge")
+p <- add_argument(p, "--usefge.sct",
+         help="use the ensemble mean as the SCT-background",
+                  flag=T)
+p <- add_argument(p, "--fge.varname",
+                  help="variable name in the netCDF file",
+                  type="character",
+                  default="land_area_fraction",
+                  short="-fgev")
+p <- add_argument(p, "--fge.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the fge upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-fgetd")
+p <- add_argument(p, "--fge.acc",
+                  help="ensemble first-guess field is accumulated",
+                  flag=T,
+                  short="-fgacc")
+p <- add_argument(p, "--fge.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgend")
+p <- add_argument(p, "--fge.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgeti")
+p <- add_argument(p, "--fge.epos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgeti")
+p <- add_argument(p, "--fge.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-fgena",
+                  nargs=Inf)
+p <- add_argument(p, "--fge.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-fgep4v")
+p <- add_argument(p, "--fge.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-fgep4a")
+p <- add_argument(p, "--fge.t",
+                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-fgett")
+p <- add_argument(p, "--fge.e",
+                  help="ensemble member to read in the netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-fgeee")
+p <- add_argument(p,"--fge.demfile",
+                  help="dem file associated to the first-guess or background file",
+                  type="character",
+                  default=NULL,
+                  short="-fgedf")
+p <- add_argument(p, "--fge.demoffset",
+                  help="offset",
+                  type="numeric",
+                  default=0,
+                  short="-fgedoff")
+p <- add_argument(p, "--fge.demcfact",
+                  help="correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-fgedcf")
+p <- add_argument(p, "--fge.demnegoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgednoff")
+p <- add_argument(p, "--fge.demnegcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-fgedncf")
+p <- add_argument(p, "--fge.demt",
+                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-fgedt")
+p <- add_argument(p, "--fge.demvarname",
+                  help="variable name in the netCDF file (dem associated to the first-guess)",
+                  type="character",
+                  default="none",
+                  short="-fgedv")
+p <- add_argument(p, "--fge.demtopdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-fgedtd")
+p <- add_argument(p, "--fge.demndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgednd")
+p <- add_argument(p, "--fge.demepos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgedti")
+p <- add_argument(p, "--fge.demtpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-fgedti")
+p <- add_argument(p, "--fge.deme",
+                  help="ensemble member to read in the netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-fgedee")
+p <- add_argument(p, "--fge.demdimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-fgedna",
+                  nargs=Inf)
+p <- add_argument(p, "--csd.fge",
+  help="coefficient, outlier detection based on ensemble standard deviation",
+                  type="numeric",
+                  default=5,
+                  short="-fgecsd")
+p <- add_argument(p, "--infsd.fge",
+  help="inflaction coefficient, outlier detection based on ensemble standard deviation",
+                  type="numeric",
+                  default=3,
+                  short="-fgeisd")
+p <- add_argument(p, "--ciqr.fge",
+  help="coefficient, outlier detection based on ensemble standard deviation",
+                  type="numeric",
+                  default=1.5,
+                  short="-fgeciqr")
+p <- add_argument(p, "--infiqr.fge",
+  help="inflaction coefficient, outlier detection based on ensemble standard deviation",
+                  type="numeric",
+                  default=3,
+                  short="-fgeiiqr")
+p <- add_argument(p, "--sdmin.fge",
+                  help="ensemble standard deviation, minimum value",
+                  type="numeric",
+                  default=.2,
+                  short="-fgesdmn")
+p <- add_argument(p, "--iqrmin.fge",
+                  help="ensemble inter-quartile range, minimum value",
+                  type="numeric",
+                  default=.3,
+                  short="-fgesdmn")
+                 
+#.............................................................................. 
 # isolated stations
 p <- add_argument(p, "--dr.isol",
                   help="check for the number of observation in a dr-by-dr square-box around each observation [m]",
@@ -660,9 +1866,13 @@ p <- add_argument(p, "--n.isol",
                   type="integer",
                   default=10,
                   short="-nI")
+#.............................................................................. 
 # spatial consistency test
 p <- add_argument(p, "--grid.sct",
-                  help="nrow ncol (i.e. number_of_rows number_of_columns). used to define grid of boxes where the SCT is performed. SCT in each box is independent from the others",
+                  help=paste("nrow ncol (i.e. number_of_rows number_of_columns).",
+                  "SCT is performed independently over several boxes.",
+                  "The regular nrow-by-ncol grid is used to define those",
+                  "rectangular boxes where the SCT is performed."),
                   type="integer",
                   nargs=2,
                   default=c(20,20),
@@ -681,7 +1891,8 @@ p <- add_argument(p, "--dz.sct",
                   default=30,
                   short="-zS")
 p <- add_argument(p, "--DhorMin.sct",
-                  help="OI, minimum allowed value for the horizontal de-correlation lenght (of the background error correlation) [m]",
+                  help=paste("OI, minimum allowed value for the horizontal de-correlation",
+                  "lenght (of the background error correlation) [m]"),
                   type="numeric",
                   default=10000,
                   short="-hS")
@@ -690,14 +1901,12 @@ p <- add_argument(p, "--Dver.sct",
                   type="numeric",
                   default=200,
                   short="-vS")
-# default=0.5
 p <- add_argument(p, "--eps2.sct",
                   help="OI, ratio between observation error variance and background error variance. eps2.sct is a vector of positive values (not NAs). If eps2.sct has the same length of the number of input files, then a provider dependent eps2 will be used in the SCT. Otherwise, the value of eps2.sct[1] will be used for all providers and any other eps2.sct[2:n] value will be ignored",
                   type="numeric",
                   default=NA,
                   nargs=Inf,
                   short="-eS")
-# default=16
 p <- add_argument(p, "--thr.sct",
                   help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct. thr.sct is a vector of positive values (not NAs). If thr.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thr.sct[1] will be used for all providers and any other thr.sct[2:n] value will be ignored ",
                   type="numeric",
@@ -733,11 +1942,50 @@ p <- add_argument(p, "--laf.file",
 p <- add_argument(p, "--proj4laf",
                   help="proj4 string for the laf",
                   type="character",
-                  default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",short="-pl")
+                  default=proj4default,
+                  short="-pl")
+p <- add_argument(p, "--laf.varname",
+                  help="variable name in the netCDF file",
+                  type="character",
+                  default="land_area_fraction",
+                  short="-lfv")
+p <- add_argument(p, "--laf.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the laf upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-lftd")
+p <- add_argument(p, "--laf.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-lfnd")
+p <- add_argument(p, "--laf.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-lfti")
+p <- add_argument(p, "--laf.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=c("x","y","time"),
+                  short="-lfna",
+                  nargs=Inf)
+p <- add_argument(p, "--laf.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-lfp4v")
+p <- add_argument(p, "--laf.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-lfp4a")
 p <- add_argument(p, "--fast.sct",
-                  help="faster spatial consistency test. Allow for flagging more than one observation simulataneously",
+                  help=paste("faster spatial consistency test. Allow for",
+                      "flagging more than one observation simulataneously"),
                   flag=T,
                   short="-fS")
+#.............................................................................. 
 # observation representativeness
 p <- add_argument(p, "--mean.corep",
                   help="average coefficient for the observation representativeness. mean.corep is a vector of positive values (not NAs). If mean.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of mean.corep[1] will be used for all providers and any other mean.corep[2:n] value will be ignored",
@@ -757,22 +2005,191 @@ p <- add_argument(p, "--max.corep",
                   default=NA,
                   nargs=Inf,
                   short="-mxC")
+#.............................................................................. 
 # check elevation against dem
 p <- add_argument(p, "--dem",
      help="check elevation against digital elevation model (dem)",
-                  flag=T,short="-dm")
+                  flag=T,
+                  short="-dm")
 p <- add_argument(p, "--dz.dem",
      help="maximum allowed deviation between observation and dem elevations [m]",
-                  type="numeric",default=500,short="-zD")
-p <- add_argument(p, "--dem.fill",help="fill missing elevation with data from dem",
-                  flag=T,short="-df")
+                  type="numeric",
+                  default=500,
+                  short="-zD")
+p <- add_argument(p, "--dem.fill",
+                  help="fill missing elevation with data from dem",
+                  flag=T,
+                  short="-df")
 p <- add_argument(p, "--dem.file",
      help="land area fraction file (netCDF in kilometric coordinates)",
-                  type="character",default=NULL,short="-dmf")
-p <- add_argument(p, "--proj4dem",help="proj4 string for the dem",
                   type="character",
-     default="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",
+                  default=NULL,
+                  short="-dmf")
+p <- add_argument(p, "--proj4dem",
+                  help="proj4 string for the dem",
+                  type="character",
+                  default=proj4default,
                   short="-pd")
+p <- add_argument(p, "--dem.varname",
+                  help="variable name in the netCDF file",
+                  type="character",
+                  default="altitude",
+                  short="-dmv")
+p <- add_argument(p, "--dem.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the dem upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-dmtd")
+p <- add_argument(p, "--dem.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-dmnd")
+p <- add_argument(p, "--dem.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-dmti")
+p <- add_argument(p, "--dem.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=c("x","y","time"),
+                  short="-dmna",
+                  nargs=Inf)
+p <- add_argument(p, "--dem.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-dmp4v")
+p <- add_argument(p, "--dem.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-dmp4a")
+#.............................................................................. 
+# STEVE - isolated event test
+p <- add_argument(p, "--steve",
+                  help="do the isolated event test",
+                  flag=T,
+                  short="-dST")
+p <- add_argument(p, "--i.steve",
+                  help="number of STEVE iterations",
+                  type="integer",
+                  default=1,
+                  short="-iST")
+p <- add_argument(p, "--thres.steve",
+                  help=paste("numeric vector with the thresholds used to",
+                  " define events (same units of the specified variable).",
+                  "Each threshold defines two events: (i) less than the",
+                  "threshold and (ii) greater or equal to it."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--pmax_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum number of",
+                  "stations defining (in combination with dmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 20)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmax_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum distance",
+                  "between stations defining (in combination with pmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 150000)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--n_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the minimum expected",
+                  "number of connected events. If an event has less than",
+                  "this number of connected events, then flag it is as a",
+                  "suspect isolated event. The connection between events is",
+                  "estimated through a Delaunay triangulation.",
+                  "(default is 4)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--frac_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum expected",
+                  "fraction of events in a clump of connected events",
+                  "that could include an isolated event.",
+                  "If a clump of connected events has more than",
+                  "this fraction of events, then it is assumed that",
+                  "the situation is too ''patchy'' to flag an isolated event",
+                  "with enough confidence (deafult is 0.2)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmin_next_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum expected",
+                  "distance between an isolated event and the closest event.",
+                  "If a possible isolated event has an other event at a",
+                  "distance less than the one defined here then it is not",
+                  "considered as an isolated event",
+                  "(deafult is 150000)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--pmax_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum number of",
+                  "stations defining (in combination with dmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 20)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmax_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum distance",
+                  "between stations defining (in combination with pmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 150000)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--n_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the minimum expected",
+                  "number of connected events. If an event has less than",
+                  "this number of connected events, then flag it is as a",
+                  "suspect isolated event. The connection between events is",
+                  "estimated through the Delaunay triangulation",
+                  "(default is 4)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--frac_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum expected",
+                  "fraction of events in a clump of connected events",
+                  "that could include an isolated event.",
+                  "If a clump of connected events has more than",
+                  "this fraction of events, then it is assumed that",
+                  "the situation is too ''patchy'' to flag an isolated event",
+                  "with enough confidence (deafult is 0.2)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmin_next_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum expected",
+                  "distance between an isolated event and the closest event.",
+                  "If a possible isolated event has an other event at a",
+                  "distance less than the one defined here then it is not",
+                  "considered as an isolated event",
+                  "(deafult is 100000)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+#.............................................................................. 
 # blacklist
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
 p <- add_argument(p, "--blacklist.lat",
@@ -790,6 +2207,7 @@ p <- add_argument(p, "--blacklist.idx",
 p <- add_argument(p, "--blacklist.fidx",
                   help="observation blacklist (ID provider)",
                   type="numeric",default=NA,nargs=Inf,short="-bfix")
+#.............................................................................. 
 # keep (keep them)
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
 p <- add_argument(p, "--keeplist.lat",
@@ -822,6 +2240,7 @@ p <- add_argument(p, "--keeplist.fidx",
                   default=NA,
                   nargs=Inf,
                   short="-kfix")
+#.............................................................................. 
 # doit flags
 comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
 p <- add_argument(p, "--doit.buddy",
@@ -854,11 +2273,30 @@ p <- add_argument(p, "--doit.isol",
                   default=NA,
                   nargs=Inf,
                   short="-doi")
-#
+p <- add_argument(p, "--doit.fg",
+ help=paste("customize the application of the check against a deterministic first-guess field.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dofg")
+p <- add_argument(p, "--doit.fge",
+ help=paste("customize the application of the check against an ensemble of first-guess fields.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dofge")
+p <- add_argument(p, "--doit.steve",
+                  help=paste("customize the STEVE application.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dost")
+#.............................................................................. 
+# PARSE arguments
 argv <- parse_args(p)
 #
 #-----------------------------------------------------------------------------
-# checks on input arguments
+# CHECKS on input arguments
 if (!file.exists(argv$input)) {
   print("ERROR: input file not found")
   print(argv$input)
@@ -887,6 +2325,122 @@ if (any(is.na(argv$prid))) {
     quit(status=1)
   }
 }
+# set offsets and correction factors
+if (is.na(argv$input.offset)) argv$input.offset<-rep(0,nfin)
+if (is.na(argv$input.negoffset)) argv$input.negoffset<-rep(0,nfin)
+if (is.na(argv$input.cfact)) argv$input.cfact<-rep(1,nfin)
+if (is.na(argv$input.negcfact)) argv$input.negcfact<-rep(0,nfin)
+argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
+argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
+# check variable
+if (!(argv$variable %in% c("T","RH","RR"))) {
+  print("variable must be one of T, RH, RR")
+  quit(status=1)
+}
+# set the input arguments according to user specification
+if (!is.na(argv$fg.type)) {
+  if (argv$fg.type=="meps") {
+    if (argv$variable=="T") {
+      argv$fg.epos<-5
+      argv$fg.e<-0
+      argv$fg.varname<-"air_temperature_2m"
+      argv$fg.ndim<-5 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
+      argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fg.offset<-273.15
+      argv$fg.negoffset<-1
+      argv$fg.demvarname<-"surface_geopotential" 
+      argv$fg.demndim<-5
+      argv$fg.demtpos<-3
+      argv$fg.demepos<-5
+      argv$fg.deme<-0
+      argv$fg.demdimnames<-c("x","y","time","height0","ensemble_member")
+      argv$fg.demcfact<-0.1
+      argv$fg.topdown<-TRUE
+      argv$fg.demtopdown<-TRUE
+    } else if (argv$variable=="RR") {
+      argv$fg.epos<-5
+      argv$fg.e<-0
+      argv$fg.varname<-"precipitation_amount_acc"
+      argv$fg.ndim<-5 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("x","y","time","height0","ensemble_member")
+      argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fg.acc<-TRUE
+      argv$fg.topdown<-TRUE
+    } else if (argv$variable=="RH") {
+      argv$fg.epos<-5
+      argv$fg.e<-0
+      argv$fg.varname<-"relative_humidity_2m"
+      argv$fg.ndim<-5 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
+      argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fg.cfact<-100.
+      argv$fg.topdown<-TRUE
+    } 
+  } else if (argv$fg.type=="radar") {
+    if (argv$variable=="RR") {
+      argv$fg.epos<-NA
+      argv$fg.e<-NULL
+      argv$fg.varname<-"lwe_precipitation_rate"
+      argv$fg.ndim<-3 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("Xc","Yc","time")
+      argv$proj4fg<-"+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+      argv$fg.topdown<-FALSE
+    }
+  } else {
+    print("ERROR in --fg.type, type not recognized")
+    quit(status=1)
+  }
+}
+if (!is.na(argv$fge.type)) {
+  if (argv$fge.type=="meps") {
+    if (argv$variable=="T") {
+      argv$fge.epos<-5
+      argv$fge.varname<-"air_temperature_2m"
+      argv$fge.ndim<-5 
+      argv$fge.tpos<-3
+      argv$fge.dimnames<-c("x","y","time","height1","ensemble_member")
+      argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fge.offset<-273.15
+      argv$fge.negoffset<-1
+      argv$fge.demvarname<-"surface_geopotential" 
+      argv$fge.demndim<-5
+      argv$fge.demtpos<-3
+      argv$fge.demepos<-5
+      argv$fge.deme<-0
+      argv$fge.demdimnames<-c("x","y","time","height0","ensemble_member")
+      argv$fge.demcfact<-0.1
+      argv$fge.topdown<-TRUE
+      argv$fge.demtopdown<-TRUE
+    } else if (argv$variable=="RR") {
+      argv$fge.epos<-5
+      argv$fge.varname<-"precipitation_amount_acc"
+      argv$fge.ndim<-5 
+      argv$fge.tpos<-3
+      argv$fge.dimnames<-c("x","y","time","height0","ensemble_member")
+      argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fge.acc<-TRUE
+      argv$fge.topdown<-TRUE
+    } else if (argv$variable=="RH") {
+      argv$fge.epos<-5
+      argv$fge.varname<-"relative_humidity_2m"
+      argv$fge.ndim<-5 
+      argv$fge.tpos<-3
+      argv$fge.dimnames<-c("x","y","time","height1","ensemble_member")
+      argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fge.cfact<-100.
+      argv$fge.topdown<-TRUE
+    } 
+  } else {
+    print("ERROR in --fge.type, type not recognized")
+    quit(status=1)
+  }
+}
+# check external files
 if (argv$dem | argv$dem.fill) {
   if (!file.exists(argv$dem.file)) {
     print("ERROR: dem file not found")
@@ -901,6 +2455,44 @@ if (argv$laf.sct) {
     quit(status=1)
   }
 }
+if (!is.na(argv$fg.file)) {
+  if (!file.exists(argv$fg.file)) {
+    print("ERROR: first-guess file not found")
+    print(argv$fg.file)
+    quit(status=1)
+  }
+}
+# input column names
+if (any(is.na(argv$separator))) 
+  argv$separator<-rep(";",nfin)
+if (length(argv$separator)==0) 
+  argv$separator<-rep(";",nfin)
+if (length(argv$separator)!=nfin) 
+  argv$separator<-rep(argv$separator[1],nfin)
+if (any(is.na(argv$varname.lat))) 
+  argv$varname.lat<-rep("lat",nfin)
+if (length(argv$varname.lat)==0) 
+  argv$varname.lat<-rep("lat",nfin)
+if (length(argv$varname.lat)!=nfin) 
+  argv$varname.lat<-rep(argv$varname.lat[1],nfin)
+if (any(is.na(argv$varname.lon))) 
+  argv$varname.lon<-rep("lon",nfin)
+if (length(argv$varname.lon)==0) 
+  argv$varname.lon<-rep("lon",nfin)
+if (length(argv$varname.lon)!=nfin) 
+  argv$varname.lon<-rep(argv$varname.lon[1],nfin)
+if (any(is.na(argv$varname.elev))) 
+  argv$varname.elev<-rep("elev",nfin)
+if (length(argv$varname.elev)==0) 
+  argv$varname.elev<-rep("elev",nfin)
+if (length(argv$varname.elev)!=nfin) 
+  argv$varname.elev<-rep(argv$varname.elev[1],nfin)
+if (any(is.na(argv$varname.value))) 
+  argv$varname.value<-rep("value",nfin)
+if (length(argv$varname.value)==0) 
+  argv$varname.value<-rep("value",nfin)
+if (length(argv$varname.value)!=nfin) 
+  argv$varname.value<-rep(argv$varname.value[1],nfin)
 # TODO: adapt the procedure for input data others than lat-lon
 if (!argv$spatconv) {
   print("ERROR: \"--spatconv\" (-c) option must be used onthe command line")
@@ -909,31 +2501,36 @@ if (!argv$spatconv) {
   print("output is in lat-lon coordinates")
   quit(status=1)
 }
-if ( argv$laf.sct & argv$proj4to!=argv$proj4laf ) {
-  print("ERROR: anomalies found in the proj4 strings:")
-  print(paste("proj4 laf=",argv$proj4laf))
-  print(paste("proj4  to=",argv$proj4to))
-  print("they must be the same")
-  quit(status=1)
-}
-if ( (argv$dem | argv$dem.fill) & argv$proj4to!=argv$proj4dem ) {
-  print("ERROR: anomalies found in the proj4 strings:")
-  print(paste("proj4 dem=",argv$proj4dem))
-  print(paste("proj4  to=",argv$proj4to))
-  print("they must be the same")
-  quit(status=1)
-}
-if (argv$laf.sct & (argv$dem | argv$dem.fill) &
-    (argv$proj4laf!=argv$proj4dem) |
-     !is.character(argv$proj4laf)  |
-     !is.character(argv$proj4dem) ) {
-  print("ERROR: anomalies found in the proj4 strings:")
-  print(paste("proj4 laf=",argv$proj4laf))
-  print(paste("proj4 dem=",argv$proj4dem))
-  quit(status=1)
-}
 if (argv$laf.sct & (argv$dem | argv$dem.fill))
   suppressPackageStartupMessages(library("ncdf4")) 
+# first-guess file
+if (!is.na(argv$fg.file)) {
+  if (!file.exists(argv$fg.file)) {
+    print("ERROR file not found")
+    print(argv$fg.file)
+    quit(status=1)
+  }
+  if ((argv$dem | argv$dem.fill) &
+      (argv$proj4fg!=argv$proj4dem |
+       !is.character(argv$proj4fg))) {
+    print("ERROR: anomalies found in the proj4 strings:")
+    print(paste("proj4 fg=",argv$proj4fg))
+    print(paste("proj4 dem=",argv$proj4dem))
+    quit(status=1)
+  }
+  if ( argv$variable=="T" &
+       !file.exists(argv$fg.demfile)) {
+    print("ERROR: for temperature, a digital elevation model must be specified together with a first-guess file")
+    quit(status=1)
+  }
+  suppressPackageStartupMessages(library("ncdf4")) 
+} else if (argv$fg) {
+  print("ERROR no first-guess file provided for the first-guess test")
+  quit(status=1)
+} else if (argv$usefg.sct) {
+  print("ERROR: SCT requested with the background derived from a first-guess field that is not being provided as input")
+  quit(status=1)
+}
 #
 if (!is.na(argv$month.clim) & (argv$month.clim<1 | argv$month.clim>12)) {
   print("ERROR: month number is wrong:")
@@ -1054,6 +2651,9 @@ if (any(is.na(argv$doit.sct))) argv$doit.sct<-rep(1,length=nfin)
 if (any(is.na(argv$doit.clim))) argv$doit.clim<-rep(1,length=nfin)
 if (any(is.na(argv$doit.dem))) argv$doit.dem<-rep(1,length=nfin)
 if (any(is.na(argv$doit.isol))) argv$doit.isol<-rep(1,length=nfin)
+if (any(is.na(argv$doit.steve))) argv$doit.steve<-rep(1,length=nfin)
+if (any(is.na(argv$doit.fg))) argv$doit.fg<-rep(1,length=nfin)
+if (any(is.na(argv$doit.fge))) argv$doit.fge<-rep(1,length=nfin)
 if (any(!(argv$doit.buddy %in% c(0,1,2)))) {
   print("doit.buddy must not contain only 0,1,2")
   quit(status=1)
@@ -1074,22 +2674,98 @@ if (any(!(argv$doit.isol %in% c(0,1,2)))) {
   print("doit.isol must not contain only 0,1,2")
   quit(status=1)
 }
-#-----------------------------------------------------------------------------
-if (argv$verbose | argv$debug) print(">> TITAN <<")
+if (any(!(argv$doit.steve %in% c(0,1,2)))) {
+  print("doit.steve must not contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.fg %in% c(0,1,2)))) {
+  print("doit.fg must not contain only 0,1,2")
+  quit(status=1)
+}
+# set the thresholds for the plausibility check
+if (!is.na(argv$tmin) & is.na(argv$vmin)) argv$vmin<-argv$tmin
+if (!is.na(argv$tmax) & is.na(argv$vmax)) argv$vmax<-argv$tmax
+if (any(is.na(argv$vmin.clim)) & !any(is.na(argv$tmin.clim))) 
+  argv$vmin.clim<-argv$tmin.clim
+if (any(is.na(argv$vmax.clim)) & !any(is.na(argv$tmax.clim))) 
+  argv$vmax.clim<-argv$tmax.clim
+argv$vmin<-argv$vmin*(-1)**argv$vminsign
+argv$vmax<-argv$vmax*(-1)**argv$vmaxsign
+argv$vmin.clim<-argv$vmin.clim*(-1)**argv$vminsign.clim
+argv$vmax.clim<-argv$vmax.clim*(-1)**argv$vmaxsign.clim
+# STEVE checks
+if (argv$steve) {
+  suppressPackageStartupMessages(library("tripack"))
+  if (any(is.na(argv$thres.steve))) {
+    print("ERROR: STEVE, thres.steve must be specified")
+    quit(status=1)
+  }
+  if (is.na(argv$pmax_lt.steve)) 
+    argv$pmax_lt.steve<-rep(20,length(argv$thres.steve))
+  if (is.na(argv$dmax_lt.steve)) 
+    argv$dmax_lt.steve<-rep(150000,length(argv$thres.steve))
+  if (is.na(argv$n_lt.steve)) 
+    argv$n_lt.steve<-rep(4,length(argv$thres.steve))
+  if (is.na(argv$frac_lt.steve)) 
+    argv$frac_lt.steve<-rep(0.2,length(argv$thres.steve))
+  if (is.na(argv$dmin_next_lt.steve)) 
+    argv$dmin_next_lt.steve<-rep(150000,length(argv$thres.steve))
+  if (is.na(argv$pmax_ge.steve)) 
+    argv$pmax_ge.steve<-rep(20,length(argv$thres.steve))
+  if (is.na(argv$dmax_ge.steve)) 
+    argv$dmax_ge.steve<-rep(150000,length(argv$thres.steve))
+  if (is.na(argv$n_ge.steve)) 
+    argv$n_ge.steve<-rep(4,length(argv$thres.steve))
+  if (is.na(argv$frac_ge.steve)) 
+    argv$frac_ge.steve<-rep(0.2,length(argv$thres.steve))
+  if (is.na(argv$dmin_next_ge.steve)) 
+    argv$dmin_next_ge.steve<-rep(100000,length(argv$thres.steve))
+  if (length(argv$thres.steve)!=length(argv$pmax_lt.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (pmax_lt.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$dmax_lt.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (dmax_lt.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$n_lt.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (n_lt.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$frac_lt.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (frac_lt.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$dmin_next_lt.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (dmin_next_lt.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$pmax_ge.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (pmax_ge.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$dmax_ge.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (dmax_ge.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$n_ge.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (n_ge.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$frac_ge.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (frac_ge.steve)")
+    quit(status=1)
+  }
+  if (length(argv$thres.steve)!=length(argv$dmin_next_ge.steve)) {
+    print("ERROR: STEVE, the number of input parameters differ (dmin_next_ge.steve)")
+    quit(status=1)
+  }
+}
 #
 #-----------------------------------------------------------------------------
-# constants
-nometa.code<-1
-p.code<-2
-clim.code<-3
-buddy.code<-4
-sct.code<-5
-dem.code<-6
-isol.code<-7
-black.code<-100
-keep.code<-200
-# standard value for the moist adiabatic lapse rate
-gamma.standard<--0.0065  # (dT/dZ)
+if (argv$verbose | argv$debug) print(">> TITAN <<")
+if (argv$debug) 
+  capture.output(print(argv), file=file.path(argv$debug.dir,"argv.txt"))
 #
 #-----------------------------------------------------------------------------
 # read data
@@ -1097,20 +2773,21 @@ first<-T
 for (f in 1:nfin) {
   datain<-read.table(file=argv$input.files[f],
                      header=T,
-                     sep=argv$separator,
+                     sep=argv$separator[f],
                      stringsAsFactors=F,
                      strip.white=T)
-  varidx<-match(c(argv$varname.lat,
-                  argv$varname.lon,
-                  argv$varname.elev,
-                  argv$varname.val),
+  # varidx is used also in the output session
+  varidx<-match(c(argv$varname.lat[f],
+                  argv$varname.lon[f],
+                  argv$varname.elev[f],
+                  argv$varname.value[f]),
                 names(datain))
   if (any(is.na(varidx))) {
     print("ERROR in the specification of the variable names")
-    print(paste("  latitutde=",argv$varname.lat))
-    print(paste("  longitude=",argv$varname.lon))
-    print(paste("  elevation=",argv$varname.elev))
-    print(paste("temperature=",argv$varname.val))
+    print(paste("latitutde=",argv$varname.lat[f]))
+    print(paste("longitude=",argv$varname.lon[f]))
+    print(paste("elevation=",argv$varname.elev[f]))
+    print(paste("    value=",argv$varname.value[f]))
     print("header of input file:")
     print(argv$input.files[f])
     print(names(datain))
@@ -1122,36 +2799,41 @@ for (f in 1:nfin) {
   datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
   datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
   auxz<-datatmp$elev
-  datatmp$value<-suppressWarnings(as.numeric(datatmp$value))
+  datatmp$value<-suppressWarnings(
+    argv$input.offset[f]+
+    argv$input.cfact[f]*as.numeric(datatmp$value))
   ndatatmp<-length(datatmp$lat)
   if (ndatatmp==0) next
   # set provider id
   datatmp$prid<-rep(argv$prid[f],ndatatmp)
   aux<-rep(NA,length=ndatatmp)
   if (any(!is.na(argv$blacklist.idx)) & any(argv$blacklist.fidx==f)) {
-    aux[argv$blacklist.idx[which(argv$blacklist.fidx==f)]]<-black.code  
+    aux[argv$blacklist.idx[which(argv$blacklist.fidx==f)]]<-argv$black.code  
   }
   if (any(!is.na(argv$blacklist.lat)) & any(argv$blacklist.fll==f)) {
     out<-apply(cbind(argv$blacklist.lon[argv$blacklist.fll==f],
                      argv$blacklist.lat[argv$blacklist.fll==f])
-               ,FUN=setCode_lonlat,MARGIN=1,code=black.code)
+               ,FUN=setCode_lonlat,MARGIN=1,code=argv$black.code)
+    rm(out)
   }
   if (any(!is.na(argv$keeplist.idx)) & any(argv$keeplist.fidx==f)) {
-    aux[argv$keeplist.idx[which(argv$keeplist.fidx==f)]]<-keep.code  
+    aux[argv$keeplist.idx[which(argv$keeplist.fidx==f)]]<-argv$keep.code  
   }
   if (any(!is.na(argv$keeplist.lat)) & any(argv$keeplist.fll==f)) {
     out<-apply(cbind(argv$keeplist.lon[argv$keeplist.fll==f],
                      argv$keeplist.lat[argv$keeplist.fll==f])
-               ,FUN=setCode_lonlat,MARGIN=1,code=keep.code)
+               ,FUN=setCode_lonlat,MARGIN=1,code=argv$keep.code)
+    rm(out)
   }
   if (first) {
     data<-datatmp
     first<-F
-    z <- auxz
+    z<-auxz
     dqcflag<-aux
     sctpog<-rep(NA,length=ndatatmp)
     corep<-rep(NA,length=ndatatmp)
     if (any(!is.na(argv$varname.opt))) {
+      # varidx.opt is used in the output session
       varidx.opt<-match(argv$varname.opt,
                         names(datain))
       dataopt<-array(data=NA,dim=c(ndatatmp,
@@ -1161,7 +2843,7 @@ for (f in 1:nfin) {
   } else {
     data<-rbind(data,datatmp)
     dqcflag<-c(dqcflag,aux)
-    z <- c(z, auxz)
+    z<-c(z,auxz)
     sctpog<-c(sctpog,rep(NA,length=ndatatmp))
     corep<-c(corep,rep(NA,length=ndatatmp))
     if (any(!is.na(argv$varname.opt))) {
@@ -1181,7 +2863,7 @@ for (f in 1:nfin) {
     }
   }
 }
-rm(datatmp)
+rm(datatmp,datain,auxz,aux)
 ndata<-length(data$lat)
 if (ndata==0) {
   print("input file is empty")
@@ -1191,10 +2873,10 @@ if (argv$verbose | argv$debug) {
   print(paste("number of observations=",ndata))
   if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
     print(paste("number of blacklisted observations=",
-          length(which(dqcflag==black.code))) )
+          length(which(dqcflag==argv$black.code))) )
   if (any(!is.na(argv$keeplist.idx)) | any(!is.na(argv$keeplist.lat)))
     print(paste("number of keeplisted  observations=",
-          length(which(dqcflag==keep.code))) )
+          length(which(dqcflag==argv$keep.code))) )
   if (nfin>1) {
     for (f in 1:nfin) { 
       print(paste("  number of observations provider",argv$prid[f],"=",
@@ -1202,15 +2884,41 @@ if (argv$verbose | argv$debug) {
       if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
         print(paste("  number of blacklisted observations provider",
               argv$prid[f],"=",
-              length(which(data$prid==argv$prid[f] & dqcflag==black.code))) )
+              length(which(data$prid==argv$prid[f] & dqcflag==argv$black.code))) )
       if (any(!is.na(argv$keeplist.idx)) | any(!is.na(argv$keeplist.lat)))
         print(paste("  number of keeplisted  observations provider",
               argv$prid[f],"=",
-              length(which(data$prid==argv$prid[f] & dqcflag==keep.code))) )
+              length(which(data$prid==argv$prid[f] & dqcflag==argv$keep.code))) )
     }
   }
   print("+---------------------------------+")
 }
+#
+#-----------------------------------------------------------------------------
+# test for no metadata (1st round) 
+# NOTE: keep-listed stations could be flagged here
+# Two rounds required because we need to extract info from the first guesses 
+# that are in-line with the dem-filled elevation
+dqcflag.bak<-dqcflag # .bak, if dem.fill to distinguish NAs / keep.code
+ix<-which(is.na(dqcflag) | dqcflag==argv$keep.code)
+if (length(ix)>0) {
+  meta<-!is.na(data$lat[ix]) & 
+        !is.na(data$lon[ix]) &
+        !is.na(z[ix]) & 
+        z[ix]>=argv$zmin & 
+        z[ix]<=argv$zmax &
+        !is.na(data$value[ix]) 
+  if (any(!meta)) dqcflag[ix[which(!meta)]]<-argv$nometa.code
+} else {
+  print("no valid observations left, no metadata check")
+}
+if (argv$verbose | argv$debug) {
+  print("test for no metdata")
+  print(paste("# observations lacking metadata=",length(which(!meta))))
+  print("+---------------------------------+")
+}
+rm(ix)
+if (exists("meta")) rm(meta)
 #
 #-----------------------------------------------------------------------------
 # coordinate transformation
@@ -1222,7 +2930,6 @@ if (argv$spatconv) {
   xy.new<-coordinates(coord.new)
   x<-round(xy.new[,1],0)
   y<-round(xy.new[,2],0)
-  rm(xy.new)
   xp<-expand.grid(c(argv$lonmin,argv$lonmax),c(argv$latmin,argv$latmax))
   coord<-SpatialPoints(xp,
                        proj4string=CRS(argv$proj4from))
@@ -1231,6 +2938,7 @@ if (argv$spatconv) {
   e<-extent(coord.new)
   xl<-e[1:2]
   yl<-e[3:4]
+  rm(coord,coord.new,xy.new,xp)
 } else {
   x<-data$lon
   y<-data$lat
@@ -1238,41 +2946,526 @@ if (argv$spatconv) {
   yl<-c(argv$latmin,argv$latmax)
   e<-extent(c(xl,yl))
 }
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"input_data.txt"),
+      "x;y;z;lat;lon;elev;value;prid;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"input_data.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,"\n",sep=";"),append=T)
+}
 #
 #-----------------------------------------------------------------------------
-# Read (optional) geographical information
+# Read geographical information (optional) 
 if (argv$dem | argv$dem.fill) {
-  rdem<-raster(argv$dem.file)
-  crs(rdem)<-argv$proj4dem
-  zdem<-extract(rdem,cbind(x,y))
+  ti<-nc4.getTime(argv$dem.file)
+  raux<-try(nc4in(nc.file=argv$dem.file,
+                  nc.varname=argv$dem.varname,
+                  topdown=argv$dem.topdown,
+                  out.dim=list(ndim=argv$dem.ndim,
+                               tpos=argv$dem.tpos,
+                               epos=NULL,
+                               names=argv$dem.dimnames),
+                  proj4=argv$proj4dem,
+                  nc.proj4=list(var=argv$dem.proj4_var,
+                                att=argv$dem.proj4_att),
+                  selection=list(t=ti[1],e=NULL)))
+  if (is.null(raux)) {
+    print("ERROR while reading file:")
+    print(argv$dem.file)
+    quit(status=1)
+  }
+  rdem<-raux$stack
+  rm(raux,ti)
+  if (argv$proj4dem!=argv$proj4to) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4from))
+    coord.new<-spTransform(coord,CRS(argv$proj4dem))
+    xy.tmp<-coordinates(coord.new)
+    zdem<-extract(rdem,xy.tmp)
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    zdem<-extract(rdem,cbind(x,y))
+  }
   # fill missing elevation with dem
   if (argv$dem.fill) {
-    iz<-which(is.na(z) & !is.na(zdem))
+    iz<-which((is.na(z) & !is.na(zdem)) | 
+              (!is.na(z) & !is.na(zdem) & dqcflag==argv$nometa.code) )
     z[iz]<-zdem[iz]
+    dqcflag[iz]<-dqcflag.bak[iz]
+    rm(dqcflag.bak)
+    if (argv$verbose | argv$debug) {
+      print(paste("# stations with elevation derived from DEM=",length(iz)))
+      print("+---------------------------------+")
+    }
     rm(iz)
   }  
-}
+  if (argv$debug) {
+    png(file=file.path(argv$debug.dir,"dem.png"),width=800,height=800)
+    image(rdem,
+          breaks=c(-1000,seq(0,1500,length=10),seq(1501,2500,length=5),8000),
+          col=c("azure",rev(gray.colors(15))))
+    plotSCTgrid()
+    dev.off()
+  }
+  rm(rdem)
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"input_data_dem.txt"),
+        "x;y;z;lat;lon;elev;value;prid;zdem;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"input_data_dem.txt"),
+        paste(x,
+              y,
+              z,
+              data$lat,
+              data$lon,
+              data$elev,
+              data$value,
+              data$prid,
+              round(zdem,1),"\n",sep=";"),append=T)
+  }
+} # END read DEM
 if (argv$laf.sct) {
-  rlaf<-raster(argv$laf.file)
-  crs(rlaf)<-argv$proj4laf
-  laf<-extract(rlaf,cbind(x,y))/100.
+  ti<-nc4.getTime(argv$laf.file)
+  raux<-try(nc4in(nc.file=argv$laf.file,
+                  nc.varname=argv$laf.varname,
+                  topdown=argv$laf.topdown,
+                  out.dim=list(ndim=argv$laf.ndim,
+                               tpos=argv$laf.tpos,
+                               epos=NULL,
+                               names=argv$laf.dimnames),
+                  proj4=argv$proj4laf,
+                  nc.proj4=list(var=argv$laf.proj4_var,
+                                att=argv$laf.proj4_att),
+                  selection=list(t=ti[1],e=NULL)))
+  if (is.null(raux)) {
+    print("ERROR while reading file:")
+    print(argv$laf.file)
+    quit(status=1)
+  }
+  rlaf<-raux$stack
+  rm(raux,ti)
+  if (argv$proj4laf!=argv$proj4to) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4from))
+    coord.new<-spTransform(coord,CRS(argv$proj4laf))
+    xy.tmp<-coordinates(coord.new)
+    laf<-extract(rlaf,xy.tmp)/100.
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    laf<-extract(rlaf,cbind(x,y))/100.
+  }
+  if (any(is.na(laf))) laf[which(is.na(laf))]<-1
+  if (argv$debug) {
+    png(file=file.path(argv$debug.dir,"laf.png"),width=800,height=800)
+    image(rlaf,breaks=c(seq(0,1,length=20)),col=c(rev(rainbow(19))))
+    plotSCTgrid()
+    dev.off()
+  }
+  if (!argv$debug) rm(rlaf)
 } else {
   # use a fake laf
   laf<-rep(1,ndata)
+} # END read LAF
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
+      "x;y;z;lat;lon;elev;value;prid;laf;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            round(laf,4),"\n",sep=";"),append=T)
 }
 #
 #-----------------------------------------------------------------------------
-# test for no metadata 
+# Read deterministic first guess (optional)
+if (!is.na(argv$fg.file)) {
+  ti<-nc4.getTime(argv$fg.file)
+  if (is.na(argv$fg.t)) argv$fg.t<-ti[1]
+  if (!(argv$fg.t %in% ti)) {
+    print("ERROR timestamp requested is not in the file:")
+    print(argv$fg.t)
+    print(ti)
+    quit(status=1)
+  }
+  fg.epos<-argv$fg.epos
+  if (is.na(argv$fg.epos)) fg.epos<-NULL
+  fg.e<-argv$fg.e
+  if (is.na(argv$fg.e)) fg.e<-NULL
+  if (argv$fg.acc) {
+    tminus1h<-format(as.POSIXlt(
+      seq(as.POSIXlt(strptime(argv$fg.t,"%Y%m%d%H%M",tz="UTC")),
+          length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
+    raux<-try(nc4in(nc.file=argv$fg.file,
+                    nc.varname=argv$fg.varname,
+                    topdown=argv$fg.topdown,
+                    out.dim=list(ndim=argv$fg.ndim,
+                                 tpos=argv$fg.tpos,
+                                 epos=fg.epos,
+                                 names=argv$fg.dimnames),
+                    proj4=argv$proj4fg,
+                    nc.proj4=list(var=argv$fg.proj4_var,
+                                  att=argv$fg.proj4_att),
+                    selection=list(t=c(tminus1h,argv$fg.t),e=fg.e)))
+    if (is.null(raux)) {
+      print("ERROR while reading file:")
+      print(argv$fg.file)
+      quit(status=1)
+    }
+    rfg<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
+  } else {
+    raux<-try(nc4in(nc.file=argv$fg.file,
+                    nc.varname=argv$fg.varname,
+                    topdown=argv$fg.topdown,
+                    out.dim=list(ndim=argv$fg.ndim,
+                                 tpos=argv$fg.tpos,
+                                 epos=fg.epos,
+                                 names=argv$fg.dimnames),
+                    proj4=argv$proj4fg,
+                    nc.proj4=list(var=argv$fg.proj4_var,
+                                  att=argv$fg.proj4_att),
+                    selection=list(t=argv$fg.t,e=fg.e)))
+    if (is.null(raux)) {
+      print("ERROR while reading file:")
+      print(argv$fg.file)
+      quit(status=1)
+    }
+    rfg<-raux$stack
+  }
+  rm(raux,ti,fg.e,fg.epos)
+  # radar fg, filter out clutter
+  if (argv$fg.type=="radar") {
+    suppressPackageStartupMessages(library("igraph"))
+    dfg<-getValues(rfg)
+    rclump<-clump(rfg)
+    fr<-freq(rclump)
+    ix<-which(!is.na(fr[,2]) & fr[,2]<=10)
+    if (length(ix)>0) {
+      dfg[getValues(rclump) %in% fr[ix,1]]<-NA
+      rfg[]<-dfg
+    }
+    rm(dfg,rclump,fr,ix)
+  }
+  if (argv$proj4fg!=argv$proj4to) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4from))
+    coord.new<-spTransform(coord,CRS(argv$proj4fg))
+    xy.tmp<-coordinates(coord.new)
+    fg<-extract(rfg,xy.tmp,method="bilinear")
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    fg<-extract(rfg,cbind(x,y),method="bilinear")
+  }
+  fg<-argv$fg.offset*(-1)**(argv$fg.negoffset)+
+      fg*argv$fg.cfact*(-1)**(argv$fg.negcfact)
+  if (!argv$debug) rm(rfg)
+  # temperature: adjust for elevation differences
+  if (argv$variable=="T") {
+    ti<-nc4.getTime(argv$fg.demfile)
+    if (is.na(argv$fg.demt)) argv$fg.demt<-ti[1]
+    if (!(argv$fg.demt %in% ti)) {
+      print("ERROR timestamp requested is not in the file:")
+      print(argv$fg.demt)
+      print(ti)
+      quit(status=1)
+    }
+    fg.demepos<-argv$fg.demepos
+    if (is.na(argv$fg.demepos)) fg.demepos<-NULL
+    fg.deme<-argv$fg.deme
+    if (is.na(argv$fg.deme)) fg.deme<-NULL
+    raux<-try(nc4in(nc.file=argv$fg.demfile,
+                    nc.varname=argv$fg.demvarname,
+                    topdown=argv$fg.demtopdown,
+                    out.dim=list(ndim=argv$fg.demndim,
+                                 tpos=argv$fg.demtpos,
+                                 epos=fg.demepos,
+                                 names=argv$fg.demdimnames),
+                    proj4=argv$proj4fg,
+                    nc.proj4=list(var=argv$fg.proj4_var,
+                                  att=argv$fg.proj4_att),
+                    selection=list(t=argv$fg.demt,e=fg.deme)))
+    if (is.null(raux)) {
+      print("ERROR while reading file:")
+      print(argv$fg.demfile)
+      quit(status=1)
+    }
+    rfgdem<-raux$stack
+    rm(raux,ti)
+    if (argv$proj4fg!=argv$proj4to) {
+      coord<-SpatialPoints(cbind(data$lon,data$lat),
+                           proj4string=CRS(argv$proj4from))
+      coord.new<-spTransform(coord,CRS(argv$proj4fg))
+      xy.tmp<-coordinates(coord.new)
+      zfgdem<-extract(rfgdem,xy.tmp,method="bilinear")
+      rm(coord,coord.new,xy.tmp)
+    } else {
+      zfgdem<-extract(rfgdem,cbind(x,y),method="bilinear")
+    }
+    zfgdem<-argv$fg.demoffset*(-1)**(argv$fg.demnegoffset)+
+            zfgdem*argv$fg.demcfact*(-1)**(argv$fg.demnegcfact)
+    if (!argv$debug) rm(rfgdem)
+    fg<-fg+argv$gamma.standard*(z-zfgdem)
+    if (!argv$debug) rm(zfgdem)
+  }
+  if (argv$debug) {
+    png(file=file.path(argv$debug.dir,"fg.png"),width=800,height=800)
+    image(rfg,
+          breaks=seq(range(getValues(rfg),na.rm=T)[1],
+                     range(getValues(rfg),na.rm=T)[2],length=20),
+          col=c(rev(rainbow(19))))
+    if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
+    points(x,y,cex=0.8,pch=19)
+    dev.off()
+    rm(rfg)
+    if (argv$variable=="T") {
+      png(file=file.path(argv$debug.dir,"fgdem.png"),width=800,height=800)
+      image(rfgdem,
+            breaks=seq(range(getValues(rfgdem),na.rm=T)[1],
+                       range(getValues(rfgdem),na.rm=T)[2],length=20),
+            col=c(rev(rainbow(19))))
+      if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
+      points(x,y,cex=0.8,pch=19)
+      dev.off()
+      rm(rfgdem)
+      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
+          "x;y;z;lat;lon;elev;value;prid;fg;zfg;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fg,4),
+                round(zfgdem,1),"\n",sep=";"),append=T)
+#      rm(zfgdem)
+    } else {
+      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
+          "x;y;z;lat;lon;elev;value;prid;fg;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fg,4),"\n",sep=";"),append=T)
+    }
+  }
+#
+}
+#
+#-----------------------------------------------------------------------------
+# Read first guess ensemble (optional)
+if (!is.na(argv$fge.file)) {
+  ti<-nc4.getTime(argv$fge.file)
+  if (is.na(argv$fge.t)) argv$fge.t<-ti[1]
+  if (!(argv$fge.t %in% ti)) {
+    print("ERROR timestamp requested is not in the file:")
+    print(argv$fge.t)
+    print(ti)
+    quit(status=1)
+  }
+  # temperature: adjust for elevation differences
+  if (argv$variable=="T") {
+    ti<-nc4.getTime(argv$fge.demfile)
+    if (is.na(argv$fge.demt)) argv$fge.demt<-ti[1]
+    if (!(argv$fge.demt %in% ti)) {
+      print("ERROR timestamp requested is not in the file:")
+      print(argv$fge.demt)
+      print(ti)
+      quit(status=1)
+    }
+    fge.demepos<-argv$fge.demepos
+    if (is.na(argv$fge.demepos)) fge.demepos<-NULL
+    fge.deme<-argv$fge.deme
+    if (is.na(argv$fge.deme)) fge.deme<-NULL
+    raux<-nc4in(nc.file=argv$fge.demfile,
+                nc.varname=argv$fge.demvarname,
+                topdown=argv$fge.demtopdown,
+                out.dim=list(ndim=argv$fge.demndim,
+                             tpos=argv$fge.demtpos,
+                             epos=fge.demepos,
+                             names=argv$fge.demdimnames),
+                proj4=argv$proj4fge,
+                nc.proj4=list(var=argv$fge.proj4_var,
+                              att=argv$fge.proj4_att),
+                selection=list(t=argv$fge.demt,e=fge.deme))
+    rfgedem<-raux$stack
+    if (argv$debug) {
+      png(file=file.path(argv$debug.dir,"fgedem.png"),width=800,height=800)
+      image(rfgedem,
+            breaks=seq(range(getValues(rfgedem),na.rm=T)[1],
+                       range(getValues(rfgedem),na.rm=T)[2],length=20),
+            col=c(rev(rainbow(19))))
+      if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
+      points(x,y,cex=0.8,pch=19)
+      dev.off()
+    }
+    rm(raux,ti)
+    if (argv$proj4fge!=argv$proj4to) {
+      coord<-SpatialPoints(cbind(data$lon,data$lat),
+                           proj4string=CRS(argv$proj4from))
+      coord.new<-spTransform(coord,CRS(argv$proj4fge))
+      xy.tmp<-coordinates(coord.new)
+      zfgedem<-extract(rfgedem,xy.tmp)
+      rm(coord,coord.new,xy.tmp)
+    } else {
+      zfgedem<-extract(rfgedem,cbind(x,y))
+    }
+    zfgedem<-argv$fg.demoffset*(-1)**(argv$fg.demnegoffset)+
+             zfgedem*argv$fg.demcfact*(-1)**(argv$fg.demnegcfact)
+    rm(rfgedem)
+  }
+  #
+  ei<-nc4.getDim(argv$fge.file,varid=argv$fge.dimnames[argv$fge.epos])
+  if (is.na(argv$fge.epos)) {
+    print("ERROR fge.epos must have a valid value")
+    quit(status=1)
+  }
+  edata<-array(data=NA,dim=c(ndata,length(ei)))
+  for (ens in 1:length(ei)) {
+    if (argv$fge.acc) {
+      tminus1h<-format(as.POSIXlt(
+        seq(as.POSIXlt(strptime(argv$fge.t,"%Y%m%d%H%M",tz="UTC")),
+            length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
+      raux<-try(nc4in(nc.file=argv$fge.file,
+                      nc.varname=argv$fge.varname,
+                      topdown=argv$fge.topdown,
+                      out.dim=list(ndim=argv$fge.ndim,
+                                   tpos=argv$fge.tpos,
+                                   epos=argv$fge.epos,
+                                   names=argv$fge.dimnames),
+                      proj4=argv$proj4fge,
+                      nc.proj4=list(var=argv$fge.proj4_var,
+                                    att=argv$fge.proj4_att),
+                      selection=list(t=c(tminus1h,argv$fge.t),e=ei[ens])))
+      if (is.null(raux)) {
+        print("ERROR while reading file:")
+        print(argv$fg.file)
+        quit(status=1)
+      }
+      rfge<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
+    } else {
+      raux<-nc4in(nc.file=argv$fge.file,
+                  nc.varname=argv$fge.varname,
+                  topdown=argv$fge.topdown,
+                  out.dim=list(ndim=argv$fge.ndim,
+                               tpos=argv$fge.tpos,
+                               epos=argv$fge.epos,
+                               names=argv$fge.dimnames),
+                  proj4=argv$proj4fge,
+                  nc.proj4=list(var=argv$fge.proj4_var,
+                                att=argv$fge.proj4_att),
+                  selection=list(t=argv$fge.t,e=ei[ens],z=4))
+      rfge<-raux$stack
+    }
+    if (argv$debug) {
+      png(file=file.path(argv$debug.dir,
+                         paste("fge_",formatC(ens,width=2,flag="0"),".png",sep="")),
+          width=800,height=800)
+      image(rfge,
+            breaks=seq(range(getValues(rfge),na.rm=T)[1],
+                       range(getValues(rfge),na.rm=T)[2],length=20),
+            col=c(rev(rainbow(19))))
+      if (exists("rlaf")) contour(rlaf,levels=1,add=T)
+      if (exists("rlaf")) rm(rlaf)
+      points(x,y,cex=0.8,pch=19)
+      dev.off()
+    }
+    rm(raux)
+    if (argv$proj4fge!=argv$proj4to) {
+      coord<-SpatialPoints(cbind(data$lon,data$lat),
+                           proj4string=CRS(argv$proj4from))
+      coord.new<-spTransform(coord,CRS(argv$proj4fge))
+      xy.tmp<-coordinates(coord.new)
+      edata[,ens]<-extract(rfge,xy.tmp)
+      rm(coord,coord.new,xy.tmp)
+    } else {
+      edata[,ens]<-extract(rfge,cbind(x,y))
+    }
+    edata[,ens]<-argv$fge.offset*(-1)**(argv$fge.negoffset)+
+               edata[,ens]*argv$fge.cfact*(-1)**(argv$fge.negcfact)
+    if (argv$variable=="T") { 
+      edata[,ens]<-edata[,ens]+argv$gamma.standard*(z-zfgedem)
+    } else if (argv$variable=="RR") {
+      edata[,ens]<-boxcox(x=edata[,ens],lambda=argv$boxcox.lambda)
+    }
+    rm(rfge)
+  }
+  fge.mu<-rowMeans(edata,na.rm=T)
+  fge.sd<-apply(edata,MARGIN=1,FUN=function(x){sd(x,na.rm=T)})
+  fge.q50<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
+  fge.q25<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.25,na.rm=T))})
+  fge.q75<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.75,na.rm=T))})
+  rm(edata)
+  if (argv$debug) {
+    if (argv$variable=="T") {
+      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
+          "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;zfge;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fge.mu,4),
+                round(fge.sd,4),
+                round(fge.q25,4),
+                round(fge.q50,4),
+                round(fge.q75,4),
+                round(zfgedem,1),"\n",sep=";"),append=T)
+    } else {
+      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
+          "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fge.mu,4),
+                round(fge.sd,4),
+                round(fge.q25,4),
+                round(fge.q50,4),
+                round(fge.q75,4),"\n",sep=";"),append=T)
+    }
+  }
+#  if (argv$variable=="T") rm(zfgedem)
+}
+#
+#-----------------------------------------------------------------------------
+# test for no metadata (final) 
 # use only (probably) good observations
 # NOTE: keep-listed stations could be flagged here
-ix<-which(is.na(dqcflag) | dqcflag==keep.code)
+ix<-which(is.na(dqcflag) | dqcflag==argv$keep.code)
 if (length(ix)>0) {
   meta<-!is.na(data$lat[ix]) & 
         !is.na(data$lon[ix]) &
-        !is.na(z[ix]) & z[ix]>=argv$zmin & z[ix]<=argv$zmax &
-        !is.na(data$value[ix]) &
-        !is.na(laf[ix])
-  if (any(!meta)) dqcflag[ix[which(!meta)]]<-nometa.code
+        !is.na(z[ix]) & 
+        z[ix]>=argv$zmin & 
+        z[ix]<=argv$zmax &
+        !is.na(data$value[ix]) 
+  if (any(!meta)) dqcflag[ix[which(!meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
 }
@@ -1280,21 +3473,51 @@ if (argv$verbose | argv$debug) {
   print("test for no metdata")
 #  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
 #              z[which(!meta)],data$value[which(!meta)]))
-  print(paste("# observations lacking metadata=",length(which(!meta))))
+  print(paste("# observations lacking metadata=",
+         length(which(dqcflag==argv$nometa.code))))
   print("+---------------------------------+")
+}
+rm(ix)
+if (exists("meta")) rm(meta)
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"dqcres_meta.txt"),
+      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"dqcres_meta.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            dqcflag,"\n",sep=";"),append=T)
 }
 #
 #-----------------------------------------------------------------------------
 # plausibility test
 # NOTE: keep-listed stations could be flagged here
-ix<-which( (is.na(dqcflag) | dqcflag==keep.code) &
-           data$value<argv$tmin &
-           data$value>argv$tmax)
-if (length(ix)>0) dqcflag[ix]<-p.code
+ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
+           (data$value<argv$vmin | data$value>argv$vmax))
+if (length(ix)>0) dqcflag[ix]<-argv$p.code
 if (argv$verbose | argv$debug) {
   print("plausibility test")
-  print(paste("# suspect observations=",length(ix)))
+  print(paste("# suspect observations=",length(which(dqcflag==argv$p.code))))
   print("+---------------------------------+")
+}
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"dqcres_plausibility.txt"),
+      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"dqcres_plausibility.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            dqcflag,"\n",sep=";"),append=T)
 }
 #
 #-----------------------------------------------------------------------------
@@ -1311,20 +3534,34 @@ if (!is.na(argv$month.clim)) {
   ix<-which(is.na(dqcflag))
   if (length(ix)>0) {
     # flag only observations that are suspect and have doit==1
-    sus<-which( (data$value[ix]<argv$tmin.clim[argv$month.clim] | 
-                 data$value[ix]>argv$tmax.clim[argv$month.clim]) &
+    sus<-which( (data$value[ix]<argv$vmin.clim[argv$month.clim] | 
+                 data$value[ix]>argv$vmax.clim[argv$month.clim]) &
                  doit[ix]==1)
     # set dqcflag
-    if (length(sus)>0) dqcflag[ix[sus]]<-clim.code
+    if (length(sus)>0) dqcflag[ix[sus]]<-argv$clim.code
   } else {
     print("no valid observations left, no climatological check")
   }
   if (argv$verbose | argv$debug) {
     print(paste("climatological test (month=",argv$month.clim,")",sep=""))
-    print(paste("# suspect observations=",length(which(dqcflag==clim.code))))
+    print(paste("# suspect observations=",length(which(dqcflag==argv$clim.code))))
     print("+---------------------------------+")
   }
   rm(doit)
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"dqcres_monthclim.txt"),
+        "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"dqcres_monthclim.txt"),
+        paste(x,
+              y,
+              z,
+              data$lat,
+              data$lon,
+              data$elev,
+              data$value,
+              data$prid,
+              dqcflag,"\n",sep=";"),append=T)
+  }
 }
 #
 #-----------------------------------------------------------------------------
@@ -1339,7 +3576,7 @@ for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy[f]
 # test
 for (i in 1:argv$i.buddy) {
   # use only (probably) good observations with doit!=0
-  ix<-which( (is.na(dqcflag) | dqcflag==keep.code) &
+  ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
              doit!=0 )
   if (length(ix)>0) {
     t0a<-Sys.time()
@@ -1347,7 +3584,11 @@ for (i in 1:argv$i.buddy) {
     xtot<-x[ix]
     ytot<-y[ix]
     ztot<-as.numeric(z[ix])
-    ttot<-as.numeric(data$value[ix])
+    if (argv$variable=="RR") {
+      ttot<-boxcox(x=data$value[ix],lambda=argv$boxcox.lambda)
+    } else {
+      ttot<-data$value[ix]
+    }
     # apply will loop over this 4D array
     ixyzt_tot<-cbind(1:length(xtot),xtot,ytot,ztot,ttot)
     stSp_3km<-apply(ixyzt_tot,FUN=statSpat,MARGIN=1,drmin=argv$dr.buddy)
@@ -1360,7 +3601,7 @@ for (i in 1:argv$i.buddy) {
                  is.na(dqcflag[ix])) &
                  doit[ix]==1 )
     # set dqcflag
-    if (length(sus)>0) dqcflag[ix[sus]]<-buddy.code
+    if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
   } else {
     print("no valid observations left, no buddy check")
   }
@@ -1368,14 +3609,247 @@ for (i in 1:argv$i.buddy) {
     t1a<-Sys.time()
     print(paste("buddy-check, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-    ncur<-length(which(dqcflag==buddy.code))
+    ncur<-length(which(dqcflag==argv$buddy.code))
     print(paste("# suspect observations=",ncur-nprev))
-    nprev<-length(which(dqcflag==buddy.code))
+    nprev<-length(which(dqcflag==argv$buddy.code))
   }
 }
 rm(doit)
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"dqcres_buddy.txt"),
+      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"dqcres_buddy.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            dqcflag,"\n",sep=";"),append=T)
+}
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
+#
+#-----------------------------------------------------------------------------
+# STEVE - isolated event test (YES/NO)
+if (argv$steve) {
+  if (argv$verbose | argv$debug) nprev<-0
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.steve[f]
+  # test
+  for (i in 1:argv$i.steve) {
+    t0a<-Sys.time()
+    for (j in 1:length(argv$thres.steve)) {
+      # use only (probably) good observations
+      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+      if (length(ix)>0) {
+        obs<-data.frame(x[ix],y[ix],data$value[ix])
+        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
+                   thres=argv$thres.steve[j],
+                   gt_or_lt="lt",
+                   pmax=argv$pmax_lt.steve[j],
+                   dmax=argv$dmax_lt.steve[j],
+                   n.sector=16,
+                   n.connected_eveYES=argv$n_lt.steve[j],
+                   frac.eveYES_in_the_clump=argv$frac_lt.steve[j],
+                   dmin.next_eveYES=argv$dmin_next_lt.steve[j])
+        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
+        # set dqcflag
+        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+      } else {
+        print("no valid observations left, no STEVE")
+      }
+      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+      if (length(ix)>0) {
+        obs<-data.frame(x[ix],y[ix],data$value[ix])
+        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
+                   thres=argv$thres.steve[j],
+                   gt_or_lt="ge",
+                   pmax=argv$pmax_ge.steve[j],
+                   dmax=argv$dmax_ge.steve[j],
+                   n.sector=16,
+                   n.connected_eveYES=argv$n_ge.steve[j],
+                   frac.eveYES_in_the_clump=argv$frac_ge.steve[j],
+                   dmin.next_eveYES=argv$dmin_next_ge.steve[j])
+        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
+        # set dqcflag
+        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+      } else {
+        print("no valid observations left, no STEVE")
+      }
+    } # end of loop over threshold that define events
+    if (argv$verbose | argv$debug) {
+      t1a<-Sys.time()
+      print(paste("STEVE, iteration=",i,
+                  "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+      ncur<-length(which(dqcflag==argv$steve.code))
+      print(paste("# suspect observations=",ncur-nprev))
+      nprev<-length(which(dqcflag==argv$steve.code))
+    }
+  }
+  rm(doit)
+  if (argv$verbose | argv$debug) 
+    print("+---------------------------------+")
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"dqcres_steve.txt"),
+        "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"dqcres_steve.txt"),
+        paste(x,
+              y,
+              z,
+              data$lat,
+              data$lon,
+              data$elev,
+              data$value,
+              data$prid,
+              dqcflag,"\n",sep=";"),append=T)
+  }
+}
+#
+#-----------------------------------------------------------------------------
+# check against a first-guess (deterministic)
+if (argv$fg) {
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.fg[f]
+  # use only (probably) good observations
+  ix<-which(is.na(dqcflag) & doit!=0)
+  if (length(ix)>0) {
+    if (is.na(argv$thrpos.fg) | is.na(argv$thrneg.fg)) {
+      sus<-which(!is.na(fg) & 
+                 is.na(dqcflag) & 
+                 (abs(data$value-fg)>argv$thr.fg) &
+                 doit==1)
+    } else {
+      sus<-which(!is.na(fg) & 
+                 is.na(dqcflag) & 
+                 ( ((data$value-fg)>argv$thrpos.fg) | 
+                   ((fg-data$value)>argv$thrneg.fg) ) &
+                 doit==1)
+    }
+    # set dqcflag
+    if (length(sus)>0) dqcflag[sus]<-argv$fg.code
+  }  else {
+    print("no valid observations left, no first-guess check")
+  }
+  if (argv$verbose | argv$debug) {
+    print(paste("# observations that fail the first-guess check (det)=",
+                length(which(dqcflag==argv$fg.code))))
+    print("+---------------------------------+")
+  }
+  rm(doit)
+  if (argv$debug) {
+    if (argv$variable=="T") {
+      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
+          "x;y;z;lat;lon;elev;value;prid;fg;zfg;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fg,4),
+                round(zfgdem,1),
+                dqcflag,"\n",sep=";"),append=T)
+    } else {
+      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
+          "x;y;z;lat;lon;elev;value;prid;fg;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fg,4),
+                dqcflag,"\n",sep=";"),append=T)
+    }
+  }
+}
+#
+#-----------------------------------------------------------------------------
+# check against a first-guess (ensemble)
+if (argv$fge) {
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.fge[f]
+  # use only (probably) good observations
+  ix<-which(is.na(dqcflag) & doit!=0)
+  if (length(ix)>0) {
+    fge.sd<-pmin(fge.sd,argv$sdmin.fge)
+    fge.iqr<-pmin((fge.q75-fge.q25),argv$iqrmin.fge)
+    sus<-which( ( 
+    (abs(fge.mu-data$value)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
+    ((data$value-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
+    ((fge.q25-data$value)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr)) ) &
+    !is.na(fge.mu) & 
+    !is.na(fge.sd) & 
+    !is.na(fge.iqr) & 
+    is.na(dqcflag) &
+    doit==1)
+    # set dqcflag
+    if (length(sus)>0) dqcflag[sus]<-argv$fge.code
+  }  else {
+    print("no valid observations left, no ensemble first-guess check")
+  }
+  if (argv$verbose | argv$debug) {
+    print(paste("# observations that fail the first-guess check (ens)=",
+                length(which(dqcflag==argv$fge.code))))
+    print("+---------------------------------+")
+  }
+  rm(doit)
+  if (argv$debug) {
+    if (argv$variable=="T") {
+      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
+      "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;zfge;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fge.mu,4),
+                round(fge.sd,4),
+                round(fge.q25,4),
+                round(fge.q50,4),
+                round(fge.q75,4),
+                round(zfgedem,1),
+                dqcflag,"\n",sep=";"),append=T)
+    } else {
+      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
+      "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                round(fge.mu,4),
+                round(fge.sd,4),
+                round(fge.q25,4),
+                round(fge.q50,4),
+                round(fge.q75,4),
+                dqcflag,"\n",sep=";"),append=T)
+    }
+  }
+}
 #
 #-----------------------------------------------------------------------------
 # SCT - Spatial Consistency Test
@@ -1385,10 +3859,15 @@ if (argv$verbose | argv$debug) nprev<-0
 doit<-vector(length=ndata,mode="numeric")
 doit[]<-NA
 for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.sct[f]
+# set min and max for the backgorund values
+sctvmin<-ifelse(argv$variable=="RR",-1./argv$boxcox.lambda,
+                                    argv$vmin)
+sctvmax<-ifelse(argv$variable=="RR",boxcox(argv$vmax,argv$boxcox.lambda),
+                                    argv$vmax)
 # test
 for (i in 1:argv$i.sct) {
   # use only (probably) good observations with doit!=0
-  ix<-which( (is.na(dqcflag) | dqcflag==keep.code) & doit!=0 )
+  ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 )
   if (length(ix)>0) {
     t0a<-Sys.time()
     # create the grid for SCT. SCT is done independently in each box
@@ -1405,10 +3884,15 @@ for (i in 1:argv$i.sct) {
     xtot<-x[ix]
     ytot<-y[ix]
     ztot<-z[ix]
-    ttot<-data$value[ix]
+    if (argv$variable=="RR") {
+      ttot<-boxcox(x=data$value[ix],lambda=argv$boxcox.lambda)
+    } else {
+      ttot<-data$value[ix]
+    }
     pridtot<-data$prid[ix]
     laftot<-laf[ix]
     # assign each station to the corresponding box
+    if (argv$debug) itotdeb<-extract(r,cbind(x,y))
     itot<-extract(r,cbind(xtot,ytot))
     # count the number of observations in each box
     rnobs<-rasterize(cbind(xtot,ytot),r,ttot,fun=function(x,...)length(x))
@@ -1427,7 +3911,7 @@ for (i in 1:argv$i.sct) {
                T2=argv$thr.sct,
                T2pos=argv$thrpos.sct,
                T2neg=argv$thrneg.sct,
-               sus.code=sct.code,
+               sus.code=argv$sct.code,
                faster=argv$fast.sct)
   } else {
     print("no valid observations left, no SCT")
@@ -1436,9 +3920,9 @@ for (i in 1:argv$i.sct) {
     t1a<-Sys.time()
     print(paste("SCT, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-    ncur<-length(which(dqcflag==sct.code))
+    ncur<-length(which(dqcflag==argv$sct.code))
     print(paste("# suspect observations=",ncur-nprev))
-    nprev<-length(which(dqcflag==sct.code))
+    nprev<-length(which(dqcflag==argv$sct.code))
   }
 }
 rm(doit)
@@ -1451,7 +3935,7 @@ if (argv$verbose | argv$debug)
 qmn<-0.25
 qmx<-0.75
 qav<-0.5
-ix<-which(!is.na(corep) & (is.na(dqcflag) | dqcflag==keep.code)) 
+ix<-which(!is.na(corep) & (is.na(dqcflag) | dqcflag==argv$keep.code)) 
 if (length(ix)>0) {
   acorep<-abs(corep[ix])
   # ecdf(x)(x) here should give us something similar to rank(x)/length(x)
@@ -1476,6 +3960,22 @@ if (length(ix)>0) {
 } else {
   print("no valid first guess for the observation error variance found")
 }
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"dqcres_sct.txt"),
+      "x;y;z;lat;lon;elev;value;prid;corep;sctpog;dqcflag;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"dqcres_sct.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            corep,
+            sctpog,
+            dqcflag,"\n",sep=";"),append=T)
+}
 #
 #-----------------------------------------------------------------------------
 # check elevation against dem 
@@ -1492,16 +3992,109 @@ if (argv$dem) {
     sus<-which( abs(z[ixna]-zdem[ixna])>argv$dz.dem &
                 doit[ixna]==1 )
     # set dqcflag
-    if (length(sus)>0) dqcflag[ixna[sus]]<-dem.code
+    if (length(sus)>0) dqcflag[ixna[sus]]<-argv$dem.code
   }  else {
     print("no valid observations left, no dem check")
   }
   if (argv$verbose | argv$debug) {
     print(paste("# observations too far from dem=",
-                length(which(dqcflag==dem.code))))
+                length(which(dqcflag==argv$dem.code))))
     print("+---------------------------------+")
   }
   rm(doit)
+}
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"dqcres_demcheck.txt"),
+      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"dqcres_demcheck.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            dqcflag,"\n",sep=";"),append=T)
+}
+#
+#-----------------------------------------------------------------------------
+# STEVE - isolated event test (YES/NO)
+if (argv$steve) {
+  t0a<-Sys.time()
+  if (argv$verbose | argv$debug) nprev<-0
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.steve[f]
+  # test
+  for (i in 1:argv$i.steve) {
+    t0a<-Sys.time()
+    for (j in 1:length(argv$thres.steve)) {
+      # use only (probably) good observations
+      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+      if (length(ix)>0) {
+        obs<-data.frame(x[ix],y[ix],data$value[ix])
+        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
+                   thres=argv$thres.steve[j],
+                   gt_or_lt="lt",
+                   pmax=argv$pmax_lt.steve[j],
+                   dmax=argv$dmax_lt.steve[j],
+                   n.sector=16,
+                   n.connected_eveYES=argv$n_lt.steve[j],
+                   frac.eveYES_in_the_clump=argv$frac_lt.steve[j],
+                   dmin.next_eveYES=argv$dmin_next_lt.steve[j])
+        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
+        # set dqcflag
+        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+      } else {
+        print("no valid observations left, no STEVE")
+      }
+      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+      if (length(ix)>0) {
+        obs<-data.frame(x[ix],y[ix],data$value[ix])
+        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
+                   thres=argv$thres.steve[j],
+                   gt_or_lt="ge",
+                   pmax=argv$pmax_ge.steve[j],
+                   dmax=argv$dmax_ge.steve[j],
+                   n.sector=16,
+                   n.connected_eveYES=argv$n_ge.steve[j],
+                   frac.eveYES_in_the_clump=argv$frac_ge.steve[j],
+                   dmin.next_eveYES=argv$dmin_next_ge.steve[j])
+        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
+        # set dqcflag
+        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+      } else {
+        print("no valid observations left, no STEVE")
+      }
+    } # end of loop over threshold that define events
+    if (argv$verbose | argv$debug) {
+      t1a<-Sys.time()
+      print(paste("STEVE, iteration=",i,
+                  "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+      ncur<-length(which(dqcflag==argv$steve.code))
+      print(paste("# suspect observations=",ncur-nprev))
+      nprev<-length(which(dqcflag==argv$steve.code))
+    }
+  }
+  rm(doit)
+  if (argv$verbose | argv$debug) 
+    print("+---------------------------------+")
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"dqcres_steve2.txt"),
+        "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"dqcres_steve2.txt"),
+        paste(x,
+              y,
+              z,
+              data$lat,
+              data$lon,
+              data$elev,
+              data$value,
+              data$prid,
+              dqcflag,"\n",sep=";"),append=T)
+  }
 }
 #
 #-----------------------------------------------------------------------------
@@ -1522,18 +4115,32 @@ if (length(ix)>0) {
   ns<-apply(xy,FUN=nstat,MARGIN=1,drmin=argv$dr.isol)
   sus<-which(ns<argv$n.isol & doit[ix]==1)
   # set dqcflag
-  if (length(sus)>0) dqcflag[ix[sus]]<-isol.code
+  if (length(sus)>0) dqcflag[ix[sus]]<-argv$isol.code
 } else {
   print("no valid observations left, no check for isolated observations")
 }
 rm(doit)
 if (argv$verbose | argv$debug) {
-  print(paste("# isolated observations=",length(which(dqcflag==isol.code))))
+  print(paste("# isolated observations=",length(which(dqcflag==argv$isol.code))))
   print("+---------------------------------+")
+}
+if (argv$debug) {
+  cat(file=file.path(argv$debug.dir,"dqcres_iso.txt"),
+      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+  cat(file=file.path(argv$debug.dir,"dqcres_iso.txt"),
+      paste(x,
+            y,
+            z,
+            data$lat,
+            data$lon,
+            data$elev,
+            data$value,
+            data$prid,
+            dqcflag,"\n",sep=";"),append=T)
 }
 #
 #-----------------------------------------------------------------------------
-# observations not flagged are assumed to be good observaitons 
+# observations not flagged are assumed to be good observations 
 dqcflag[is.na(dqcflag)]<-0
 if (argv$verbose | argv$debug) {
   print("summary")
@@ -1561,16 +4168,16 @@ for (s in 1:length(ord.varidx.out)) {
     str[s]<-argv$varname.opt[posopt.s]
     dataout[,s]<-dataopt[,posopt.nona.s]
   } else if (pos.s==1) {
-    str[s]<-"lat"
+    str[s]<-argv$varname.lat.out
     dataout[,s]<-round(data$lat,5)
   } else if (pos.s==2) {
-    str[s]<-"lon"
+    str[s]<-argv$varname.lon.out
     dataout[,s]<-round(data$lon,5)
   } else if (pos.s==3) {
-    str[s]<-"elev"
+    str[s]<-argv$varname.elev.out
     dataout[,s]<-round(z,1)
   } else if (pos.s==4) {
-    str[s]<-"value"
+    str[s]<-argv$varname.value.out
     dataout[,s]<-round(data$value,1)
   }
 }
@@ -1590,7 +4197,7 @@ write.table(file=argv$output,
             col.names=str,
             row.names=F,
             dec=".",
-            sep=";")
+            sep=argv$separator.out)
 #
 #-----------------------------------------------------------------------------
 # Normal exit
