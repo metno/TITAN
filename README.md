@@ -50,12 +50,6 @@ To see program options, run:
    titan.R --help
 ```
 
-run a test case with:
-
-```
-./titan.R test/TA_2017072112.txt test/dqc_2017072112.txt --spatconv --month.clim 7 --i.sct 3 --i.buddy 3 -v
-```
-
 Copyright and license
 ---------------------
 Copyright (C) 2017 MET Norway. TITAN is licensed under [GPL
