@@ -39,7 +39,7 @@ Ensure the following R-libraries (and their dependencies) are installed:
    * rgdal
    * ncdf4 (optional, used only if additional geographical information are required)
    * tripack (optional, used by STEVE)
-   * igraph (optional, used to remoc STEVE)
+   * igraph (optional, used to post-process radar-derived precipitation)
 
 
 Running the program
