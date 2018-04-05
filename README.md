@@ -2,8 +2,8 @@
 
 Automatic quality control of in-situ observations with an emphasis on spatial controls.
 
-TITAN is designed to test all the observations referring to the same observation time simulatenously.
-Currently, the statitics of the individual station time series is not considered.
+TITAN is designed to test all the observations referring to the same observation time simultaneously.
+Currently, the statistics of the individual station time series is not considered.
 
 Available checks are (applied sequentially as in this list):
 
