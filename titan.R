@@ -3954,7 +3954,7 @@ if (length(ix)>0) {
           (argv$max.corep[f]-argv$mean.corep[f])*(qcorep[ip]-qav)/(qmx-qav)
     } else {
       print(paste("provider ",argv$prid[f],
-                  ": no valid first guess for obs-err-var",sep=""))
+      ": no valid data found to compute the coefficient of representativeness",sep=""))
     }
   }
 } else {
