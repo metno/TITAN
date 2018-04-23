@@ -3142,18 +3142,61 @@ if (!is.na(argv$fg.file)) {
     rfg<-raux$stack
   }
   rm(raux,ti,fg.e,fg.epos)
-  # radar fg, filter out clutter
+  # radar fg, data quality control 
   if (argv$fg.type=="radar") {
     suppressPackageStartupMessages(library("igraph"))
     dfg<-getValues(rfg)
-    rclump<-clump(rfg)
-    fr<-freq(rclump)
-    ix<-which(!is.na(fr[,2]) & fr[,2]<=10)
+    # a. remove not plausible values
+    radardqc.min<-0
+    radardqc.max<-300
+    ix<-which( !is.na(dfg) & (dfg<radardqc.min | dfg>radardqc.max) )
     if (length(ix)>0) {
-      dfg[getValues(rclump) %in% fr[ix,1]]<-NA
+      dfg[ix]<-NA
       rfg[]<-dfg
     }
-    rm(dfg,rclump,fr,ix)
+    # b. remove patches of connected cells that are too small
+    #  check for small and isolated clumps (patches) of connected cells with 
+    #  precipitation greater than a predefined threshold
+    #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
+    #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
+    radardqc.clump.thr<-c(0,1)
+    radardqc.clump.n<-c(100,50)
+    for (i in 1:length(radardqc.clump.thr)) {
+      raux<-rfg
+      if (any(dfg<=radardqc.clump.thr[i])) 
+        raux[which(dfg<=radardqc.clump.thr[i])]<-NA
+      rclump<-clump(raux)
+      fr<-freq(rclump)
+      ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])    
+      dfg[getValues(rclump) %in% fr[ix,1]]<-NA
+      rfg[]<-dfg
+      rm(raux,fr,ix,rclump)
+    }
+    # c. remove outliers. Check for outliers in square boxes of 51km by 51km
+    raux<-rfg
+    daux<-boxcox(x=dfg,lambda=0.5)
+    raux[]<-daux
+    radardqc.outl.fact<-51
+    # aggregate over boxes of fact x fact cells, take the mean
+    avg<-getValues(
+          crop(
+           focal(
+            extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
+            w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=mean,na.rm=T),
+          raux) )
+    stdev<-getValues(
+            crop(
+             focal(
+              extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
+              w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
+            raux) )
+    rm(raux)
+    ix<-which(stdev>0)
+    # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
+    suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
+    if (length(suspect)>0) dfg[ix[suspect]]<-NA
+    rfg[]<-dfg
+    rm(raux,daux,avg,stdev,ix,suspect)
   }
   if (argv$proj4fg!=argv$proj4to) {
     coord<-SpatialPoints(cbind(data$lon,data$lat),
