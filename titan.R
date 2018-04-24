@@ -1101,6 +1101,30 @@ plotSCTgrid<-function() {
   box()
 }
 
+#+
+plot_debug<-function(ff,
+                     r,
+                     r1=NULL,
+                     lbr=20,
+                     x,
+                     y,
+                     proj4,
+                     proj4plot=NULL) {
+  rmn<-range(getValues(r),na.rm=T)[1]
+  rmx<-range(getValues(r),na.rm=T)[2]
+  rbr<-seq(rmn,rmx,length=lbr)
+  col<-c(rev(rainbow((lbr-1))))
+  png(file=ff,width=800,height=800)
+  image(r,breaks=rbr,col=col)
+  if (!is.null(r1)) contour(r1,levels=c(0,1),add=T)
+  xy<-as.data.frame(cbind(x,y))
+  coordinates(xy)<-c("x","y")
+  proj4string(xy)<-CRS(proj4)
+  if (!is.null(proj4plot)) xy<-spTransform(xy,CRS(proj4plot))
+  points(xy,cex=0.8,pch=19)
+  dev.off()
+}
+
 #==============================================================================
 #  MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN
 #==============================================================================
@@ -3206,7 +3230,6 @@ if (!is.na(argv$fg.file)) {
               extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
               w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
             raux) )
-    rm(raux)
     ix<-which(stdev>0)
     # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
     suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
@@ -3283,9 +3306,13 @@ if (!is.na(argv$fg.file)) {
                      range(getValues(rfg),na.rm=T)[2],length=20),
           col=c(rev(rainbow(19))))
     if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
-    points(x,y,cex=0.8,pch=19)
+    xy.tmp<-as.data.frame(cbind(x,y))
+    coordinates(xy.tmp)<-c("x","y")
+    proj4string(xy.tmp)<-CRS(argv$proj4to)
+    xy.tmp.fg<-spTransform(xy.tmp,CRS(argv$proj4fg))
+    points(xy.tmp.fg,cex=0.8,pch=19)
     dev.off()
-    rm(rfg)
+    rm(rfg,xy.tmp,xy.tmp.fg)
     if (argv$variable=="T") {
       png(file=file.path(argv$debug.dir,"fgdem.png"),width=800,height=800)
       image(rfgdem,
@@ -3552,10 +3579,10 @@ if (length(ix)>0) {
   print("no valid observations left, no metadata check")
 }
 if (argv$verbose | argv$debug) {
-  print("test for no metdata")
+  print("test for no metdata (2nd round)")
 #  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
 #              z[which(!meta)],data$value[which(!meta)]))
-  print(paste("# observations lacking metadata=",
+  print(paste("# observations lacking metadata (tot, 1st+2nd round)=",
          length(which(dqcflag==argv$nometa.code))))
   print("+---------------------------------+")
 }
@@ -4226,7 +4253,7 @@ if (argv$debug) {
 dqcflag[is.na(dqcflag)]<-0
 if (argv$verbose | argv$debug) {
   print("summary")
-  print(paste("# total suspect observations=",
+  print(paste("# total suspect & no-metadata observations=",
               length(which(dqcflag!=0))," [",
               round(100*length(which(dqcflag!=0))/ndata,0),
               "%]",sep="") )
@@ -4236,49 +4263,67 @@ if (argv$verbose | argv$debug) {
 # Include radar-derived precipitation in the output file
 #  abbreviation fge = first-guess ensemble
 if (argv$radarout) {
+  if (argv$verbose | argv$debug) 
+    print("include radar-derived precipitation in the output file")
   drad<-getValues(rrad) #fg-vec & fg-grid
   # get radar-point coordinates into fge CRS (only for not-NA points)
   ix1<-which(!is.na(drad)) # indx over fg-vec
-  radxy<-xyFromCell(rrad,ix1) #ix1-vec
+  radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
   names(radxy)<-c("x","y")
   coordinates(radxy)<-c("x","y")
   proj4string(radxy)<-CRS(argv$proj4fg)
   radxy.fge<-spTransform(radxy,CRS=argv$proj4fge) #ix1-vec
   radxy.fge<-as.data.frame(radxy.fge)
-  # aggregate onto the fge grid
+  # aggregate radar values onto the fge grid
   raux<-rasterize(radxy.fge, #fge-grid
                   rfge.grid,
                   drad[ix1],
                   fun=mean)
   raux[raux<=0]<-NA 
   daux<-getValues(raux) #fge-vec
+  if (argv$debug) 
+    plot_debug(ff=file.path(argv$debug.dir,"radar_1_fgegrid.png"),
+               r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
   # keep points where radar prec is greater than the ensemble median
-  ix2<-which(!is.na(daux) & daux<fge.q50) # indx over fge-vec
+  ix2<-which(!is.na(daux) & daux<fge.gq50) # indx over fge-vec
   if (length(ix2)>0) daux[ix2]<-NA
   raux[]<-daux
+  if (argv$debug) { 
+    plot_debug(ff=file.path(argv$debug.dir,"radar_2_fgegrid.png"),
+               r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
+    ixdeb<-which(!is.na(fge.gq50) & !is.na(daux))
+    png(file=file.path(argv$debug.dir,"radar_vs_fgegq50.png"))
+    plot(daux[ixdeb],fge.gq50[ixdeb],xlab="radar (mm)",
+         ylab="numerical model, ensemble median (mm)")
+    dev.off()
+  }
   ix1.1<-which(!is.na(extract(raux,radxy.fge))) #indx over ix1-vec
+  ix1.2<-which(is.na(extract(raux,radxy.fge))) #indx over ix1-vec
   rm(raux,daux)
   # case of valid radar-data points found
   if (length(ix1.1)>0) {
     # remove patches of connected cells that are too small
-    drad[ix1[ix1.1]]<-NA
+    drad[ix1[ix1.2]]<-NA
     rrad[]<-drad
     rclump<-clump(rrad)
-    fr<-freq(rrclump)
+    fr<-freq(rclump)
     ix<-which(!is.na(fr[,2]) & fr[,2]<=10)
-    if (length(ix)>0) drad[getValues(rrclump) %in% fr[ix,1]]<-NA
+    if (length(ix)>0) drad[getValues(rclump) %in% fr[ix,1]]<-NA
     rrad[]<-drad
     rm(rclump,fr,ix)
     # (optional) aggregate radar data onto a coarser grid
     if (argv$radarout.aggfact>1) {
-      raux<-aggregate(rrad,fact=argv$radarout.aggfact,na.rm=T,expand=T)
+      raux<-aggregate(rrad,fact=argv$radarout.aggfact,na.rm=T,expand=T,fun=mean)
       rrad<-raux
       rm(raux)
       drad<-getValues(rrad)
     }
+    if (argv$debug) 
+      plot_debug(ff=file.path(argv$debug.dir,"radar_3_fggrid.png"),
+                 r=rrad,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fg)
     # prepare list of valid radar-points in output CRS
     ix1<-which(!is.na(drad)) # indx over fg-vec
-    radxy<-xyFromCell(rrad,ix1) #ix1-vec
+    radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
     names(radxy)<-c("x","y")
     coordinates(radxy)<-c("x","y")
     proj4string(radxy)<-CRS(argv$proj4fg)
@@ -4286,6 +4331,19 @@ if (argv$radarout) {
     radx.from<-radxy.from[,1]
     rady.from<-radxy.from[,2]
     radrr<-drad[ix1]
+    if (argv$debug) {
+      ixdeb<-which(dqcflag==0 & !is.na(dqcflag))
+      png(file=file.path(argv$debug.dir,"radar_4_ll.png"),
+                         width=800,height=800)
+      plotp(x=c(data$lon[ixdeb],radx.from),
+            y=c(data$lat[ixdeb],rady.from),
+            val=c(data$value[ixdeb],radrr),
+            br=c(0,0.1,0.5,1,2,3,4,5,7,10,15,20,50,100),
+            col=c("gray",rev(rainbow(12))),
+            map=NULL,map.br=NULL,map.col=NULL,
+            xl=range(radx.from),yl=range(rady.from))
+      dev.off() 
+    }
   # case of no valid radar-data points found
   } else {
     radx.from<-integer(0)
@@ -4336,10 +4394,10 @@ dataout[,(s+4)]<-round(corep,5)
 if (argv$radarout) {
   if (length(radrr)>0) {
     datarad<-array(data=NA,dim=c(length(radrr),(length(varidx.out)+4)))
-    datarad[,which(str==argv$varname.lat.out)]<-rady.from
-    datarad[,which(str==argv$varname.lon.out)]<-radx.from
-    datarad[,which(str==argv$varname.value.out)]<-radrr
-    datarad[,which(str==argv$varname.prid)]<-argv$radarout.prid
+    datarad[,which(str==argv$varname.lat.out)]<-round(rady.from,6)
+    datarad[,which(str==argv$varname.lon.out)]<-round(radx.from,6)
+    datarad[,which(str==argv$varname.value.out)]<-round(radrr,2)
+    datarad[,which(str==argv$varname.prid)]<-rep(argv$radarout.prid,length(radrr))
     datarad[,which(str==argv$varname.dqc)]<-rep(0,length(radrr))
     dataout<-rbind(dataout,datarad)
   }
