@@ -2241,6 +2241,22 @@ p <- add_argument(p, "--keeplist.fidx",
                   nargs=Inf,
                   short="-kfix")
 #.............................................................................. 
+# radar-derived precipitation as output
+p <- add_argument(p, "--radarout",
+                  help="include the radar-derived precipitation as output.",
+                  flag=T,
+                  short="-rado")
+p <- add_argument(p, "--radarout.prid",
+                  help="provider identifier for the radar data",
+                  type="numeric",
+                  default=100,
+                  short="-radop")
+p <- add_argument(p, "--radarout.aggfact",
+                  help="aggregation factor for the radar-derived precipitation",
+                  type="numeric",
+                  default=3,
+                  short="-radop")
+#.............................................................................. 
 # doit flags
 comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
 p <- add_argument(p, "--doit.buddy",
@@ -3167,7 +3183,7 @@ if (!is.na(argv$fg.file)) {
         raux[which(dfg<=radardqc.clump.thr[i])]<-NA
       rclump<-clump(raux)
       fr<-freq(rclump)
-      ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])    
+      ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
       dfg[getValues(rclump) %in% fr[ix,1]]<-NA
       rfg[]<-dfg
       rm(raux,fr,ix,rclump)
@@ -3196,7 +3212,8 @@ if (!is.na(argv$fg.file)) {
     suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
     if (length(suspect)>0) dfg[ix[suspect]]<-NA
     rfg[]<-dfg
-    rm(raux,daux,avg,stdev,ix,suspect)
+    rm(raux,daux,avg,stdev,ix,suspect,dfg)
+    if (argv$radarout) rrad<-rfg
   }
   if (argv$proj4fg!=argv$proj4to) {
     coord<-SpatialPoints(cbind(data$lon,data$lat),
@@ -3380,6 +3397,7 @@ if (!is.na(argv$fge.file)) {
     quit(status=1)
   }
   edata<-array(data=NA,dim=c(ndata,length(ei)))
+  first<-T
   for (ens in 1:length(ei)) {
     if (argv$fge.acc) {
       tminus1h<-format(as.POSIXlt(
@@ -3416,6 +3434,19 @@ if (!is.na(argv$fge.file)) {
                   selection=list(t=argv$fge.t,e=ei[ens],z=4))
       rfge<-raux$stack
     }
+    # output radar data: save the ensemble median
+    if (argv$radarout) {
+      dfge<-getValues(rfge)
+      if (any(!is.na(dfge))) {
+        if (first) {
+          gdata<-array(data=NA,dim=c(length(dfge),length(ei)))
+          rfge.grid<-rfge
+          first<-F
+        }
+        gdata[,ens]<-getValues(rfge)
+      }
+    }
+    # debug
     if (argv$debug) {
       png(file=file.path(argv$debug.dir,
                          paste("fge_",formatC(ens,width=2,flag="0"),".png",sep="")),
@@ -3430,6 +3461,7 @@ if (!is.na(argv$fge.file)) {
       dev.off()
     }
     rm(raux)
+    # extract data at observation locations (coord conversion)
     if (argv$proj4fge!=argv$proj4to) {
       coord<-SpatialPoints(cbind(data$lon,data$lat),
                            proj4string=CRS(argv$proj4from))
@@ -3448,13 +3480,20 @@ if (!is.na(argv$fge.file)) {
       edata[,ens]<-boxcox(x=edata[,ens],lambda=argv$boxcox.lambda)
     }
     rm(rfge)
-  }
+  } # end of cycle over ensemble members
+  # compute aggregate quantities
   fge.mu<-rowMeans(edata,na.rm=T)
   fge.sd<-apply(edata,MARGIN=1,FUN=function(x){sd(x,na.rm=T)})
   fge.q50<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
   fge.q25<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.25,na.rm=T))})
   fge.q75<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.75,na.rm=T))})
   rm(edata)
+  #
+  if (argv$radarout) {
+    fge.gq50<-apply(gdata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
+    rm(gdata)
+  }
+  # debug
   if (argv$debug) {
     if (argv$variable=="T") {
       cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
@@ -4194,6 +4233,68 @@ if (argv$verbose | argv$debug) {
 }
 #
 #-----------------------------------------------------------------------------
+# Include radar-derived precipitation in the output file
+#  abbreviation fge = first-guess ensemble
+if (argv$radarout) {
+  drad<-getValues(rrad) #fg-vec & fg-grid
+  # get radar-point coordinates into fge CRS (only for not-NA points)
+  ix1<-which(!is.na(drad)) # indx over fg-vec
+  radxy<-xyFromCell(rrad,ix1) #ix1-vec
+  names(radxy)<-c("x","y")
+  coordinates(radxy)<-c("x","y")
+  proj4string(radxy)<-CRS(argv$proj4fg)
+  radxy.fge<-spTransform(radxy,CRS=argv$proj4fge) #ix1-vec
+  radxy.fge<-as.data.frame(radxy.fge)
+  # aggregate onto the fge grid
+  raux<-rasterize(radxy.fge, #fge-grid
+                  rfge.grid,
+                  drad[ix1],
+                  fun=mean)
+  raux[raux<=0]<-NA 
+  daux<-getValues(raux) #fge-vec
+  # keep points where radar prec is greater than the ensemble median
+  ix2<-which(!is.na(daux) & daux<fge.q50) # indx over fge-vec
+  if (length(ix2)>0) daux[ix2]<-NA
+  raux[]<-daux
+  ix1.1<-which(!is.na(extract(raux,radxy.fge))) #indx over ix1-vec
+  rm(raux,daux)
+  # case of valid radar-data points found
+  if (length(ix1.1)>0) {
+    # remove patches of connected cells that are too small
+    drad[ix1[ix1.1]]<-NA
+    rrad[]<-drad
+    rclump<-clump(rrad)
+    fr<-freq(rrclump)
+    ix<-which(!is.na(fr[,2]) & fr[,2]<=10)
+    if (length(ix)>0) drad[getValues(rrclump) %in% fr[ix,1]]<-NA
+    rrad[]<-drad
+    rm(rclump,fr,ix)
+    # (optional) aggregate radar data onto a coarser grid
+    if (argv$radarout.aggfact>1) {
+      raux<-aggregate(rrad,fact=argv$radarout.aggfact,na.rm=T,expand=T)
+      rrad<-raux
+      rm(raux)
+      drad<-getValues(rrad)
+    }
+    # prepare list of valid radar-points in output CRS
+    ix1<-which(!is.na(drad)) # indx over fg-vec
+    radxy<-xyFromCell(rrad,ix1) #ix1-vec
+    names(radxy)<-c("x","y")
+    coordinates(radxy)<-c("x","y")
+    proj4string(radxy)<-CRS(argv$proj4fg)
+    radxy.from<-as.data.frame(spTransform(radxy,CRS=argv$proj4from))  
+    radx.from<-radxy.from[,1]
+    rady.from<-radxy.from[,2]
+    radrr<-drad[ix1]
+  # case of no valid radar-data points found
+  } else {
+    radx.from<-integer(0)
+    rady.from<-integer(0)
+    radrr<-integer(0)
+  }
+}
+#
+#-----------------------------------------------------------------------------
 # write the output file
 varidx.out<-varidx
 if (any(!is.na(argv$varname.opt))) 
@@ -4232,6 +4333,17 @@ str[s+3]<-argv$varname.sct
 dataout[,(s+3)]<-round(sctpog,2)
 str[s+4]<-argv$varname.rep
 dataout[,(s+4)]<-round(corep,5)
+if (argv$radarout) {
+  if (length(radrr)>0) {
+    datarad<-array(data=NA,dim=c(length(radrr),(length(varidx.out)+4)))
+    datarad[,which(str==argv$varname.lat.out)]<-rady.from
+    datarad[,which(str==argv$varname.lon.out)]<-radx.from
+    datarad[,which(str==argv$varname.value.out)]<-radrr
+    datarad[,which(str==argv$varname.prid)]<-argv$radarout.prid
+    datarad[,which(str==argv$varname.dqc)]<-rep(0,length(radrr))
+    dataout<-rbind(dataout,datarad)
+  }
+}
 dataout<-as.data.frame(dataout,stringsAsFactors=F)
 names(dataout)<-str
 write.table(file=argv$output,
