@@ -77,6 +77,31 @@ statSpat<-function(ixyzt,drmin,gamma=-0.0065) {
   return(c(length(i),round(dz_mx,0),round(tmean,1),round(tsd,3)))
 }
 
+#+ Correction for wind-induced undercatch of precipitation (Wolff et al., 2015)
+wolff_correction<-function(par,rr,t2m,ws10m) {
+#------------------------------------------------------------------------------
+  theta<-par[1]
+  beta<-par[2]
+  tau1<-par[3]
+  tau2<-par[4]
+  Ttau<-par[5]
+  stau<-par[6]
+  n<-length(t2m)
+  aux0<-exp((t2m-Ttau)/stau)
+  aux1<-aux0/(1+aux0)
+  f<- ( 1 - tau1 - (tau2-tau1) * aux1 ) * exp(-(ws10m/theta)**beta) + 
+     tau1 + (tau2-tau1) * aux1
+  rm(aux0,aux1)
+  if (any(f==0) | any(is.nan(f)) ) {
+    print(par)
+    indx<-which(f==0 | is.nan(f))
+    print(paste("f",f[indx]))
+  }
+  rr.cor<-rr*1./f
+#  return(list(f=f,sigma=s,rr.cor=rr.cor))
+  rr.cor
+}
+
 #+ Box-Cox transformation
 boxcox<-function(x,lambda) {
   if (lambda==0) {
@@ -763,7 +788,8 @@ function (nct, nct.unit, format = "%Y%m%d%H%M") {
 
 
 # read netCDF file format
-nc4in<-function(nc.file,nc.varname,
+nc4in<-function(nc.file,
+                nc.varname,
                 topdown=F,
                 out.dim=NULL,
                 proj4=NULL,
@@ -772,37 +798,31 @@ nc4in<-function(nc.file,nc.varname,
                 verbose=F) {
 #-------------------------------------------------------------------------------
 # Read data from ncdf file.
-# out.dim must contain the same number of dimension as the variable one want to 
-#  read from the file.
-# 
-# ..............................................................................
-# out.dim. list of variables describing the dimensions
-# out.dim$
-#  ndim. integer. number of dimension for the output structure.
-#  tpos. integer
-#  epos. integer
-#  zpos. integer
-#  names. vector (1...ndim). related to names(nc$dim)
-#         names[1]=x
-#         names[2]=y
-#         ...
-#
-# selection$
-#  t
-#  z
-#  e
-#
-# proj4. character. proj4 string set by the user 
-# 
-# nc.proj4. read proj4 string from file
-# nc.proj4$
-#  var. variable which contains proj4 attribute
-#  att. attribute of var which contains proj4 string
-#
-# 
-# out... output 
-# nc... whole nc
-# var... nc variable
+# Parameters:
+# + nc.file. character. netCDF file name
+# + nc.varname. character. variable name in the netCDF file
+# + out.dim. list. variable dimension parameters 
+#   out.dim$
+#    ndim. integer. number of dimensions
+#    tpos. integer. position of the dimension identifying "time"
+#    epos. integer. position of the dimension identifying "ensemble member"
+#    zpos. integer. position of the dimension identifying "vertical level"
+#    names. character vector (1...ndim). variable-specific dimension names
+#           names[1]=x must be the Easting coordinate
+#           names[2]=y must be the Northing coordinate
+#           ...
+# + selection. list. select gridded field to read
+#   selection$
+#    t. character. timestamp to read from the netCDF file (YYYYMMDDHH00)
+#    z. numeric. hight level to read from the netCDF file
+#    e. numeric. ensemble member to read from the netCDF file
+# + proj4 string can be obtained either: 
+#     proj4. character. proj4 string set by the user (override nc.proj4)
+#   OR
+#     nc.proj4. list. read proj4 string from file
+#     nc.proj4$
+#      var. variable which contains proj4 attribute
+#      att. attribute of var which contains proj4 string
 #
 # example:
 # file<-"/lustre/storeB/project/metproduction/products/meps/meps_extracted_2_5km_20161230T06Z.nc"
@@ -1607,7 +1627,7 @@ p <- add_argument(p, "--fg.proj4_att",
                   default="proj4",
                   short="-fgp4a")
 p <- add_argument(p, "--fg.t",
-                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  help="timestamp to read from the netCDF file (YYYYMMDDHH00)",
                   type="character",
                   default=NA,
                   short="-fgtt")
@@ -1669,7 +1689,7 @@ p <- add_argument(p, "--fg.demepos",
                   help="position of the dimension ''ensemble'' in the netCDF file",
                   type="numeric",
                   default=3,
-                  short="-fgdti")
+                  short="-fgdei")
 p <- add_argument(p, "--fg.demtpos",
                   help="position of the dimension ''time'' in the netCDF file",
                   type="numeric",
@@ -1845,7 +1865,7 @@ p <- add_argument(p, "--fge.demepos",
                   help="position of the dimension ''ensemble'' in the netCDF file",
                   type="numeric",
                   default=3,
-                  short="-fgedti")
+                  short="-fgedei")
 p <- add_argument(p, "--fge.demtpos",
                   help="position of the dimension ''time'' in the netCDF file",
                   type="numeric",
@@ -2347,6 +2367,237 @@ p <- add_argument(p, "--doit.steve",
                   nargs=Inf,
                   short="-dost")
 #.............................................................................. 
+# precipitation correction for the wind-induced undercatch
+p <- add_argument(p, "--rr.wcor",
+              help=" precipitation correction for the wind-induced undercatch",
+                  flag=T)
+p <- add_argument(p,"--rr.wcor.filesetup",
+                  help="predefined setup to read gridded fields: dem, t2m, wspeed. available options: meps",
+                  type="character",
+                  default=NULL,
+                  short="-rrwf")
+# temp 
+p <- add_argument(p,"--t2m.file",
+                  help="air temperature netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwt")
+p <- add_argument(p, "--t2m.offset",
+                  help="air temperature offset",
+                  type="numeric",
+                  default=0,
+                  short="-rrwto")
+p <- add_argument(p, "--t2m.cfact",
+                  help="air temperature correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-rrwtc")
+p <- add_argument(p, "--t2m.negoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwtos")
+p <- add_argument(p, "--t2m.negcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwton")
+p <- add_argument(p, "--proj4t2m",
+                  help="proj4 string for the air temperature file",
+                  type="character",
+                  default=proj4default,
+                  short="-rrwtp")
+p <- add_argument(p, "--t2m.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwtv")
+p <- add_argument(p, "--t2m.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-rrwtt")
+p <- add_argument(p, "--t2m.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwtn")
+p <- add_argument(p, "--t2m.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwtti")
+p <- add_argument(p, "--t2m.epos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwtei")
+p <- add_argument(p, "--t2m.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-rrwtna",
+                  nargs=Inf)
+p <- add_argument(p, "--t2m.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-rrwtp4v")
+p <- add_argument(p, "--t2m.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-rrwtp4a")
+p <- add_argument(p, "--t2m.t",
+                  help="timestamp to read in the air temperature netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-rrwttt")
+p <- add_argument(p, "--t2m.e",
+                  help="ensemble member to read in the air temperature netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-rrwtee")
+# dem for temperature adjustments
+p <- add_argument(p,"--t2m.demfile",
+                  help="dem file associated to the first-guess or background file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwdf")
+p <- add_argument(p, "--t2m.demoffset",
+                  help="offset",
+                  type="numeric",
+                  default=0,
+                  short="-rrwdoff")
+p <- add_argument(p, "--t2m.demcfact",
+                  help="correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-rrwdcf")
+p <- add_argument(p, "--t2m.demnegoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwdnoff")
+p <- add_argument(p, "--t2m.demnegcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwdncf")
+p <- add_argument(p, "--t2m.demt",
+                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-rrwdt")
+p <- add_argument(p, "--t2m.demvarname",
+                  help="variable name in the netCDF file (dem associated to the first-guess)",
+                  type="character",
+                  default="none",
+                  short="-rrwdv")
+p <- add_argument(p, "--t2m.demtopdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-rrwdtd")
+p <- add_argument(p, "--t2m.demndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwdnd")
+p <- add_argument(p, "--t2m.demepos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwdei")
+p <- add_argument(p, "--t2m.demtpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwdti")
+p <- add_argument(p, "--t2m.deme",
+                  help="ensemble member to read in the netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-rrwdee")
+p <- add_argument(p, "--t2m.demdimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-rrwdna",
+                  nargs=Inf)
+# wind
+p <- add_argument(p,"--wind.file",
+                  help="air temperature netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrww")
+p <- add_argument(p, "--proj4wind",
+                  help="proj4 string for the air temperature file",
+                  type="character",
+                  default=proj4default,
+                  short="-rrwwp")
+p <- add_argument(p, "--windspeed.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwwv")
+p <- add_argument(p, "--u.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwwv")
+p <- add_argument(p, "--v.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwwv")
+p <- add_argument(p, "--wind.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-rrwwt")
+p <- add_argument(p, "--wind.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwwn")
+p <- add_argument(p, "--wind.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwwti")
+p <- add_argument(p, "--wind.epos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwwei")
+p <- add_argument(p, "--wind.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-rrwwna",
+                  nargs=Inf)
+p <- add_argument(p, "--wind.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-rrwwp4v")
+p <- add_argument(p, "--wind.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-rrwwp4a")
+p <- add_argument(p, "--wind.t",
+                  help="timestamp to read in the air temperature netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-rrwwtt")
+p <- add_argument(p, "--wind.e",
+                  help="ensemble member to read in the air temperature netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-rrwwee")
+#.............................................................................. 
 # PARSE arguments
 argv <- parse_args(p)
 #
@@ -2411,7 +2662,8 @@ if (!is.na(argv$fg.type)) {
       argv$fg.demepos<-5
       argv$fg.deme<-0
       argv$fg.demdimnames<-c("x","y","time","height0","ensemble_member")
-      argv$fg.demcfact<-0.1
+      # divide geopotential by g=9.80665. This calculates geopotential height (above mean sea level)
+      argv$fg.demcfact<-0.0980665 
       argv$fg.topdown<-TRUE
       argv$fg.demtopdown<-TRUE
     } else if (argv$variable=="RR") {
@@ -2468,7 +2720,8 @@ if (!is.na(argv$fge.type)) {
       argv$fge.demepos<-5
       argv$fge.deme<-0
       argv$fge.demdimnames<-c("x","y","time","height0","ensemble_member")
-      argv$fge.demcfact<-0.1
+      # divide geopotential by g=9.80665. This calculates geopotential height (above mean sea level)
+      argv$fge.demcfact<-0.0980665 
       argv$fge.topdown<-TRUE
       argv$fge.demtopdown<-TRUE
     } else if (argv$variable=="RR") {
@@ -2493,6 +2746,38 @@ if (!is.na(argv$fge.type)) {
   } else {
     print("ERROR in --fge.type, type not recognized")
     quit(status=1)
+  }
+}
+#
+if (!is.na(argv$rr.wcor.filesetup)) {
+  if (argv$rr.wcor.filesetup=="meps") {
+    argv$t2m.epos<-5
+    argv$t2m.e<-0
+    argv$t2m.varname<-"air_temperature_2m"
+    argv$t2m.ndim<-5 
+    argv$t2m.tpos<-3
+    argv$t2m.dimnames<-c("x","y","time","height1","ensemble_member")
+    argv$proj4t2m<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+    argv$t2m.offset<-273.15
+    argv$t2m.negoffset<-1
+    argv$t2m.demvarname<-"surface_geopotential" 
+    argv$t2m.demndim<-5
+    argv$t2m.demtpos<-3
+    argv$t2m.demepos<-5
+    argv$t2m.deme<-0
+    argv$t2m.demdimnames<-c("x","y","time","height0","ensemble_member")
+    # divide geopotential by g=9.80665. This calculates geopotential height (above mean sea level)
+    argv$t2m.demcfact<-0.0980665 
+    argv$t2m.topdown<-TRUE
+    argv$t2m.demtopdown<-TRUE
+    argv$wind.epos<-5
+    argv$wind.e<-0
+    argv$u.varname<-"x_wind_10m" 
+    argv$v.varname<-"y_wind_10m" 
+    argv$wind.ndim<-5 
+    argv$wind.tpos<-3
+    argv$wind.dimnames<-c("x","y","time","height3","ensemble_member")
+    argv$proj4wind<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
   }
 }
 # check external files
@@ -2815,6 +3100,12 @@ if (argv$steve) {
     print("ERROR: STEVE, the number of input parameters differ (dmin_next_ge.steve)")
     quit(status=1)
   }
+}
+# wind-induced undercatch of precipitation, check consistency of inputs
+if (!is.na(argv$rr.wcor) & argv$variable!="RR") {
+  print(paste("ERROR: wind-induced correction for undercatch is implemented",
+              "for precipitation only"))
+  quit(status=1)
 }
 #
 #-----------------------------------------------------------------------------
@@ -3139,6 +3430,219 @@ if (argv$debug) {
             data$value,
             data$prid,
             round(laf,4),"\n",sep=";"),append=T)
+}
+#
+#-----------------------------------------------------------------------------
+# Correction for the wind-undercatch of precipitation (optional)
+if (!is.na(argv$rr.wcor)) {
+  # read temperature from gridded field
+  ti<-nc4.getTime(argv$t2m.file)
+  if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
+  if (!(argv$t2m.t %in% ti)) {
+    print("ERROR timestamp requested is not in the file:")
+    print(argv$t2m.t)
+    print(ti)
+    quit(status=1)
+  }
+  t2m.epos<-argv$t2m.epos
+  if (is.na(argv$t2m.epos)) t2m.epos<-NULL
+  t2m.e<-argv$t2m.e
+  if (is.na(argv$t2m.e)) t2m.e<-NULL
+  raux<-try(nc4in(nc.file=argv$t2m.file,
+                  nc.varname=argv$t2m.varname,
+                  topdown=argv$t2m.topdown,
+                  out.dim=list(ndim=argv$t2m.ndim,
+                               tpos=argv$t2m.tpos,
+                               epos=t2m.epos,
+                               names=argv$t2m.dimnames),
+                  proj4=argv$proj4t2m,
+                  nc.proj4=list(var=argv$t2m.proj4_var,
+                                att=argv$t2m.proj4_att),
+                  selection=list(t=argv$t2m.t,e=t2m.e)))
+  rt2m<-raux$stack
+  rm(raux)
+  coord<-SpatialPoints(cbind(data$lon,data$lat),
+                       proj4string=CRS(argv$proj4from))
+  coord.new<-spTransform(coord,CRS(argv$proj4t2m))
+  xy.tmp<-coordinates(coord.new)
+  t2m<-extract(rt2m,xy.tmp,method="bilinear")
+  t2m<-argv$t2m.offset*(-1)**(argv$t2m.negoffset)+
+       t2m*argv$t2m.cfact*(-1)**(argv$t2m.negcfact)
+  if (argv$debug)
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_t2m.png"),
+               r=rt2m,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
+  rm(coord,coord.new,xy.tmp)
+  # read elevation from gridded field
+  ti<-nc4.getTime(argv$t2m.demfile)
+  if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
+  if (!(argv$t2m.demt %in% ti)) {
+    print("ERROR timestamp requested is not in the file:")
+    print(argv$t2m.demt)
+    print(ti)
+    quit(status=1)
+  }
+  t2m.demepos<-argv$t2m.demepos
+  if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
+  t2m.deme<-argv$t2m.deme
+  if (is.na(argv$t2m.deme)) t2m.deme<-NULL
+  raux<-try(nc4in(nc.file=argv$t2m.demfile,
+                  nc.varname=argv$t2m.demvarname,
+                  topdown=argv$t2m.demtopdown,
+                  out.dim=list(ndim=argv$t2m.demndim,
+                               tpos=argv$t2m.demtpos,
+                               epos=t2m.demepos,
+                               names=argv$t2m.demdimnames),
+                  proj4=argv$proj4t2m,
+                  nc.proj4=list(var=argv$t2m.proj4_var,
+                                att=argv$t2m.proj4_att),
+                  selection=list(t=argv$t2m.demt,e=t2m.deme)))
+  if (is.null(raux)) {
+    print("ERROR while reading file:")
+    print(argv$t2m.demfile)
+    quit(status=1)
+  }
+  rt2mdem<-raux$stack
+  rm(raux,ti)
+  if (argv$proj4t2m!=argv$proj4to) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4from))
+    coord.new<-spTransform(coord,CRS(argv$proj4t2m))
+    xy.tmp<-coordinates(coord.new)
+    zt2mdem<-extract(rt2mdem,xy.tmp,method="bilinear")
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    zt2mdem<-extract(rt2mdem,cbind(x,y),method="bilinear")
+  }
+  zt2mdem<-argv$t2m.demoffset*(-1)**(argv$t2m.demnegoffset)+
+          zt2mdem*argv$t2m.demcfact*(-1)**(argv$t2m.demnegcfact)
+  if (argv$debug)
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_dem.png"),
+               r=rt2mdem,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
+  t2m<-t2m+argv$gamma.standard*(z-zt2mdem)
+  # read windspeed from gridded field
+  #  case of windspeed in the file
+  if (!is.na(argv$windspeed.varname)) {
+    ti<-nc4.getTime(argv$wind.file)
+    if (is.na(argv$wind.t)) argv$wind.t<-ti[1]
+    if (!(argv$wind.t %in% ti)) {
+      print("ERROR timestamp requested is not in the file:")
+      print(argv$wind.t)
+      print(ti)
+      quit(status=1)
+    }
+    wind.epos<-argv$wind.epos
+    if (is.na(argv$wind.epos)) wind.epos<-NULL
+    wind.e<-argv$wind.e
+    if (is.na(argv$wind.e)) wind.e<-NULL
+    raux<-try(nc4in(nc.file=argv$wind.file,
+                    nc.varname=argv$windspeed.varname,
+                    topdown=argv$wind.topdown,
+                    out.dim=list(ndim=argv$wind.ndim,
+                                 tpos=argv$wind.tpos,
+                                 epos=wind.epos,
+                                 names=argv$wind.dimnames),
+                    proj4=argv$proj4wind,
+                    nc.proj4=list(var=argv$wind.proj4_var,
+                                  att=argv$wind.proj4_att),
+                    selection=list(t=argv$wind.t,e=wind.e)))
+    if (is.null(raux)) {
+      print("ERROR while reading file:")
+      print(argv$wind.file)
+      quit(status=1)
+    }
+    rwind<-raux$stack
+    rm(raux,ti)
+  #  case of u,v in the file
+  } else if (!is.na(argv$u.varname) & !is.na(argv$v.varname)) {
+    ti<-nc4.getTime(argv$wind.file)
+    if (is.na(argv$wind.t)) argv$wind.t<-ti[1]
+    if (!(argv$wind.t %in% ti)) {
+      print("ERROR timestamp requested is not in the file:")
+      print(argv$wind.t)
+      print(ti)
+      quit(status=1)
+    }
+    wind.epos<-argv$wind.epos
+    if (is.na(argv$wind.epos)) wind.epos<-NULL
+    wind.e<-argv$wind.e
+    if (is.na(argv$wind.e)) wind.e<-NULL
+    raux<-try(nc4in(nc.file=argv$wind.file,
+                    nc.varname=argv$u.varname,
+                    topdown=argv$wind.topdown,
+                    out.dim=list(ndim=argv$wind.ndim,
+                                 tpos=argv$wind.tpos,
+                                 epos=wind.epos,
+                                 names=argv$wind.dimnames),
+                    proj4=argv$proj4wind,
+                    nc.proj4=list(var=argv$wind.proj4_var,
+                                  att=argv$wind.proj4_att),
+                    selection=list(t=argv$wind.t,e=wind.e)))
+    if (is.null(raux)) {
+      print("ERROR while reading file:")
+      print(argv$wind.file)
+      quit(status=1)
+    }
+    ru<-raux$stack
+    rm(raux,ti)
+    raux<-try(nc4in(nc.file=argv$wind.file,
+                    nc.varname=argv$v.varname,
+                    topdown=argv$wind.topdown,
+                    out.dim=list(ndim=argv$wind.ndim,
+                                 tpos=argv$wind.tpos,
+                                 epos=wind.epos,
+                                 names=argv$wind.dimnames),
+                    proj4=argv$proj4wind,
+                    nc.proj4=list(var=argv$wind.proj4_var,
+                                  att=argv$wind.proj4_att),
+                    selection=list(t=argv$wind.t,e=wind.e)))
+    if (is.null(raux)) {
+      print("ERROR while reading file:")
+      print(argv$wind.file)
+      quit(status=1)
+    }
+    rv<-raux$stack
+    rm(raux,ti)
+    rwind<-rv
+    rwind[]<-sqrt(getValues(ru)**2+getValues(rv)**2)
+    rm(ru,rv)
+  #  case of wrong/no wind varname in the file
+  } else {
+    print(paste("ERROR precipitation correction for the wind undercatch:",
+                " wind varname has not been specified"))
+    quit(status=1)
+  }
+  ws10m<-extract(rwind,cbind(x,y),method="bilinear")
+  if (argv$debug)
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_dem.png"),
+               r=rwind,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
+  rm(rwind) 
+  # precipitation data adjustment
+  data$rawvalue<-data$value
+# values from Wolff et al. (2015)
+  par<-c(4.24,1.81,0.18,0.99,0.66,1.07)
+  data$value<-wolff_correction(par=par,
+                               t2m=t2m,
+                               ws10m=ws10m,
+                               rr=data$rawvalue)
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"rrcor.txt"),
+        "x;y;z;lat;lon;elev;zt2mdem;t2m;ws10m;rr_raw;rr_cor;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"rrcor.txt"),
+        paste(x,
+              y,
+              z,
+              data$lat,
+              data$lon,
+              data$elev,
+              round(zt2mdem,1),
+              round(t2m,2),
+              round(ws10m,2),
+              round(rr_raw,2),
+              round(rr_cor,2),
+              round(data$rawvalue,2),
+              round(data$value,2),
+              round(fg,4),"\n",sep=";"),append=T)
+  }
 }
 #
 #-----------------------------------------------------------------------------
