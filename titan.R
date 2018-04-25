@@ -1325,6 +1325,21 @@ p <- add_argument(p, "--separator.out",
                   help="separator character in the output file",
                   type="character",
                   default=";")
+p<- add_argument(p, "--latlon.dig.out",
+                 help="number of decimal digits for latitude and longitude in the output file",
+                 type="numeric",
+                 default=5,
+                 short="-lldo")
+p<- add_argument(p, "--elev.dig.out",
+                 help="number of decimal digits for elevation in the output file",
+                 type="numeric",
+                 default=1,
+                 short="-edo")
+p<- add_argument(p, "--value.dig.out",
+                 help="number of decimal digits for the returned value in the output file",
+                 type="numeric",
+                 default=1,
+                 short="-vdo")
 p <- add_argument(p, "--varname.lat",
                   help="character vector, latitude variable name(s) in the input file (default ''lat'')",
                   type="character",
@@ -3611,6 +3626,7 @@ ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
 if (length(ix)>0) dqcflag[ix]<-argv$p.code
 if (argv$verbose | argv$debug) {
   print("plausibility test")
+  print(paste("min/max thresholds =",argv$vmin,argv$vmax))
   print(paste("# suspect observations=",length(which(dqcflag==argv$p.code))))
   print("+---------------------------------+")
 }
@@ -4371,16 +4387,16 @@ for (s in 1:length(ord.varidx.out)) {
     dataout[,s]<-dataopt[,posopt.nona.s]
   } else if (pos.s==1) {
     str[s]<-argv$varname.lat.out
-    dataout[,s]<-round(data$lat,5)
+    dataout[,s]<-round(data$lat,argv$latlon.dig.out)
   } else if (pos.s==2) {
     str[s]<-argv$varname.lon.out
-    dataout[,s]<-round(data$lon,5)
+    dataout[,s]<-round(data$lon,argv$latlon.dig.out)
   } else if (pos.s==3) {
     str[s]<-argv$varname.elev.out
-    dataout[,s]<-round(z,1)
+    dataout[,s]<-round(z,argv$elev.dig.out)
   } else if (pos.s==4) {
     str[s]<-argv$varname.value.out
-    dataout[,s]<-round(data$value,1)
+    dataout[,s]<-round(data$value,argv$value.dig.out)
   }
 }
 str[s+1]<-argv$varname.prid
@@ -4394,9 +4410,9 @@ dataout[,(s+4)]<-round(corep,5)
 if (argv$radarout) {
   if (length(radrr)>0) {
     datarad<-array(data=NA,dim=c(length(radrr),(length(varidx.out)+4)))
-    datarad[,which(str==argv$varname.lat.out)]<-round(rady.from,6)
-    datarad[,which(str==argv$varname.lon.out)]<-round(radx.from,6)
-    datarad[,which(str==argv$varname.value.out)]<-round(radrr,2)
+    datarad[,which(str==argv$varname.lat.out)]<-round(rady.from,argv$latlon.dig.out)
+    datarad[,which(str==argv$varname.lon.out)]<-round(radx.from,argv$latlon.dig.out)
+    datarad[,which(str==argv$varname.value.out)]<-round(radrr,argv$value.dig.out)
     datarad[,which(str==argv$varname.prid)]<-rep(argv$radarout.prid,length(radrr))
     datarad[,which(str==argv$varname.dqc)]<-rep(0,length(radrr))
     dataout<-rbind(dataout,datarad)
