@@ -31,6 +31,9 @@ Available checks are (applied sequentially as in this list):
 
 Possibility to have observation black-list and keep(-it-no-matter-what)-list.
 
+In case of precipitation, the program can adjust the values for the wind-induced loss.
+
+
 Installation Instructions
 -------------------------
 Ensure the following R-libraries (and their dependencies) are installed:
