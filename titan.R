@@ -79,6 +79,10 @@ statSpat<-function(ixyzt,drmin,gamma=-0.0065) {
 
 #+ Correction for wind-induced undercatch of precipitation (Wolff et al., 2015)
 wolff_correction<-function(par,rr,t2m,ws10m) {
+# Wolff MA, Isaksen K, Petersen-Øverleir A, Ødemark K, Reitan T, Brækkan R. 
+# Derivation of a new continuous adjustment function for correcting 
+# wind-induced loss of solid precipitation: results of a Norwegian field study.
+# Hydrology and Earth System Sciences. 2015 Feb 1;19(2):951.
 #------------------------------------------------------------------------------
   theta<-par[1]
   beta<-par[2]
@@ -86,20 +90,19 @@ wolff_correction<-function(par,rr,t2m,ws10m) {
   tau2<-par[4]
   Ttau<-par[5]
   stau<-par[6]
+  sig1<-par[7]
+  sig2<-par[8]
+  Tsig<-par[9]
+  ssig<-par[10]
   n<-length(t2m)
   aux0<-exp((t2m-Ttau)/stau)
   aux1<-aux0/(1+aux0)
   f<- ( 1 - tau1 - (tau2-tau1) * aux1 ) * exp(-(ws10m/theta)**beta) + 
      tau1 + (tau2-tau1) * aux1
-  rm(aux0,aux1)
-  if (any(f==0) | any(is.nan(f)) ) {
-    print(par)
-    indx<-which(f==0 | is.nan(f))
-    print(paste("f",f[indx]))
-  }
+  aux2<-exp((t2m-Tsig)/ssig)
+  s<-sig1+(sig2-sig1)*(aux2)/(1+aux2)
   rr.cor<-rr*1./f
-#  return(list(f=f,sigma=s,rr.cor=rr.cor))
-  rr.cor
+  return(list(f=f,sigma=s,rr.cor=rr.cor))
 }
 
 #+ Box-Cox transformation
@@ -1280,6 +1283,12 @@ p <- add_argument(p, "--steve.code",
                   type="numeric",
                   default=9,
                   short="-stevec")
+p <- add_argument(p, "--ccrrt.code",
+                  help=paste("quality code returned in case of precipitation",
+                             "and temperature crosscheck fails"),
+                  type="numeric",
+                  default=11,
+                  short="-ccrrtc")
 p <- add_argument(p, "--black.code",
     help="quality code assigned to observations listed in the blacklist",
                   type="numeric",
@@ -1530,6 +1539,715 @@ p <- add_argument(p, "--dz.buddy",
                   type="numeric",
                   default=30,
                   short="-zB")
+#.............................................................................. 
+# isolated stations
+p <- add_argument(p, "--dr.isol",
+                  help="check for the number of observation in a dr-by-dr square-box around each observation [m]",
+                  type="numeric",
+                  default=25000,
+                  short="-dI")
+p <- add_argument(p, "--n.isol",
+                  help="threshold (number of neighbouring observations) for the identification of isolated observations.",
+                  type="integer",
+                  default=10,
+                  short="-nI")
+#.............................................................................. 
+# spatial consistency test
+p <- add_argument(p, "--grid.sct",
+                  help=paste("nrow ncol (i.e. number_of_rows number_of_columns).",
+                  "SCT is performed independently over several boxes.",
+                  "The regular nrow-by-ncol grid is used to define those",
+                  "rectangular boxes where the SCT is performed."),
+                  type="integer",
+                  nargs=2,
+                  default=c(20,20),
+                  short="-gS")
+p <- add_argument(p, "--i.sct",
+                  help="number of SCT iterations",
+                  type="integer",
+                  default=1,
+                  short="-iS")
+p <- add_argument(p, "--n.sct",
+                  help="minimum number of stations in a box to run SCT",
+                  type="integer",default=50,short="-nS")
+p <- add_argument(p, "--dz.sct",
+                  help="minimum range of elevation in a box to run SCT [m]",
+                  type="numeric",
+                  default=30,
+                  short="-zS")
+p <- add_argument(p, "--DhorMin.sct",
+                  help=paste("OI, minimum allowed value for the horizontal de-correlation",
+                  "lenght (of the background error correlation) [m]"),
+                  type="numeric",
+                  default=10000,
+                  short="-hS")
+p <- add_argument(p, "--Dver.sct",
+                  help="OI, vertical de-correlation lenght  (of the background error correlation) [m]",
+                  type="numeric",
+                  default=200,
+                  short="-vS")
+p <- add_argument(p, "--eps2.sct",
+                  help="OI, ratio between observation error variance and background error variance. eps2.sct is a vector of positive values (not NAs). If eps2.sct has the same length of the number of input files, then a provider dependent eps2 will be used in the SCT. Otherwise, the value of eps2.sct[1] will be used for all providers and any other eps2.sct[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-eS")
+p <- add_argument(p, "--thr.sct",
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct. thr.sct is a vector of positive values (not NAs). If thr.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thr.sct[1] will be used for all providers and any other thr.sct[2:n] value will be ignored ",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tS")
+p <- add_argument(p, "--thrpos.sct",
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thrpos.sct AND (obs-Cross_Validation_pred)>=0. thrpos.sct is a vector of positive values (not NAs). If thrpos.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thrpos.sct[1] will be used for all providers and any other thrpos.sct[2:n] value will be ignored ",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tpS")
+p <- add_argument(p, "--thrneg.sct",
+                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thrneg.sct AND (obs-Cross_Validation_pred)<0.  thrneg.sct is a vector of positive values (not NAs). If thrneg.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thrneg.sct[1] will be used for all providers and any other thrneg.sct[2:n] value will be ignored ",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tnS")
+p <- add_argument(p, "--laf.sct",
+                  help="use land area fraction in the OI correlation function (0-100%)",
+                  flag=T,
+                  short="-lS")
+p <- add_argument(p, "--lafmin.sct",
+                  help="land area fraction influence in the OI correlation function",
+                  type="numeric",
+                  default=0.5,
+                  short="-lmS")
+p <- add_argument(p, "--laf.file",
+                  help="land area fraction file (netCDF in kilometric coordinates)",
+                  type="character",
+                  default=NULL,
+                  short="-lfS")
+p <- add_argument(p, "--proj4laf",
+                  help="proj4 string for the laf",
+                  type="character",
+                  default=proj4default,
+                  short="-pl")
+p <- add_argument(p, "--laf.varname",
+                  help="variable name in the netCDF file",
+                  type="character",
+                  default="land_area_fraction",
+                  short="-lfv")
+p <- add_argument(p, "--laf.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the laf upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-lftd")
+p <- add_argument(p, "--laf.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-lfnd")
+p <- add_argument(p, "--laf.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-lfti")
+p <- add_argument(p, "--laf.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=c("x","y","time"),
+                  short="-lfna",
+                  nargs=Inf)
+p <- add_argument(p, "--laf.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-lfp4v")
+p <- add_argument(p, "--laf.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-lfp4a")
+p <- add_argument(p, "--fast.sct",
+                  help=paste("faster spatial consistency test. Allow for",
+                      "flagging more than one observation simulataneously"),
+                  flag=T,
+                  short="-fS")
+#.............................................................................. 
+# observation representativeness
+p <- add_argument(p, "--mean.corep",
+                  help="average coefficient for the observation representativeness. mean.corep is a vector of positive values (not NAs). If mean.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of mean.corep[1] will be used for all providers and any other mean.corep[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-avC")
+p <- add_argument(p, "--min.corep",
+     help="minimum value for the coefficient for the observation representativeness. If min.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of min.corep[1] will be used for all providers and any other min.corep[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-mnC")
+p <- add_argument(p, "--max.corep",
+     help="maximum value for the coefficient for the observation representativeness. If max.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of max.corep[1] will be used for all providers and any other max.corep[2:n] value will be ignored",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-mxC")
+#.............................................................................. 
+# check elevation against dem
+p <- add_argument(p, "--dem",
+     help="check elevation against digital elevation model (dem)",
+                  flag=T,
+                  short="-dm")
+p <- add_argument(p, "--dz.dem",
+     help="maximum allowed deviation between observation and dem elevations [m]",
+                  type="numeric",
+                  default=500,
+                  short="-zD")
+p <- add_argument(p, "--dem.fill",
+                  help="fill missing elevation with data from dem",
+                  flag=T,
+                  short="-df")
+p <- add_argument(p, "--dem.file",
+     help="land area fraction file (netCDF in kilometric coordinates)",
+                  type="character",
+                  default=NULL,
+                  short="-dmf")
+p <- add_argument(p, "--proj4dem",
+                  help="proj4 string for the dem",
+                  type="character",
+                  default=proj4default,
+                  short="-pd")
+p <- add_argument(p, "--dem.varname",
+                  help="variable name in the netCDF file",
+                  type="character",
+                  default="altitude",
+                  short="-dmv")
+p <- add_argument(p, "--dem.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the dem upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-dmtd")
+p <- add_argument(p, "--dem.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-dmnd")
+p <- add_argument(p, "--dem.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-dmti")
+p <- add_argument(p, "--dem.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=c("x","y","time"),
+                  short="-dmna",
+                  nargs=Inf)
+p <- add_argument(p, "--dem.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-dmp4v")
+p <- add_argument(p, "--dem.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-dmp4a")
+#.............................................................................. 
+# STEVE - isolated event test
+p <- add_argument(p, "--steve",
+                  help="do the isolated event test",
+                  flag=T,
+                  short="-dST")
+p <- add_argument(p, "--i.steve",
+                  help="number of STEVE iterations",
+                  type="integer",
+                  default=1,
+                  short="-iST")
+p <- add_argument(p, "--thres.steve",
+                  help=paste("numeric vector with the thresholds used to",
+                  " define events (same units of the specified variable).",
+                  "Each threshold defines two events: (i) less than the",
+                  "threshold and (ii) greater or equal to it."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--pmax_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum number of",
+                  "stations defining (in combination with dmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 20)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmax_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum distance",
+                  "between stations defining (in combination with pmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 150000)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--n_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the minimum expected",
+                  "number of connected events. If an event has less than",
+                  "this number of connected events, then flag it is as a",
+                  "suspect isolated event. The connection between events is",
+                  "estimated through a Delaunay triangulation.",
+                  "(default is 4)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--frac_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum expected",
+                  "fraction of events in a clump of connected events",
+                  "that could include an isolated event.",
+                  "If a clump of connected events has more than",
+                  "this fraction of events, then it is assumed that",
+                  "the situation is too ''patchy'' to flag an isolated event",
+                  "with enough confidence (deafult is 0.2)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmin_next_lt.steve",
+                  help=paste("numeric vector, used for events of the type",
+                  "''less than the threshold'' with the maximum expected",
+                  "distance between an isolated event and the closest event.",
+                  "If a possible isolated event has an other event at a",
+                  "distance less than the one defined here then it is not",
+                  "considered as an isolated event",
+                  "(deafult is 150000)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--pmax_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum number of",
+                  "stations defining (in combination with dmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 20)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmax_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum distance",
+                  "between stations defining (in combination with pmax) the",
+                  "neighbourhood where to search for",
+                  "clumps of connected events (default is 150000)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--n_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the minimum expected",
+                  "number of connected events. If an event has less than",
+                  "this number of connected events, then flag it is as a",
+                  "suspect isolated event. The connection between events is",
+                  "estimated through the Delaunay triangulation",
+                  "(default is 4)"),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--frac_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum expected",
+                  "fraction of events in a clump of connected events",
+                  "that could include an isolated event.",
+                  "If a clump of connected events has more than",
+                  "this fraction of events, then it is assumed that",
+                  "the situation is too ''patchy'' to flag an isolated event",
+                  "with enough confidence (deafult is 0.2)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dmin_next_ge.steve",
+                  help=paste("numeric vector, used for events of the type",
+      "''greater or equal than the threshold'' with the maximum expected",
+                  "distance between an isolated event and the closest event.",
+                  "If a possible isolated event has an other event at a",
+                  "distance less than the one defined here then it is not",
+                  "considered as an isolated event",
+                  "(deafult is 100000)."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+#.............................................................................. 
+# precipitation and temperature cross-check
+p <- add_argument(p, "--ccrrt",
+           help="precipitation (in-situ) and temperature (field) cross-check",
+                  flag=T,
+                  short="-ccrrtf")
+p <- add_argument(p, "--ccrrt.tmin",
+                  help="temperature thresholds (vector)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-ccrrtt")
+#.............................................................................. 
+# blacklist
+# specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
+p <- add_argument(p, "--blacklist.lat",
+                  help="observation blacklist (latitude)",
+                  type="numeric",default=NA,nargs=Inf,short="-bla")
+p <- add_argument(p, "--blacklist.lon",
+                  help="observation blacklist (longitude)",
+                  type="numeric",default=NA,nargs=Inf,short="-blo")
+p <- add_argument(p, "--blacklist.fll",
+                  help="observation blacklist (ID provider)",
+                  type="numeric",default=NA,nargs=Inf,short="-bfll")
+p <- add_argument(p, "--blacklist.idx",
+                  help="observation blacklist (position in input file)",
+                  type="numeric",default=NA,nargs=Inf,short="-bix")
+p <- add_argument(p, "--blacklist.fidx",
+                  help="observation blacklist (ID provider)",
+                  type="numeric",default=NA,nargs=Inf,short="-bfix")
+#.............................................................................. 
+# keep (keep them)
+# specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
+p <- add_argument(p, "--keeplist.lat",
+                  help="observation keeplist (latitude)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-kla")
+p <- add_argument(p, "--keeplist.lon",
+                  help="observation keeplist (longitude)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-klo")
+p <- add_argument(p, "--keeplist.fll",
+                  help="observation keeplist (ID provider)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-kfll")
+p <- add_argument(p, "--keeplist.idx",
+                  help="observation keeplist (position in input file)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf, 
+                  short="-kix")
+p <- add_argument(p, "--keeplist.fidx",
+                  help="observation keeplist (ID provider)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-kfix")
+#.............................................................................. 
+# radar-derived precipitation as output
+p <- add_argument(p, "--radarout",
+                  help="include the radar-derived precipitation as output.",
+                  flag=T,
+                  short="-rado")
+p <- add_argument(p, "--radarout.prid",
+                  help="provider identifier for the radar data",
+                  type="numeric",
+                  default=100,
+                  short="-radop")
+p <- add_argument(p, "--radarout.aggfact",
+                  help="aggregation factor for the radar-derived precipitation",
+                  type="numeric",
+                  default=3,
+                  short="-radop")
+#.............................................................................. 
+# doit flags
+comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
+p <- add_argument(p, "--doit.buddy",
+                  help=paste("customize the buddy-test application.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dob")
+p <- add_argument(p, "--doit.sct",
+                  help=paste("customize the application of SCT.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dos")
+p <- add_argument(p, "--doit.clim",
+                  help=paste("customize the application of the climatological check.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-doc")
+p <- add_argument(p, "--doit.dem",
+                  help=paste("customize the application of the test of observation elevation against the digital elevation model.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dod")
+p <- add_argument(p, "--doit.isol",
+                  help=paste("customize the application of the isolation test.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-doi")
+p <- add_argument(p, "--doit.fg",
+ help=paste("customize the application of the check against a deterministic first-guess field.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dofg")
+p <- add_argument(p, "--doit.fge",
+ help=paste("customize the application of the check against an ensemble of first-guess fields.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dofge")
+p <- add_argument(p, "--doit.steve",
+                  help=paste("customize the STEVE application.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dost")
+#.............................................................................. 
+# precipitation correction for the wind-induced undercatch
+p <- add_argument(p, "--rr.wcor",
+              help=" precipitation correction for the wind-induced undercatch",
+                  flag=T)
+p <- add_argument(p,"--rr.wcor.filesetup",
+                  help="predefined setup to read gridded fields: dem, t2m, wspeed. available options: meps",
+                  type="character",
+                  default=NULL,
+                  short="-rrwf")
+p <- add_argument(p,"--rr.wcor.filemeps",
+                  help="meps netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwfm")
+# parameter 
+p <- add_argument(p, "--rr.wcor.par",
+                  help=paste("Parameter used for correcting wind-induced loss",
+                              " of solid precipitation (Wolff et al., 2015)"),
+                  type="numeric",
+                  default=c(4.24,1.81,0.18,0.99,0.66,1.07,0.18,0.11,2.35,0.12),
+                  nargs=10,
+                  short="-rrwpar")
+# temp 
+p <- add_argument(p,"--t2m.file",
+                  help="air temperature netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwt")
+p <- add_argument(p, "--t2m.offset",
+                  help="air temperature offset",
+                  type="numeric",
+                  default=0,
+                  short="-rrwto")
+p <- add_argument(p, "--t2m.cfact",
+                  help="air temperature correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-rrwtc")
+p <- add_argument(p, "--t2m.negoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwtos")
+p <- add_argument(p, "--t2m.negcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwton")
+p <- add_argument(p, "--proj4t2m",
+                  help="proj4 string for the air temperature file",
+                  type="character",
+                  default=proj4default,
+                  short="-rrwtp")
+p <- add_argument(p, "--t2m.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwtv")
+p <- add_argument(p, "--t2m.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-rrwtt")
+p <- add_argument(p, "--t2m.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwtn")
+p <- add_argument(p, "--t2m.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwtti")
+p <- add_argument(p, "--t2m.epos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwtei")
+p <- add_argument(p, "--t2m.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-rrwtna",
+                  nargs=Inf)
+p <- add_argument(p, "--t2m.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-rrwtp4v")
+p <- add_argument(p, "--t2m.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-rrwtp4a")
+p <- add_argument(p, "--t2m.t",
+                  help="timestamp to read in the air temperature netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-rrwttt")
+p <- add_argument(p, "--t2m.e",
+                  help="ensemble member to read in the air temperature netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-rrwtee")
+# dem for temperature adjustments
+p <- add_argument(p,"--t2m.demfile",
+                  help="dem file associated to the first-guess or background file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwdf")
+p <- add_argument(p, "--t2m.demoffset",
+                  help="offset",
+                  type="numeric",
+                  default=0,
+                  short="-rrwdoff")
+p <- add_argument(p, "--t2m.demcfact",
+                  help="correction factor",
+                  type="numeric",
+                  default=1,
+                  short="-rrwdcf")
+p <- add_argument(p, "--t2m.demnegoffset",
+                  help="offset sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwdnoff")
+p <- add_argument(p, "--t2m.demnegcfact",
+                  help="correction factor sign (1=neg, 0=pos)",
+                  type="numeric",
+                  default=0,
+                  short="-rrwdncf")
+p <- add_argument(p, "--t2m.demt",
+                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-rrwdt")
+p <- add_argument(p, "--t2m.demvarname",
+                  help="variable name in the netCDF file (dem associated to the first-guess)",
+                  type="character",
+                  default="none",
+                  short="-rrwdv")
+p <- add_argument(p, "--t2m.demtopdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-rrwdtd")
+p <- add_argument(p, "--t2m.demndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwdnd")
+p <- add_argument(p, "--t2m.demepos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwdei")
+p <- add_argument(p, "--t2m.demtpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwdti")
+p <- add_argument(p, "--t2m.deme",
+                  help="ensemble member to read in the netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-rrwdee")
+p <- add_argument(p, "--t2m.demdimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-rrwdna",
+                  nargs=Inf)
+# wind
+p <- add_argument(p,"--wind.file",
+                  help="air temperature netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrww")
+p <- add_argument(p, "--proj4wind",
+                  help="proj4 string for the air temperature file",
+                  type="character",
+                  default=proj4default,
+                  short="-rrwwp")
+p <- add_argument(p, "--windspeed.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwwv")
+p <- add_argument(p, "--u.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwwv")
+p <- add_argument(p, "--v.varname",
+                  help="air temperature variable name in the netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-rrwwv")
+p <- add_argument(p, "--wind.topdown",
+                  help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
+                  type="logical",
+                  default=FALSE,
+                  short="-rrwwt")
+p <- add_argument(p, "--wind.ndim",
+                  help="number of dimensions in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwwn")
+p <- add_argument(p, "--wind.tpos",
+                  help="position of the dimension ''time'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwwti")
+p <- add_argument(p, "--wind.epos",
+                  help="position of the dimension ''ensemble'' in the netCDF file",
+                  type="numeric",
+                  default=3,
+                  short="-rrwwei")
+p <- add_argument(p, "--wind.dimnames",
+                  help="dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  short="-rrwwna",
+                  nargs=Inf)
+p <- add_argument(p, "--wind.proj4_var",
+                  help="variable that include the specification of the proj4 string",
+                  type="character",
+                  default="projection_lambert",
+                  short="-rrwwp4v")
+p <- add_argument(p, "--wind.proj4_att",
+                  help="attribute with the specification of the proj4 string",
+                  type="character",
+                  default="proj4",
+                  short="-rrwwp4a")
+p <- add_argument(p, "--wind.t",
+                  help="timestamp to read in the air temperature netCDF file (YYYYMMDDHH00)",
+                  type="character",
+                  default=NA,
+                  short="-rrwwtt")
+p <- add_argument(p, "--wind.e",
+                  help="ensemble member to read in the air temperature netCDF file",
+                  type="numeric",
+                  default=NA,
+                  short="-rrwwee")
 #.............................................................................. 
 # first-guess or background file / deterministic
 p <- add_argument(p, "--fg",
@@ -1912,691 +2630,13 @@ p <- add_argument(p, "--iqrmin.fge",
                   type="numeric",
                   default=.3,
                   short="-fgesdmn")
-                 
 #.............................................................................. 
-# isolated stations
-p <- add_argument(p, "--dr.isol",
-                  help="check for the number of observation in a dr-by-dr square-box around each observation [m]",
-                  type="numeric",
-                  default=25000,
-                  short="-dI")
-p <- add_argument(p, "--n.isol",
-                  help="threshold (number of neighbouring observations) for the identification of isolated observations.",
-                  type="integer",
-                  default=10,
-                  short="-nI")
-#.............................................................................. 
-# spatial consistency test
-p <- add_argument(p, "--grid.sct",
-                  help=paste("nrow ncol (i.e. number_of_rows number_of_columns).",
-                  "SCT is performed independently over several boxes.",
-                  "The regular nrow-by-ncol grid is used to define those",
-                  "rectangular boxes where the SCT is performed."),
-                  type="integer",
-                  nargs=2,
-                  default=c(20,20),
-                  short="-gS")
-p <- add_argument(p, "--i.sct",
-                  help="number of SCT iterations",
-                  type="integer",
-                  default=1,
-                  short="-iS")
-p <- add_argument(p, "--n.sct",
-                  help="minimum number of stations in a box to run SCT",
-                  type="integer",default=50,short="-nS")
-p <- add_argument(p, "--dz.sct",
-                  help="minimum range of elevation in a box to run SCT [m]",
-                  type="numeric",
-                  default=30,
-                  short="-zS")
-p <- add_argument(p, "--DhorMin.sct",
-                  help=paste("OI, minimum allowed value for the horizontal de-correlation",
-                  "lenght (of the background error correlation) [m]"),
-                  type="numeric",
-                  default=10000,
-                  short="-hS")
-p <- add_argument(p, "--Dver.sct",
-                  help="OI, vertical de-correlation lenght  (of the background error correlation) [m]",
-                  type="numeric",
-                  default=200,
-                  short="-vS")
-p <- add_argument(p, "--eps2.sct",
-                  help="OI, ratio between observation error variance and background error variance. eps2.sct is a vector of positive values (not NAs). If eps2.sct has the same length of the number of input files, then a provider dependent eps2 will be used in the SCT. Otherwise, the value of eps2.sct[1] will be used for all providers and any other eps2.sct[2:n] value will be ignored",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-eS")
-p <- add_argument(p, "--thr.sct",
-                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thr.sct. thr.sct is a vector of positive values (not NAs). If thr.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thr.sct[1] will be used for all providers and any other thr.sct[2:n] value will be ignored ",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-tS")
-p <- add_argument(p, "--thrpos.sct",
-                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thrpos.sct AND (obs-Cross_Validation_pred)>=0. thrpos.sct is a vector of positive values (not NAs). If thrpos.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thrpos.sct[1] will be used for all providers and any other thrpos.sct[2:n] value will be ignored ",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-tpS")
-p <- add_argument(p, "--thrneg.sct",
-                  help="SCT threshold. flag observation if: (obs-Cross_Validation_pred)^2/(varObs+varCVpred) > thrneg.sct AND (obs-Cross_Validation_pred)<0.  thrneg.sct is a vector of positive values (not NAs). If thrneg.sct has the same length of the number of input files, then a provider dependent threshold will be used in the SCT. Otherwise, the value of thrneg.sct[1] will be used for all providers and any other thrneg.sct[2:n] value will be ignored ",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-tnS")
-p <- add_argument(p, "--laf.sct",
-                  help="use land area fraction in the OI correlation function (0-100%)",
-                  flag=T,
-                  short="-lS")
-p <- add_argument(p, "--lafmin.sct",
-                  help="land area fraction influence in the OI correlation function",
-                  type="numeric",
-                  default=0.5,
-                  short="-lmS")
-p <- add_argument(p, "--laf.file",
-                  help="land area fraction file (netCDF in kilometric coordinates)",
-                  type="character",
-                  default=NULL,
-                  short="-lfS")
-p <- add_argument(p, "--proj4laf",
-                  help="proj4 string for the laf",
-                  type="character",
-                  default=proj4default,
-                  short="-pl")
-p <- add_argument(p, "--laf.varname",
-                  help="variable name in the netCDF file",
-                  type="character",
-                  default="land_area_fraction",
-                  short="-lfv")
-p <- add_argument(p, "--laf.topdown",
-                  help="logical, netCDF topdown parameter. If TRUE then turn the laf upside down",
-                  type="logical",
-                  default=FALSE,
-                  short="-lftd")
-p <- add_argument(p, "--laf.ndim",
-                  help="number of dimensions in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-lfnd")
-p <- add_argument(p, "--laf.tpos",
-                  help="position of the dimension ''time'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-lfti")
-p <- add_argument(p, "--laf.dimnames",
-                  help="dimension names in the netCDF file",
-                  type="character",
-                  default=c("x","y","time"),
-                  short="-lfna",
-                  nargs=Inf)
-p <- add_argument(p, "--laf.proj4_var",
-                  help="variable that include the specification of the proj4 string",
-                  type="character",
-                  default="projection_lambert",
-                  short="-lfp4v")
-p <- add_argument(p, "--laf.proj4_att",
-                  help="attribute with the specification of the proj4 string",
-                  type="character",
-                  default="proj4",
-                  short="-lfp4a")
-p <- add_argument(p, "--fast.sct",
-                  help=paste("faster spatial consistency test. Allow for",
-                      "flagging more than one observation simulataneously"),
-                  flag=T,
-                  short="-fS")
-#.............................................................................. 
-# observation representativeness
-p <- add_argument(p, "--mean.corep",
-                  help="average coefficient for the observation representativeness. mean.corep is a vector of positive values (not NAs). If mean.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of mean.corep[1] will be used for all providers and any other mean.corep[2:n] value will be ignored",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-avC")
-p <- add_argument(p, "--min.corep",
-     help="minimum value for the coefficient for the observation representativeness. If min.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of min.corep[1] will be used for all providers and any other min.corep[2:n] value will be ignored",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-mnC")
-p <- add_argument(p, "--max.corep",
-     help="maximum value for the coefficient for the observation representativeness. If max.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of max.corep[1] will be used for all providers and any other max.corep[2:n] value will be ignored",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-mxC")
-#.............................................................................. 
-# check elevation against dem
-p <- add_argument(p, "--dem",
-     help="check elevation against digital elevation model (dem)",
-                  flag=T,
-                  short="-dm")
-p <- add_argument(p, "--dz.dem",
-     help="maximum allowed deviation between observation and dem elevations [m]",
-                  type="numeric",
-                  default=500,
-                  short="-zD")
-p <- add_argument(p, "--dem.fill",
-                  help="fill missing elevation with data from dem",
-                  flag=T,
-                  short="-df")
-p <- add_argument(p, "--dem.file",
-     help="land area fraction file (netCDF in kilometric coordinates)",
-                  type="character",
-                  default=NULL,
-                  short="-dmf")
-p <- add_argument(p, "--proj4dem",
-                  help="proj4 string for the dem",
-                  type="character",
-                  default=proj4default,
-                  short="-pd")
-p <- add_argument(p, "--dem.varname",
-                  help="variable name in the netCDF file",
-                  type="character",
-                  default="altitude",
-                  short="-dmv")
-p <- add_argument(p, "--dem.topdown",
-                  help="logical, netCDF topdown parameter. If TRUE then turn the dem upside down",
-                  type="logical",
-                  default=FALSE,
-                  short="-dmtd")
-p <- add_argument(p, "--dem.ndim",
-                  help="number of dimensions in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-dmnd")
-p <- add_argument(p, "--dem.tpos",
-                  help="position of the dimension ''time'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-dmti")
-p <- add_argument(p, "--dem.dimnames",
-                  help="dimension names in the netCDF file",
-                  type="character",
-                  default=c("x","y","time"),
-                  short="-dmna",
-                  nargs=Inf)
-p <- add_argument(p, "--dem.proj4_var",
-                  help="variable that include the specification of the proj4 string",
-                  type="character",
-                  default="projection_lambert",
-                  short="-dmp4v")
-p <- add_argument(p, "--dem.proj4_att",
-                  help="attribute with the specification of the proj4 string",
-                  type="character",
-                  default="proj4",
-                  short="-dmp4a")
-#.............................................................................. 
-# STEVE - isolated event test
-p <- add_argument(p, "--steve",
-                  help="do the isolated event test",
-                  flag=T,
-                  short="-dST")
-p <- add_argument(p, "--i.steve",
-                  help="number of STEVE iterations",
-                  type="integer",
-                  default=1,
-                  short="-iST")
-p <- add_argument(p, "--thres.steve",
-                  help=paste("numeric vector with the thresholds used to",
-                  " define events (same units of the specified variable).",
-                  "Each threshold defines two events: (i) less than the",
-                  "threshold and (ii) greater or equal to it."),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--pmax_lt.steve",
-                  help=paste("numeric vector, used for events of the type",
-                  "''less than the threshold'' with the maximum number of",
-                  "stations defining (in combination with dmax) the",
-                  "neighbourhood where to search for",
-                  "clumps of connected events (default is 20)"),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--dmax_lt.steve",
-                  help=paste("numeric vector, used for events of the type",
-                  "''less than the threshold'' with the maximum distance",
-                  "between stations defining (in combination with pmax) the",
-                  "neighbourhood where to search for",
-                  "clumps of connected events (default is 150000)"),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--n_lt.steve",
-                  help=paste("numeric vector, used for events of the type",
-                  "''less than the threshold'' with the minimum expected",
-                  "number of connected events. If an event has less than",
-                  "this number of connected events, then flag it is as a",
-                  "suspect isolated event. The connection between events is",
-                  "estimated through a Delaunay triangulation.",
-                  "(default is 4)"),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--frac_lt.steve",
-                  help=paste("numeric vector, used for events of the type",
-                  "''less than the threshold'' with the maximum expected",
-                  "fraction of events in a clump of connected events",
-                  "that could include an isolated event.",
-                  "If a clump of connected events has more than",
-                  "this fraction of events, then it is assumed that",
-                  "the situation is too ''patchy'' to flag an isolated event",
-                  "with enough confidence (deafult is 0.2)."),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--dmin_next_lt.steve",
-                  help=paste("numeric vector, used for events of the type",
-                  "''less than the threshold'' with the maximum expected",
-                  "distance between an isolated event and the closest event.",
-                  "If a possible isolated event has an other event at a",
-                  "distance less than the one defined here then it is not",
-                  "considered as an isolated event",
-                  "(deafult is 150000)."),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--pmax_ge.steve",
-                  help=paste("numeric vector, used for events of the type",
-      "''greater or equal than the threshold'' with the maximum number of",
-                  "stations defining (in combination with dmax) the",
-                  "neighbourhood where to search for",
-                  "clumps of connected events (default is 20)"),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--dmax_ge.steve",
-                  help=paste("numeric vector, used for events of the type",
-      "''greater or equal than the threshold'' with the maximum distance",
-                  "between stations defining (in combination with pmax) the",
-                  "neighbourhood where to search for",
-                  "clumps of connected events (default is 150000)"),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--n_ge.steve",
-                  help=paste("numeric vector, used for events of the type",
-      "''greater or equal than the threshold'' with the minimum expected",
-                  "number of connected events. If an event has less than",
-                  "this number of connected events, then flag it is as a",
-                  "suspect isolated event. The connection between events is",
-                  "estimated through the Delaunay triangulation",
-                  "(default is 4)"),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--frac_ge.steve",
-                  help=paste("numeric vector, used for events of the type",
-      "''greater or equal than the threshold'' with the maximum expected",
-                  "fraction of events in a clump of connected events",
-                  "that could include an isolated event.",
-                  "If a clump of connected events has more than",
-                  "this fraction of events, then it is assumed that",
-                  "the situation is too ''patchy'' to flag an isolated event",
-                  "with enough confidence (deafult is 0.2)."),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-p <- add_argument(p, "--dmin_next_ge.steve",
-                  help=paste("numeric vector, used for events of the type",
-      "''greater or equal than the threshold'' with the maximum expected",
-                  "distance between an isolated event and the closest event.",
-                  "If a possible isolated event has an other event at a",
-                  "distance less than the one defined here then it is not",
-                  "considered as an isolated event",
-                  "(deafult is 100000)."),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf)
-#.............................................................................. 
-# blacklist
-# specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
-p <- add_argument(p, "--blacklist.lat",
-                  help="observation blacklist (latitude)",
-                  type="numeric",default=NA,nargs=Inf,short="-bla")
-p <- add_argument(p, "--blacklist.lon",
-                  help="observation blacklist (longitude)",
-                  type="numeric",default=NA,nargs=Inf,short="-blo")
-p <- add_argument(p, "--blacklist.fll",
-                  help="observation blacklist (ID provider)",
-                  type="numeric",default=NA,nargs=Inf,short="-bfll")
-p <- add_argument(p, "--blacklist.idx",
-                  help="observation blacklist (position in input file)",
-                  type="numeric",default=NA,nargs=Inf,short="-bix")
-p <- add_argument(p, "--blacklist.fidx",
-                  help="observation blacklist (ID provider)",
-                  type="numeric",default=NA,nargs=Inf,short="-bfix")
-#.............................................................................. 
-# keep (keep them)
-# specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
-p <- add_argument(p, "--keeplist.lat",
-                  help="observation keeplist (latitude)",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-kla")
-p <- add_argument(p, "--keeplist.lon",
-                  help="observation keeplist (longitude)",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-klo")
-p <- add_argument(p, "--keeplist.fll",
-                  help="observation keeplist (ID provider)",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-kfll")
-p <- add_argument(p, "--keeplist.idx",
-                  help="observation keeplist (position in input file)",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf, 
-                  short="-kix")
-p <- add_argument(p, "--keeplist.fidx",
-                  help="observation keeplist (ID provider)",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-kfix")
-#.............................................................................. 
-# radar-derived precipitation as output
-p <- add_argument(p, "--radarout",
-                  help="include the radar-derived precipitation as output.",
-                  flag=T,
-                  short="-rado")
-p <- add_argument(p, "--radarout.prid",
-                  help="provider identifier for the radar data",
-                  type="numeric",
-                  default=100,
-                  short="-radop")
-p <- add_argument(p, "--radarout.aggfact",
-                  help="aggregation factor for the radar-derived precipitation",
-                  type="numeric",
-                  default=3,
-                  short="-radop")
-#.............................................................................. 
-# doit flags
-comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
-p <- add_argument(p, "--doit.buddy",
-                  help=paste("customize the buddy-test application.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-dob")
-p <- add_argument(p, "--doit.sct",
-                  help=paste("customize the application of SCT.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-dos")
-p <- add_argument(p, "--doit.clim",
-                  help=paste("customize the application of the climatological check.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-doc")
-p <- add_argument(p, "--doit.dem",
-                  help=paste("customize the application of the test of observation elevation against the digital elevation model.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-dod")
-p <- add_argument(p, "--doit.isol",
-                  help=paste("customize the application of the isolation test.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-doi")
-p <- add_argument(p, "--doit.fg",
- help=paste("customize the application of the check against a deterministic first-guess field.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-dofg")
-p <- add_argument(p, "--doit.fge",
- help=paste("customize the application of the check against an ensemble of first-guess fields.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-dofge")
-p <- add_argument(p, "--doit.steve",
-                  help=paste("customize the STEVE application.",comstr),
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-dost")
-#.............................................................................. 
-# precipitation correction for the wind-induced undercatch
-p <- add_argument(p, "--rr.wcor",
-              help=" precipitation correction for the wind-induced undercatch",
-                  flag=T)
-p <- add_argument(p,"--rr.wcor.filesetup",
-                  help="predefined setup to read gridded fields: dem, t2m, wspeed. available options: meps",
-                  type="character",
-                  default=NULL,
-                  short="-rrwf")
-# temp 
-p <- add_argument(p,"--t2m.file",
-                  help="air temperature netCDF file",
-                  type="character",
-                  default=NULL,
-                  short="-rrwt")
-p <- add_argument(p, "--t2m.offset",
-                  help="air temperature offset",
-                  type="numeric",
-                  default=0,
-                  short="-rrwto")
-p <- add_argument(p, "--t2m.cfact",
-                  help="air temperature correction factor",
-                  type="numeric",
-                  default=1,
-                  short="-rrwtc")
-p <- add_argument(p, "--t2m.negoffset",
-                  help="offset sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
-                  short="-rrwtos")
-p <- add_argument(p, "--t2m.negcfact",
-                  help="correction factor sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
-                  short="-rrwton")
-p <- add_argument(p, "--proj4t2m",
-                  help="proj4 string for the air temperature file",
-                  type="character",
-                  default=proj4default,
-                  short="-rrwtp")
-p <- add_argument(p, "--t2m.varname",
-                  help="air temperature variable name in the netCDF file",
-                  type="character",
-                  default=NULL,
-                  short="-rrwtv")
-p <- add_argument(p, "--t2m.topdown",
-                  help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
-                  type="logical",
-                  default=FALSE,
-                  short="-rrwtt")
-p <- add_argument(p, "--t2m.ndim",
-                  help="number of dimensions in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwtn")
-p <- add_argument(p, "--t2m.tpos",
-                  help="position of the dimension ''time'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwtti")
-p <- add_argument(p, "--t2m.epos",
-                  help="position of the dimension ''ensemble'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwtei")
-p <- add_argument(p, "--t2m.dimnames",
-                  help="dimension names in the netCDF file",
+# Timestamp valid for all the netcdf files
+p <- add_argument(p, "--timestamp",
+                  help="timestamp, valid for all the netCDF file (YYYYMMDDHH00)",
                   type="character",
                   default=NA,
-                  short="-rrwtna",
-                  nargs=Inf)
-p <- add_argument(p, "--t2m.proj4_var",
-                  help="variable that include the specification of the proj4 string",
-                  type="character",
-                  default="projection_lambert",
-                  short="-rrwtp4v")
-p <- add_argument(p, "--t2m.proj4_att",
-                  help="attribute with the specification of the proj4 string",
-                  type="character",
-                  default="proj4",
-                  short="-rrwtp4a")
-p <- add_argument(p, "--t2m.t",
-                  help="timestamp to read in the air temperature netCDF file (YYYYMMDDHH00)",
-                  type="character",
-                  default=NA,
-                  short="-rrwttt")
-p <- add_argument(p, "--t2m.e",
-                  help="ensemble member to read in the air temperature netCDF file",
-                  type="numeric",
-                  default=NA,
-                  short="-rrwtee")
-# dem for temperature adjustments
-p <- add_argument(p,"--t2m.demfile",
-                  help="dem file associated to the first-guess or background file",
-                  type="character",
-                  default=NULL,
-                  short="-rrwdf")
-p <- add_argument(p, "--t2m.demoffset",
-                  help="offset",
-                  type="numeric",
-                  default=0,
-                  short="-rrwdoff")
-p <- add_argument(p, "--t2m.demcfact",
-                  help="correction factor",
-                  type="numeric",
-                  default=1,
-                  short="-rrwdcf")
-p <- add_argument(p, "--t2m.demnegoffset",
-                  help="offset sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
-                  short="-rrwdnoff")
-p <- add_argument(p, "--t2m.demnegcfact",
-                  help="correction factor sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
-                  short="-rrwdncf")
-p <- add_argument(p, "--t2m.demt",
-                  help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
-                  type="character",
-                  default=NA,
-                  short="-rrwdt")
-p <- add_argument(p, "--t2m.demvarname",
-                  help="variable name in the netCDF file (dem associated to the first-guess)",
-                  type="character",
-                  default="none",
-                  short="-rrwdv")
-p <- add_argument(p, "--t2m.demtopdown",
-                  help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
-                  type="logical",
-                  default=FALSE,
-                  short="-rrwdtd")
-p <- add_argument(p, "--t2m.demndim",
-                  help="number of dimensions in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwdnd")
-p <- add_argument(p, "--t2m.demepos",
-                  help="position of the dimension ''ensemble'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwdei")
-p <- add_argument(p, "--t2m.demtpos",
-                  help="position of the dimension ''time'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwdti")
-p <- add_argument(p, "--t2m.deme",
-                  help="ensemble member to read in the netCDF file",
-                  type="numeric",
-                  default=NA,
-                  short="-rrwdee")
-p <- add_argument(p, "--t2m.demdimnames",
-                  help="dimension names in the netCDF file",
-                  type="character",
-                  default=NA,
-                  short="-rrwdna",
-                  nargs=Inf)
-# wind
-p <- add_argument(p,"--wind.file",
-                  help="air temperature netCDF file",
-                  type="character",
-                  default=NULL,
-                  short="-rrww")
-p <- add_argument(p, "--proj4wind",
-                  help="proj4 string for the air temperature file",
-                  type="character",
-                  default=proj4default,
-                  short="-rrwwp")
-p <- add_argument(p, "--windspeed.varname",
-                  help="air temperature variable name in the netCDF file",
-                  type="character",
-                  default=NULL,
-                  short="-rrwwv")
-p <- add_argument(p, "--u.varname",
-                  help="air temperature variable name in the netCDF file",
-                  type="character",
-                  default=NULL,
-                  short="-rrwwv")
-p <- add_argument(p, "--v.varname",
-                  help="air temperature variable name in the netCDF file",
-                  type="character",
-                  default=NULL,
-                  short="-rrwwv")
-p <- add_argument(p, "--wind.topdown",
-                  help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
-                  type="logical",
-                  default=FALSE,
-                  short="-rrwwt")
-p <- add_argument(p, "--wind.ndim",
-                  help="number of dimensions in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwwn")
-p <- add_argument(p, "--wind.tpos",
-                  help="position of the dimension ''time'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwwti")
-p <- add_argument(p, "--wind.epos",
-                  help="position of the dimension ''ensemble'' in the netCDF file",
-                  type="numeric",
-                  default=3,
-                  short="-rrwwei")
-p <- add_argument(p, "--wind.dimnames",
-                  help="dimension names in the netCDF file",
-                  type="character",
-                  default=NA,
-                  short="-rrwwna",
-                  nargs=Inf)
-p <- add_argument(p, "--wind.proj4_var",
-                  help="variable that include the specification of the proj4 string",
-                  type="character",
-                  default="projection_lambert",
-                  short="-rrwwp4v")
-p <- add_argument(p, "--wind.proj4_att",
-                  help="attribute with the specification of the proj4 string",
-                  type="character",
-                  default="proj4",
-                  short="-rrwwp4a")
-p <- add_argument(p, "--wind.t",
-                  help="timestamp to read in the air temperature netCDF file (YYYYMMDDHH00)",
-                  type="character",
-                  default=NA,
-                  short="-rrwwtt")
-p <- add_argument(p, "--wind.e",
-                  help="ensemble member to read in the air temperature netCDF file",
-                  type="numeric",
-                  default=NA,
-                  short="-rrwwee")
+                  short="-t")
 #.............................................................................. 
 # PARSE arguments
 argv <- parse_args(p)
@@ -2751,6 +2791,7 @@ if (!is.na(argv$fge.type)) {
 #
 if (!is.na(argv$rr.wcor.filesetup)) {
   if (argv$rr.wcor.filesetup=="meps") {
+    argv$t2m.file<-argv$rr.wcor.filemeps
     argv$t2m.epos<-5
     argv$t2m.e<-0
     argv$t2m.varname<-"air_temperature_2m"
@@ -2760,6 +2801,7 @@ if (!is.na(argv$rr.wcor.filesetup)) {
     argv$proj4t2m<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
     argv$t2m.offset<-273.15
     argv$t2m.negoffset<-1
+    argv$t2m.demfile<-argv$rr.wcor.filemeps
     argv$t2m.demvarname<-"surface_geopotential" 
     argv$t2m.demndim<-5
     argv$t2m.demtpos<-3
@@ -2770,6 +2812,7 @@ if (!is.na(argv$rr.wcor.filesetup)) {
     argv$t2m.demcfact<-0.0980665 
     argv$t2m.topdown<-TRUE
     argv$t2m.demtopdown<-TRUE
+    argv$wind.file<-argv$rr.wcor.filemeps
     argv$wind.epos<-5
     argv$wind.e<-0
     argv$u.varname<-"x_wind_10m" 
@@ -2778,6 +2821,7 @@ if (!is.na(argv$rr.wcor.filesetup)) {
     argv$wind.tpos<-3
     argv$wind.dimnames<-c("x","y","time","height3","ensemble_member")
     argv$proj4wind<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+    argv$wind.topdown<-TRUE
   }
 }
 # check external files
@@ -2949,6 +2993,9 @@ if (length(argv$mean.corep)!=nfin)
   argv$eps2.sct<-rep(argv$mean.corep[1],length=nfin)
 if (length(argv$max.corep)!=nfin) 
   argv$eps2.sct<-rep(argv$max.corep[1],length=nfin)
+# precip and temperature crosscheck
+if (length(argv$ccrrt.tmin)!=nfin) 
+  argv$ccrrt.tmin<-rep(argv$ccrrt.tmin[1],length=nfin)
 # SCT
 # if defined, thrpos.sct and thrneg.sct have the priority on thr.sct
 if ( (any(is.na(argv$thrpos.sct)) & any(!is.na(argv$thrpos.sct))) |
@@ -2995,31 +3042,31 @@ if (any(is.na(argv$doit.steve))) argv$doit.steve<-rep(1,length=nfin)
 if (any(is.na(argv$doit.fg))) argv$doit.fg<-rep(1,length=nfin)
 if (any(is.na(argv$doit.fge))) argv$doit.fge<-rep(1,length=nfin)
 if (any(!(argv$doit.buddy %in% c(0,1,2)))) {
-  print("doit.buddy must not contain only 0,1,2")
+  print("doit.buddy must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.sct %in% c(0,1,2)))) {
-  print("doit.sct must not contain only 0,1,2")
+  print("doit.sct must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.clim %in% c(0,1,2)))) {
-  print("doit.clim must not contain only 0,1,2")
+  print("doit.clim must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.dem %in% c(0,1,2)))) {
-  print("doit.dem must not contain only 0,1,2")
+  print("doit.dem must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.isol %in% c(0,1,2)))) {
-  print("doit.isol must not contain only 0,1,2")
+  print("doit.isol must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.steve %in% c(0,1,2)))) {
-  print("doit.steve must not contain only 0,1,2")
+  print("doit.steve must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.fg %in% c(0,1,2)))) {
-  print("doit.fg must not contain only 0,1,2")
+  print("doit.fg must contain only 0,1,2")
   quit(status=1)
 }
 # set the thresholds for the plausibility check
@@ -3106,6 +3153,13 @@ if (!is.na(argv$rr.wcor) & argv$variable!="RR") {
   print(paste("ERROR: wind-induced correction for undercatch is implemented",
               "for precipitation only"))
   quit(status=1)
+}
+# set the timestamp
+if (!is.na(argv$timestamp)) {
+  argv$fg.t<-argv$timestamp
+  argv$fge.t<-argv$timestamp
+  argv$wind.t<-argv$timestamp
+  argv$t2m.t<-argv$timestamp
 }
 #
 #-----------------------------------------------------------------------------
@@ -3269,7 +3323,7 @@ if (exists("meta")) rm(meta)
 #-----------------------------------------------------------------------------
 # coordinate transformation
 if (argv$spatconv) {
-  if (argv$debug) print("spatial conversion required")
+  if (argv$debug) print("conversion of spatial coordinates")
   coord<-SpatialPoints(cbind(data$lon,data$lat),
                        proj4string=CRS(argv$proj4from))
   coord.new<-spTransform(coord,CRS(argv$proj4to))
@@ -3304,6 +3358,7 @@ if (argv$debug) {
             data$elev,
             data$value,
             data$prid,"\n",sep=";"),append=T)
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
@@ -3433,8 +3488,129 @@ if (argv$debug) {
 }
 #
 #-----------------------------------------------------------------------------
+# precipitation (in-situ) and temperature (field) cross-check (optional)
+if (!is.na(argv$ccrrt)) {
+  if (argv$debug | argv$verbose) 
+    print("precipitation (in-situ) and temperature (field) cross-check")
+  # read temperature from gridded field
+  ti<-nc4.getTime(argv$t2m.file)
+  if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
+  if (!(argv$t2m.t %in% ti)) {
+    print("ERROR timestamp requested is not in the file:")
+    print(argv$t2m.t)
+    print(ti)
+    quit(status=1)
+  }
+  t2m.epos<-argv$t2m.epos
+  if (is.na(argv$t2m.epos)) t2m.epos<-NULL
+  t2m.e<-argv$t2m.e
+  if (is.na(argv$t2m.e)) t2m.e<-NULL
+  raux<-try(nc4in(nc.file=argv$t2m.file,
+                  nc.varname=argv$t2m.varname,
+                  topdown=argv$t2m.topdown,
+                  out.dim=list(ndim=argv$t2m.ndim,
+                               tpos=argv$t2m.tpos,
+                               epos=t2m.epos,
+                               names=argv$t2m.dimnames),
+                  proj4=argv$proj4t2m,
+                  nc.proj4=list(var=argv$t2m.proj4_var,
+                                att=argv$t2m.proj4_att),
+                  selection=list(t=argv$t2m.t,e=t2m.e)))
+  rt2m<-raux$stack
+  rm(raux)
+  coord<-SpatialPoints(cbind(data$lon,data$lat),
+                       proj4string=CRS(argv$proj4from))
+  coord.new<-spTransform(coord,CRS(argv$proj4t2m))
+  xy.tmp<-coordinates(coord.new)
+  t2m<-extract(rt2m,xy.tmp,method="bilinear")
+  t2m<-argv$t2m.offset*(-1)**(argv$t2m.negoffset)+
+       t2m*argv$t2m.cfact*(-1)**(argv$t2m.negcfact)
+  if (argv$debug)
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_t2m.png"),
+               r=rt2m,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
+  rm(coord,coord.new,xy.tmp)
+  # read elevation from gridded field
+  ti<-nc4.getTime(argv$t2m.demfile)
+  if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
+  if (!(argv$t2m.demt %in% ti)) {
+    print("ERROR timestamp requested is not in the file:")
+    print(argv$t2m.demt)
+    print(ti)
+    quit(status=1)
+  }
+  t2m.demepos<-argv$t2m.demepos
+  if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
+  t2m.deme<-argv$t2m.deme
+  if (is.na(argv$t2m.deme)) t2m.deme<-NULL
+  raux<-try(nc4in(nc.file=argv$t2m.demfile,
+                  nc.varname=argv$t2m.demvarname,
+                  topdown=argv$t2m.demtopdown,
+                  out.dim=list(ndim=argv$t2m.demndim,
+                               tpos=argv$t2m.demtpos,
+                               epos=t2m.demepos,
+                               names=argv$t2m.demdimnames),
+                  proj4=argv$proj4t2m,
+                  nc.proj4=list(var=argv$t2m.proj4_var,
+                                att=argv$t2m.proj4_att),
+                  selection=list(t=argv$t2m.demt,e=t2m.deme)))
+  if (is.null(raux)) {
+    print("ERROR while reading file:")
+    print(argv$t2m.demfile)
+    quit(status=1)
+  }
+  rt2mdem<-raux$stack
+  rm(raux,ti)
+  if (argv$proj4t2m!=argv$proj4to) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4from))
+    coord.new<-spTransform(coord,CRS(argv$proj4t2m))
+    xy.tmp<-coordinates(coord.new)
+    zt2mdem<-extract(rt2mdem,xy.tmp,method="bilinear")
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    zt2mdem<-extract(rt2mdem,cbind(x,y),method="bilinear")
+  }
+  zt2mdem<-argv$t2m.demoffset*(-1)**(argv$t2m.demnegoffset)+
+          zt2mdem*argv$t2m.demcfact*(-1)**(argv$t2m.demnegcfact)
+  if (argv$debug)
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_dem.png"),
+               r=rt2mdem,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
+  t2m<-t2m+argv$gamma.standard*(z-zt2mdem)
+  # cross-check
+  for (f in 1:nfin) 
+    dqcflag[which(data$prid==argv$prid[f] & 
+                  t2m<argv$ccrrt.tmin[f])]<-argv$ccrrt.code
+  #
+  if (argv$verbose | argv$debug) {
+    print("precipitaton and temperature  crosscheck")
+    print(paste("temp thresholds =",argv$ccrrt.tmin))
+    print(paste("# suspect observations=",
+          length(which(dqcflag==argv$ccrrt.code))))
+    print("+---------------------------------+")
+  }
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"dqcres_ccrrt.txt"),
+        "x;y;z;lat;lon;elev;elev_dem;t2m;value;prid;dqcflag;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"dqcres_ccrrt.txt"),
+        paste(x,
+              y,
+              z,
+              zt2mdem,
+              t2m,
+              data$lat,
+              data$lon,
+              data$elev,
+              data$value,
+              data$prid,
+              dqcflag,"\n",sep=";"),append=T)
+  }
+  rm(t2m,zt2mdem)
+}
+#
+#-----------------------------------------------------------------------------
 # Correction for the wind-undercatch of precipitation (optional)
 if (!is.na(argv$rr.wcor)) {
+  if (argv$debug) print("Correction for the wind-undercatch of precipitation")
   # read temperature from gridded field
   ti<-nc4.getTime(argv$t2m.file)
   if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
@@ -3584,6 +3760,9 @@ if (!is.na(argv$rr.wcor)) {
     }
     ru<-raux$stack
     rm(raux,ti)
+    if (argv$debug)
+      plot_debug(ff=file.path(argv$debug.dir,"rrwcor_u.png"),
+                 r=ru,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
     raux<-try(nc4in(nc.file=argv$wind.file,
                     nc.varname=argv$v.varname,
                     topdown=argv$wind.topdown,
@@ -3601,7 +3780,10 @@ if (!is.na(argv$rr.wcor)) {
       quit(status=1)
     }
     rv<-raux$stack
-    rm(raux,ti)
+    rm(raux)
+    if (argv$debug)
+      plot_debug(ff=file.path(argv$debug.dir,"rrwcor_v.png"),
+                 r=rv,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
     rwind<-rv
     rwind[]<-sqrt(getValues(ru)**2+getValues(rv)**2)
     rm(ru,rv)
@@ -3613,20 +3795,21 @@ if (!is.na(argv$rr.wcor)) {
   }
   ws10m<-extract(rwind,cbind(x,y),method="bilinear")
   if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_dem.png"),
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_ws.png"),
                r=rwind,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
   rm(rwind) 
   # precipitation data adjustment
   data$rawvalue<-data$value
-# values from Wolff et al. (2015)
-  par<-c(4.24,1.81,0.18,0.99,0.66,1.07)
-  data$value<-wolff_correction(par=par,
-                               t2m=t2m,
-                               ws10m=ws10m,
-                               rr=data$rawvalue)
+  res<-wolff_correction(par=argv$rr.wcor.par,
+                        t2m=t2m,
+                        ws10m=ws10m,
+                        rr=data$rawvalue)
+  data$value<-res$rr.cor
+  data$vsigma<-res$sigma
+  rm(res)
   if (argv$debug) {
     cat(file=file.path(argv$debug.dir,"rrcor.txt"),
-        "x;y;z;lat;lon;elev;zt2mdem;t2m;ws10m;rr_raw;rr_cor;\n",append=F)
+        "x;y;z;lat;lon;elev;zt2mdem;t2m;ws10m;rr_raw;rr_cor;sigma;\n",append=F)
     cat(file=file.path(argv$debug.dir,"rrcor.txt"),
         paste(x,
               y,
@@ -3637,11 +3820,11 @@ if (!is.na(argv$rr.wcor)) {
               round(zt2mdem,1),
               round(t2m,2),
               round(ws10m,2),
-              round(rr_raw,2),
-              round(rr_cor,2),
               round(data$rawvalue,2),
               round(data$value,2),
-              round(fg,4),"\n",sep=";"),append=T)
+              round(data$vsigma,4),
+              "\n",sep=";"),append=T)
+    print("+---------------------------------+")
   }
 }
 #
@@ -4207,8 +4390,8 @@ for (i in 1:argv$i.buddy) {
   # use only (probably) good observations with doit!=0
   ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
              doit!=0 )
+  t0a<-Sys.time()
   if (length(ix)>0) {
-    t0a<-Sys.time()
     # define global 1D vector used in statSpat (1D for fast access)
     xtot<-x[ix]
     ytot<-y[ix]
@@ -4777,6 +4960,7 @@ if (argv$verbose | argv$debug) {
               length(which(dqcflag!=0))," [",
               round(100*length(which(dqcflag!=0))/ndata,0),
               "%]",sep="") )
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
@@ -4874,6 +5058,8 @@ if (argv$radarout) {
 #
 #-----------------------------------------------------------------------------
 # write the output file
+if (argv$verbose | argv$debug) 
+  print(paste("write the output file\n",argv$output))
 varidx.out<-varidx
 if (any(!is.na(argv$varname.opt))) 
   varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))]) 
@@ -4931,6 +5117,8 @@ write.table(file=argv$output,
             row.names=F,
             dec=".",
             sep=argv$separator.out)
+if (argv$verbose | argv$debug) 
+  print("+---------------------------------+")
 #
 #-----------------------------------------------------------------------------
 # Normal exit
