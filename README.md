@@ -7,6 +7,8 @@ Currently, the statistics of the individual station time series is not considere
 
 Available checks are (applied sequentially as in this list):
 
+* Precipitation (in-situ) and temperature (field) cross-check (optional)
+
 * Plausibility check
 
 * Climatological check, predefined range for each month (optional)
@@ -28,6 +30,9 @@ Available checks are (applied sequentially as in this list):
 * Detect isolated observations
 
 Possibility to have observation black-list and keep(-it-no-matter-what)-list.
+
+In case of precipitation, the program can adjust the values for the wind-induced loss.
+
 
 Installation Instructions
 -------------------------
