@@ -7,6 +7,8 @@ Currently, the statistics of the individual station time series is not considere
 
 Available checks are (applied sequentially as in this list):
 
+* Precipitation (in-situ) and temperature (field) cross-check (optional)
+
 * Plausibility check
 
 * Climatological check, predefined range for each month (optional)
