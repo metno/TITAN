@@ -230,7 +230,7 @@ sct<-function(ixynp,
 #  Dhmin= numeric. minimum value for OI horizontal decorellation length [m]
 #  Dz= numeric. OI vertical decorellation length [m]
 #  Dz.bg= numeric. OI vertical decorellation length 
-#         for the construction of the background (RH,RR) [m]
+#         for the construction of the background (RH,RR,SD) [m]
 #  eps2.bg= numeric. OI ratio between obs_err_variance/backg_err_variance
 #  eps2= numeric. OI ratio between obs_err_variance/backg_err_variance
 #  T2=numeric. SCT threshold. (obs-pred)^2/(varObs+varPred)^2 > T2, suspect!
@@ -302,7 +302,7 @@ sct<-function(ixynp,
                     h0=opt$par[4],
                     h1i=opt$par[5])
     }
-  } else if (argv$variable %in% c("RH","RR")) {
+  } else if (argv$variable %in% c("RH","RR","SD")) {
     tb<-vector(mode="numeric",length=ixynp[4])
     # if less than five observations in the box... not that much one can do 
     if (ixynp[4]<5) {
@@ -1170,7 +1170,8 @@ p <- add_argument(p, "output",
 # VARIABLE definition 
 p<- add_argument(p, "--variable",
                  help=paste("meteorological variable (T temperature,",
-                            " RR precipitation, RH relative humidity)"),
+                            " RR precipitation, RH relative humidity,",
+                            " SD surface_snow_thickness)"),
                  type="character",
                  default="T",
                  short="-var")
@@ -2679,8 +2680,8 @@ if (is.na(argv$input.negcfact)) argv$input.negcfact<-rep(0,nfin)
 argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
 argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
 # check variable
-if (!(argv$variable %in% c("T","RH","RR"))) {
-  print("variable must be one of T, RH, RR")
+if (!(argv$variable %in% c("T","RH","RR","SD"))) {
+  print("variable must be one of T, RH, RR, SD")
   quit(status=1)
 }
 # set the input arguments according to user specification
@@ -2737,6 +2738,27 @@ if (!is.na(argv$fg.type)) {
       argv$fg.dimnames<-c("Xc","Yc","time")
       argv$proj4fg<-"+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
       argv$fg.topdown<-FALSE
+    }
+  } else if (argv$fg.type=="surfex_T") {
+    if (argv$variable=="RH") {
+      argv$fg.epos<-NA
+      argv$fg.e<-NULL
+      argv$fg.varname<-"relative_humidity_2m"
+      argv$fg.ndim<-3 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("x","y","time")
+      argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fg.cfact<-100.
+      argv$fg.topdown<-TRUE
+    } else if (argv$variable=="SD") {
+      argv$fg.epos<-NA
+      argv$fg.e<-NULL
+      argv$fg.varname<-"surface_snow_thickness"
+      argv$fg.ndim<-3 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("x","y","time")
+      argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+      argv$fg.topdown<-TRUE
     }
   } else {
     print("ERROR in --fg.type, type not recognized")
@@ -3489,7 +3511,7 @@ if (argv$debug) {
 #
 #-----------------------------------------------------------------------------
 # precipitation (in-situ) and temperature (field) cross-check (optional)
-if (!is.na(argv$ccrrt)) {
+if (argv$ccrrt) {
   if (argv$debug | argv$verbose) 
     print("precipitation (in-situ) and temperature (field) cross-check")
   # read temperature from gridded field
