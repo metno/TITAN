@@ -2737,6 +2737,9 @@ if (!is.na(argv$fg.type)) {
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.cfact<-100.
       argv$fg.topdown<-TRUE
+    } else {
+      print("ERROR in --fg.type, combination of type/variable not available")
+      quit(status=1)
     } 
   } else if (argv$fg.type=="radar") {
     if (argv$variable=="RR") {
@@ -2748,6 +2751,9 @@ if (!is.na(argv$fg.type)) {
       argv$fg.dimnames<-c("Xc","Yc","time")
       argv$proj4fg<-"+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
       argv$fg.topdown<-FALSE
+    } else {
+      print("ERROR in --fg.type, combination of type/variable not available")
+      quit(status=1)
     }
   } else if (argv$fg.type=="surfex_T") {
     if (argv$variable=="RH") {
@@ -2759,7 +2765,7 @@ if (!is.na(argv$fg.type)) {
       argv$fg.dimnames<-c("x","y","time")
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.topdown<-TRUE
-    if (argv$variable=="T") {
+    } else if (argv$variable=="T") {
       argv$fg.epos<-NA
       argv$fg.e<-NULL
       argv$fg.varname<-"air_temperature_2m"
@@ -2777,6 +2783,9 @@ if (!is.na(argv$fg.type)) {
       argv$fg.dimnames<-c("x","y","time")
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.topdown<-TRUE
+    } else {
+      print("ERROR in --fg.type, combination of type/variable not available")
+      quit(status=1)
     }
   } else {
     print("ERROR in --fg.type, type not recognized")
@@ -2822,6 +2831,9 @@ if (!is.na(argv$fge.type)) {
       argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fge.cfact<-100.
       argv$fge.topdown<-TRUE
+    } else {
+      print("ERROR in --fg.type, combination of type/variable not available")
+      quit(status=1)
     } 
   } else {
     print("ERROR in --fge.type, type not recognized")
@@ -2862,6 +2874,9 @@ if (!is.na(argv$rr.wcor.filesetup)) {
     argv$wind.dimnames<-c("x","y","time","height3","ensemble_member")
     argv$proj4wind<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
     argv$wind.topdown<-TRUE
+  } else {
+    print("ERROR --rr.wcor.filesetup argument not recognized")
+    quit(status=1)
   }
 }
 # shortcut for meps file in the precip-temp cross-check
@@ -2888,6 +2903,9 @@ if (!is.na(argv$ccrrt.filesetup)) {
     argv$t2m.demcfact<-0.0980665 
     argv$t2m.topdown<-TRUE
     argv$t2m.demtopdown<-TRUE
+  } else {
+    print("ERROR --ccrrt.filesetup argument not recognized")
+    quit(status=1)
   }
 }
 # check external files
@@ -3380,7 +3398,13 @@ if (length(ix)>0) {
 }
 if (argv$verbose | argv$debug) {
   print("test for no metdata")
-  print(paste("# observations lacking metadata=",length(which(!meta))))
+  print(paste("# observations lacking metadata and/or NAs=",length(which(!meta))))
+  print(paste("  # NAs             =",length(which(is.na(data$value[ix])))))
+  print(paste("  # lon-lat missing =",length(which(is.na(data$lat[ix]) | 
+                                                  is.na(data$lon[ix])))))
+  print(paste("  # z missing       =",length(which(is.na(z[ix]))))) 
+  print(paste("  # z out of range  =",length(which(!is.na(z[ix]) & 
+                                    (z[ix]<argv$zmin | z[ix]>argv$zmax))))) 
   print("+---------------------------------+")
 }
 rm(ix)
@@ -3542,22 +3566,23 @@ if (argv$laf.sct) {
   # use a fake laf
   laf<-rep(1,ndata)
 } # END read LAF
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
-      "x;y;z;lat;lon;elev;value;prid;laf;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            round(laf,4),"\n",sep=";"),append=T)
-}
-if (argv$verbose | argv$debug)
+if (argv$laf.sct) {
+  if (argv$debug) {
+    cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
+        "x;y;z;lat;lon;elev;value;prid;laf;\n",append=F)
+    cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
+        paste(x,
+              y,
+              z,
+              data$lat,
+              data$lon,
+              data$elev,
+              data$value,
+              data$prid,
+              round(laf,4),"\n",sep=";"),append=T)
     print("+---------------------------------+")
+  }
+}
 #
 #-----------------------------------------------------------------------------
 # precipitation (in-situ) and temperature (field) cross-check (optional)
@@ -4143,6 +4168,7 @@ if (!is.na(argv$fg.file)) {
 if (!is.na(argv$fge.file)) {
   if (argv$verbose | argv$debug)
     print("Read ensemble first-guess")
+  t0a<-Sys.time()
   ti<-nc4.getTime(argv$fge.file)
   if (is.na(argv$fge.t)) argv$fge.t<-ti[1]
   if (!(argv$fge.t %in% ti)) {
@@ -4344,8 +4370,11 @@ if (!is.na(argv$fge.file)) {
                 round(fge.q75,4),"\n",sep=";"),append=T)
     }
   }
-  if (argv$verbose | argv$debug)
+  if (argv$verbose | argv$debug) {
+    t1a<-Sys.time()
+    print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
     print("+---------------------------------+")
+  }
 }
 #
 #-----------------------------------------------------------------------------
@@ -4734,7 +4763,7 @@ if (argv$fge) {
                 dqcflag,"\n",sep=";"),append=T)
     } else if (argv$variable=="RR") {
       cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-      "x;y;z;lat;lon;elev;value;value_bc;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;zfge;dqcflag;\n",append=F)
+      "x;y;z;lat;lon;elev;value;value_bc;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;dqcflag;\n",append=F)
       cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
           paste(x,
                 y,
@@ -4750,7 +4779,6 @@ if (argv$fge) {
                 round(fge.q25,4),
                 round(fge.q50,4),
                 round(fge.q75,4),
-                round(zfgedem,1),
                 dqcflag,"\n",sep=";"),append=T)
     } else {
       cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
@@ -5171,8 +5199,10 @@ if (argv$radarout) {
 #
 #-----------------------------------------------------------------------------
 # write the output file
-if (argv$verbose | argv$debug) 
-  print(paste("write the output file\n",argv$output))
+if (argv$verbose | argv$debug) {
+  print("write the output file")
+  print(argv$output)
+}
 varidx.out<-varidx
 if (any(!is.na(argv$varname.opt))) 
   varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))]) 
