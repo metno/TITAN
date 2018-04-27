@@ -3149,7 +3149,7 @@ if (argv$steve) {
   }
 }
 # wind-induced undercatch of precipitation, check consistency of inputs
-if (!is.na(argv$rr.wcor) & argv$variable!="RR") {
+if (argv$rr.wcor & argv$variable!="RR") {
   print(paste("ERROR: wind-induced correction for undercatch is implemented",
               "for precipitation only"))
   quit(status=1)
@@ -3609,7 +3609,7 @@ if (!is.na(argv$ccrrt)) {
 #
 #-----------------------------------------------------------------------------
 # Correction for the wind-undercatch of precipitation (optional)
-if (!is.na(argv$rr.wcor)) {
+if (argv$rr.wcor) {
   if (argv$debug) print("Correction for the wind-undercatch of precipitation")
   # read temperature from gridded field
   ti<-nc4.getTime(argv$t2m.file)
