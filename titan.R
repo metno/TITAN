@@ -1887,6 +1887,16 @@ p <- add_argument(p, "--ccrrt.tmin",
                   default=NA,
                   nargs=Inf,
                   short="-ccrrtt")
+p <- add_argument(p,"--ccrrt.filesetup",
+                  help="predefined setup to read gridded fields: dem, t2m. available options: meps",
+                  type="character",
+                  default=NULL,
+                  short="-ccrrtfs")
+p <- add_argument(p,"--ccrrt.filemeps",
+                  help="meps netCDF file",
+                  type="character",
+                  default=NULL,
+                  short="-ccrrtfm")
 #.............................................................................. 
 # blacklist
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
@@ -2624,12 +2634,12 @@ p <- add_argument(p, "--infiqr.fge",
 p <- add_argument(p, "--sdmin.fge",
                   help="ensemble standard deviation, minimum value",
                   type="numeric",
-                  default=.2,
+                  default=NULL,
                   short="-fgesdmn")
 p <- add_argument(p, "--iqrmin.fge",
                   help="ensemble inter-quartile range, minimum value",
                   type="numeric",
-                  default=.3,
+                  default=NULL,
                   short="-fgesdmn")
 #.............................................................................. 
 # Timestamp valid for all the netcdf files
@@ -2748,7 +2758,15 @@ if (!is.na(argv$fg.type)) {
       argv$fg.tpos<-3
       argv$fg.dimnames<-c("x","y","time")
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
-      argv$fg.cfact<-100.
+      argv$fg.topdown<-TRUE
+    if (argv$variable=="T") {
+      argv$fg.epos<-NA
+      argv$fg.e<-NULL
+      argv$fg.varname<-"air_temperature_2m"
+      argv$fg.ndim<-3 
+      argv$fg.tpos<-3
+      argv$fg.dimnames<-c("x","y","time")
+      argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.topdown<-TRUE
     } else if (argv$variable=="SD") {
       argv$fg.epos<-NA
@@ -2810,7 +2828,7 @@ if (!is.na(argv$fge.type)) {
     quit(status=1)
   }
 }
-#
+# shortcut for meps file in the precip correction for wind undercatch
 if (!is.na(argv$rr.wcor.filesetup)) {
   if (argv$rr.wcor.filesetup=="meps") {
     argv$t2m.file<-argv$rr.wcor.filemeps
@@ -2844,6 +2862,32 @@ if (!is.na(argv$rr.wcor.filesetup)) {
     argv$wind.dimnames<-c("x","y","time","height3","ensemble_member")
     argv$proj4wind<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
     argv$wind.topdown<-TRUE
+  }
+}
+# shortcut for meps file in the precip-temp cross-check
+if (!is.na(argv$ccrrt.filesetup)) {
+  if (argv$ccrrt.filesetup=="meps") {
+    argv$t2m.file<-argv$ccrrt.filemeps
+    argv$t2m.epos<-5
+    argv$t2m.e<-0
+    argv$t2m.varname<-"air_temperature_2m"
+    argv$t2m.ndim<-5 
+    argv$t2m.tpos<-3
+    argv$t2m.dimnames<-c("x","y","time","height1","ensemble_member")
+    argv$proj4t2m<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
+    argv$t2m.offset<-273.15
+    argv$t2m.negoffset<-1
+    argv$t2m.demfile<-argv$ccrrt.filemeps
+    argv$t2m.demvarname<-"surface_geopotential" 
+    argv$t2m.demndim<-5
+    argv$t2m.demtpos<-3
+    argv$t2m.demepos<-5
+    argv$t2m.deme<-0
+    argv$t2m.demdimnames<-c("x","y","time","height0","ensemble_member")
+    # divide geopotential by g=9.80665. This calculates geopotential height (above mean sea level)
+    argv$t2m.demcfact<-0.0980665 
+    argv$t2m.topdown<-TRUE
+    argv$t2m.demtopdown<-TRUE
   }
 }
 # check external files
@@ -3386,6 +3430,8 @@ if (argv$debug) {
 #-----------------------------------------------------------------------------
 # Read geographical information (optional) 
 if (argv$dem | argv$dem.fill) {
+  if (argv$verbose | argv$debug)
+    print("read digital elevation model")
   ti<-nc4.getTime(argv$dem.file)
   raux<-try(nc4in(nc.file=argv$dem.file,
                   nc.varname=argv$dem.varname,
@@ -3453,6 +3499,8 @@ if (argv$dem | argv$dem.fill) {
   }
 } # END read DEM
 if (argv$laf.sct) {
+  if (argv$verbose | argv$debug)
+    print("read land area fraction")
   ti<-nc4.getTime(argv$laf.file)
   raux<-try(nc4in(nc.file=argv$laf.file,
                   nc.varname=argv$laf.varname,
@@ -3508,6 +3556,8 @@ if (argv$debug) {
             data$prid,
             round(laf,4),"\n",sep=";"),append=T)
 }
+if (argv$verbose | argv$debug)
+    print("+---------------------------------+")
 #
 #-----------------------------------------------------------------------------
 # precipitation (in-situ) and temperature (field) cross-check (optional)
@@ -3853,6 +3903,8 @@ if (argv$rr.wcor) {
 #-----------------------------------------------------------------------------
 # Read deterministic first guess (optional)
 if (!is.na(argv$fg.file)) {
+  if (argv$verbose | argv$debug)
+    print("Read deterministic first-guess")
   ti<-nc4.getTime(argv$fg.file)
   if (is.na(argv$fg.t)) argv$fg.t<-ti[1]
   if (!(argv$fg.t %in% ti)) {
@@ -3908,6 +3960,9 @@ if (!is.na(argv$fg.file)) {
   rm(raux,ti,fg.e,fg.epos)
   # radar fg, data quality control 
   if (argv$fg.type=="radar") {
+    if (argv$verbose | argv$debug)
+      print("Read radar and do the DQC")
+    t0a<-Sys.time()
     suppressPackageStartupMessages(library("igraph"))
     dfg<-getValues(rfg)
     # a. remove not plausible values
@@ -3961,6 +4016,8 @@ if (!is.na(argv$fg.file)) {
     rfg[]<-dfg
     rm(raux,daux,avg,stdev,ix,suspect,dfg)
     if (argv$radarout) rrad<-rfg
+    t1a<-Sys.time()
+    print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
   }
   if (argv$proj4fg!=argv$proj4to) {
     coord<-SpatialPoints(cbind(data$lon,data$lat),
@@ -4077,11 +4134,15 @@ if (!is.na(argv$fg.file)) {
     }
   }
 #
+  if (argv$verbose | argv$debug)
+    print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
 # Read first guess ensemble (optional)
 if (!is.na(argv$fge.file)) {
+  if (argv$verbose | argv$debug)
+    print("Read ensemble first-guess")
   ti<-nc4.getTime(argv$fge.file)
   if (is.na(argv$fge.t)) argv$fge.t<-ti[1]
   if (!(argv$fge.t %in% ti)) {
@@ -4132,10 +4193,10 @@ if (!is.na(argv$fge.file)) {
                            proj4string=CRS(argv$proj4from))
       coord.new<-spTransform(coord,CRS(argv$proj4fge))
       xy.tmp<-coordinates(coord.new)
-      zfgedem<-extract(rfgedem,xy.tmp)
+      zfgedem<-extract(rfgedem,xy.tmp,method="bilinear")
       rm(coord,coord.new,xy.tmp)
     } else {
-      zfgedem<-extract(rfgedem,cbind(x,y))
+      zfgedem<-extract(rfgedem,cbind(x,y),method="bilinear")
     }
     zfgedem<-argv$fg.demoffset*(-1)**(argv$fg.demnegoffset)+
              zfgedem*argv$fg.demcfact*(-1)**(argv$fg.demnegcfact)
@@ -4218,10 +4279,10 @@ if (!is.na(argv$fge.file)) {
                            proj4string=CRS(argv$proj4from))
       coord.new<-spTransform(coord,CRS(argv$proj4fge))
       xy.tmp<-coordinates(coord.new)
-      edata[,ens]<-extract(rfge,xy.tmp)
+      edata[,ens]<-extract(rfge,xy.tmp,method="bilinear")
       rm(coord,coord.new,xy.tmp)
     } else {
-      edata[,ens]<-extract(rfge,cbind(x,y))
+      edata[,ens]<-extract(rfge,cbind(x,y),method="bilinear")
     }
     edata[,ens]<-argv$fge.offset*(-1)**(argv$fge.negoffset)+
                edata[,ens]*argv$fge.cfact*(-1)**(argv$fge.negcfact)
@@ -4283,7 +4344,8 @@ if (!is.na(argv$fge.file)) {
                 round(fge.q75,4),"\n",sep=";"),append=T)
     }
   }
-#  if (argv$variable=="T") rm(zfgedem)
+  if (argv$verbose | argv$debug)
+    print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
@@ -4621,12 +4683,19 @@ if (argv$fge) {
   # use only (probably) good observations
   ix<-which(is.na(dqcflag) & doit!=0)
   if (length(ix)>0) {
-    fge.sd<-pmin(fge.sd,argv$sdmin.fge)
-    fge.iqr<-pmin((fge.q75-fge.q25),argv$iqrmin.fge)
+    if (argv$variable=="RR") {
+      ttot<-boxcox(x=data$value,lambda=argv$boxcox.lambda)
+    } else {
+      ttot<-data$value
+    }
+    if (!is.na(argv$sdmin.fge)) 
+      fge.sd<-pmin(fge.sd,argv$sdmin.fge)
+    if (!is.na(argv$iqrmin.fge)) 
+      fge.iqr<-pmin((fge.q75-fge.q25),argv$iqrmin.fge)
     sus<-which( ( 
-    (abs(fge.mu-data$value)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
-    ((data$value-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
-    ((fge.q25-data$value)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr)) ) &
+    (abs(fge.mu-ttot)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
+    ((ttot-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
+    ((fge.q25-ttot)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr)) ) &
     !is.na(fge.mu) & 
     !is.na(fge.sd) & 
     !is.na(fge.iqr) & 
@@ -4663,6 +4732,26 @@ if (argv$fge) {
                 round(fge.q75,4),
                 round(zfgedem,1),
                 dqcflag,"\n",sep=";"),append=T)
+    } else if (argv$variable=="RR") {
+      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
+      "x;y;z;lat;lon;elev;value;value_bc;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;zfge;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                ttot,
+                data$prid,
+                round(fge.mu,4),
+                round(fge.sd,4),
+                round(fge.q25,4),
+                round(fge.q50,4),
+                round(fge.q75,4),
+                round(zfgedem,1),
+                dqcflag,"\n",sep=";"),append=T)
     } else {
       cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
       "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;dqcflag;\n",append=F)
@@ -4683,6 +4772,8 @@ if (argv$fge) {
                 dqcflag,"\n",sep=";"),append=T)
     }
   }
+  if (exists("ttot")) rm(ttot)
+  if (exists("ix")) rm(ix)
 }
 #
 #-----------------------------------------------------------------------------
