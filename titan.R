@@ -482,6 +482,183 @@ sct<-function(ixynp,
   return(length(which(dqctmp==sus.code)))
 }
 
+
+#+ find the n-th largest element from each matrix row 
+findRow <- function (x,n) {   
+# order by row number then by value
+  y<-t(x)
+  array(y[order(col(y), y)], dim(y))[nrow(y) - (n-1), ]
+}
+
+#+ mean radial distance between an observation and its k-th closest obs
+#dobs_fun<-function(ixynp,k) {
+dobs_fun<-function(obs,k) {
+# NOTE: k=1 will return 0 everywhere (1st closest obs is the obs itself)
+  nobs<-length(obs$x)
+  if (nobs<k) return(NA)
+  # distance matrices
+  disth<-(outer(obs$x,obs$x,FUN="-")**2.+
+          outer(obs$y,obs$y,FUN="-")**2.)**0.5
+  dobsRow<-findRow(x=disth,n=(nobs-k+1))
+  mean(dobsRow)
+}
+
+#+ remove clumps determined by less than n observations
+remove_ltNobsClumps<-function(r,n,reverse=F,obs) {
+  obsflag<-obs$x
+  obsflag[]<-0
+  d<-getValues(r)
+  if (reverse) {
+    dd<-d
+    d[dd==0]<-1
+    d[dd>0]<-0
+    r[]<-d
+  }
+  rc<-clump(r)
+  dc<-getValues(rc)
+  f<-freq(rc)
+  ytmp<-extract(rc,cbind(obs$x,obs$y),na.rm=T)
+  sel<-which(!is.na(ytmp))
+  for (i in 1:length(f[,1])) {
+    if (is.na(f[i,1])) next
+    if (any(ytmp[sel]==f[i,1])) {
+      ix<-which(ytmp[sel]==f[i,1])
+      if (length(ix)<n) {
+        dc[dc==f[i,1]]<-NA
+        obsflag[sel[ix]]<-1
+      }
+    }
+  }
+  dc[is.na(dc)]<-(-1)
+  if (any(dc==0)) d[which(dc==0)]<-0
+  if (reverse) {
+    dd<-d
+    d[dd==0]<-1
+    d[dd>0]<-0
+  }
+  r[]<-d
+  return(list(r=r,obsflag=obsflag))
+}
+
+
+# + puddle - puddle check
+puddle<-function(obs,
+                 thres=1,
+                 gt_or_lt="gt", #event definition: greater than or less than...
+                 Dh=25, # km
+                 eps2=0.1,
+                 n.eveYES_in_the_clump=2,
+                 n.eveNO_in_the_clump=2) {
+#------------------------------------------------------------------------------
+  p<-length(obs$x)
+  ydqc.flag<-vector(mode="numeric",length=p)
+  ydqc.flag[]<-0
+# eix0: vector of positions to observations that are equivalent to eventNO
+# eix1: vector of positions to observations that are equivalent to eventYES
+  if (gt_or_lt=="gt") {
+    e0<-obs$yo<=thres
+    e1<-obs$yo >thres
+  } else if (gt_or_lt=="lt") {
+    e0<-obs$yo>=thres
+    e1<-obs$yo< thres
+  } else if (gt_or_lt=="le") {
+    e0<-obs$yo >thres
+    e1<-obs$yo<=thres
+  } else if (gt_or_lt=="ge") {
+    e0<-obs$yo <thres
+    e1<-obs$yo>=thres
+  }
+  eix0<-which(e0)
+  eix1<-which(e1)
+  #
+  p0<-length(eix0)
+  p1<-length(eix1)
+  if ( (p0<=1) | (p1<=1) ) {
+    return(NULL)
+  }
+  # distance matrix
+  Disth<-matrix(ncol=p,nrow=p,data=0.)
+  Disth<-(outer(obs$y,obs$y,FUN="-")**2.+
+          outer(obs$x,obs$x,FUN="-")**2.)**0.5/1000.
+  # assign grid points to event yes/no
+  t00<-Sys.time()
+  #
+  D<-exp(-0.5*(Disth[eix0,eix0]/Dh)**2.)
+  diag(D)<-diag(D)+eps2
+  InvD<-chol2inv(chol(D))
+  rm(D)
+  xidi0<-OI_RR_fast(yo.sel=rep(1,p0),
+                    yb.sel=rep(0,p0),
+                    xb.sel=rep(0,p0),
+                    xgrid.sel=xgrid_puddle,
+                    ygrid.sel=ygrid_puddle,
+                    zgrid.sel=zgrid_puddle,
+                    VecX.sel=obs$x[eix0],
+                    VecY.sel=obs$y[eix0],
+                    VecZ.sel=rep(0,p0),
+                    Dh.cur=Dh,
+                    Dz.cur=1000000) 
+  t11<-Sys.time()
+  if (argv$verbose | argv$debug) 
+    print(paste("xIDI event NO, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+  t00<-Sys.time()
+  D<-exp(-0.5*(Disth[eix1,eix1]/Dh)**2.)
+  diag(D)<-diag(D)+eps2
+  InvD<-chol2inv(chol(D))
+  rm(D)
+  xidi1<-OI_RR_fast(yo.sel=rep(1,p1),
+                    yb.sel=rep(0,p1),
+                    xb.sel=rep(0,p1),
+                    xgrid.sel=xgrid_puddle,
+                    ygrid.sel=ygrid_puddle,
+                    zgrid.sel=zgrid_puddle,
+                    VecX.sel=obs$x[eix1],
+                    VecY.sel=obs$y[eix1],
+                    VecZ.sel=rep(0,p1),
+                    Dh.cur=Dh,
+                    Dz.cur=1000000) 
+  t11<-Sys.time()
+  if (argv$verbose | argv$debug) 
+    print(paste("xIDI eventYES, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+# x1=1 for grid points where event is YES
+  x1<-xidi1
+  x1[]<-0
+  if (any(xidi1>=xidi0)) {
+    x1[which(xidi1>=xidi0)]<-1
+  } else {
+    return(NULL)
+  }
+# -- remove YES(NO) observations close to a lot of NO(YES) ones --
+# observations might be correct but they will create unrealistic patterns, 
+# either a "puudle"/hole or a isolated max, in the analysis field because the local 
+# observation density is not sufficient to properly describe such small-scale
+# features
+  r1<-rgrid_puddle
+  r1[]<-NA
+  r1[mask_puddle]<-x1
+  ytmp<-extract(r1,cbind(obs$x,obs$y),na.rm=T)
+  # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
+  cond<-(ytmp==0 & e1) | (ytmp==1 & e0)
+  if (any(cond)) ydqc.flag[which(cond)]<-1
+  # case 2. puddle of YES surrounded by NO
+  out<-remove_ltNobsClumps(r=r1,
+                           n=n.eveYES_in_the_clump,
+                           reverse=F,
+                           obs=data.frame(x=obs$x,
+                                          y=obs$y))  
+  if (any(out$obsflag==1)) ydqc.flag[which(out$obsflag==1)]<-1
+  rm(out)
+  # case 3. puddle of NO surrounded by YES
+  out<-remove_ltNobsClumps(r=r1,
+                           n=n.eveNO_in_the_clump,
+                           reverse=T,
+                           obs=data.frame(x=obs$x,
+                                          y=obs$y))  
+  if (any(out$obsflag==1)) ydqc.flag[which(out$obsflag==1)]<-1
+  rm(out)
+  ydqc.flag
+}
+
 # + STEVE - iSolaTed EVent tEst
 steve<-function(obs,
                 thres=1,
@@ -1180,6 +1357,13 @@ p <- add_argument(p, "--boxcox.lambda",
                   help="parameter used in the Box-Cox transformation (var RR)",
                   type="numeric",default=0.5,short="-l")
 #.............................................................................. 
+# titan path (use for the puddle check)
+p <- add_argument(p, "--titan_path",
+                  help="path to the directory where the TITAN code is",
+                  type="character",
+                  default=NULL,
+                  short="-tip")
+#.............................................................................. 
 # ADDITIONAL input files / providers
 p <- add_argument(p, "--input.files",
                   help="additional input files (provider2 provider3 ...)",
@@ -1289,6 +1473,11 @@ p <- add_argument(p, "--ccrrt.code",
                              "and temperature crosscheck fails"),
                   type="numeric",
                   default=11,
+                  short="-ccrrtc")
+p <- add_argument(p, "--puddle.code",
+             help=paste("quality code returned in case of puddle check fails"),
+                  type="numeric",
+                  default=12,
                   short="-ccrrtc")
 p <- add_argument(p, "--black.code",
     help="quality code assigned to observations listed in the blacklist",
@@ -1898,6 +2087,48 @@ p <- add_argument(p,"--ccrrt.filemeps",
                   default=NULL,
                   short="-ccrrtfm")
 #.............................................................................. 
+# precipitation and temperature cross-check
+p <- add_argument(p, "--puddle",
+                  help="puddle check",
+                  flag=T,
+                  short="-pudf")
+p <- add_argument(p, "--dobs_k.puddle",
+                  help="in the calculations of the de-correlation lenght scale, consider the observations up to the \"dobs_k\" closest one. Furthermore, the grid resolution of the grid depends on \"dobs_k\"",
+                  type="numeric",
+                  default=5,
+                  short="-putk")
+p <- add_argument(p, "--Dh_min.puddle",
+                  help="minimum allowed value for the de-correlation lenght scale (in km)",
+                  type="numeric",
+                  default=5,
+                  short="-putd")
+p <- add_argument(p, "--i.puddle",
+                  help="number of puddle-check iterations",
+                  type="integer",
+                  default=1,
+                  short="-ipudT")
+p <- add_argument(p, "--thres.puddle",
+                  help="numeric vector with the thresholds used to define events (same units of the specified variable). Each threshold defines two events: (i) less than the threshold and (ii) greater or equal to it.",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-tpud")
+p <- add_argument(p, "--eps2.puddle",
+                  help="parameter related to the IDI elaboration (internal OI call). range of values=0.01,...,1. in case of value close to 1, the OI produces a smoothed field. if tha value is close to 0 the OI field tends to fit exactly the observations.",
+                  type="numeric",
+                  default=0.1,
+                  short="-pute2")
+p <- add_argument(p, "--n_lt.puddle",
+                  help="used for events of the type ''less than the threshold''. minimum acceptable number of events in a clump of connected events. If a clump of connected events has less than this number of events (i.e., it is just a ''puddle'' of cells), then it cannot be properly resolved by the observational network. As a result, the observations causing those small-scale events are assumed to be affected by large representativeness errors and flagged as ''suspect''.",
+                  type="integer",
+                  default=2,
+                  short="-pudnlt")
+p <- add_argument(p, "--n_ge.puddle",
+                  help="used for events of the type ''greater or equal than the threshold''. minimum acceptable number of events in a clump of connected events. If a clump of connected events has less than this number of events (i.e., it is just a ''puddle'' of cells), then it cannot be properly resolved by the observational network. As a result, the observations causing those small-scale events are assumed to be affected by large representativeness errors and flagged as ''suspect''.",
+                  type="integer",
+                  default=2,
+                  short="-pudnge")
+#.............................................................................. 
 # blacklist
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
 p <- add_argument(p, "--blacklist.lat",
@@ -2015,6 +2246,12 @@ p <- add_argument(p, "--doit.steve",
                   default=NA,
                   nargs=Inf,
                   short="-dost")
+p <- add_argument(p, "--doit.puddle",
+                  help=paste("customize the puddle check application.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dopud")
 #.............................................................................. 
 # precipitation correction for the wind-induced undercatch
 p <- add_argument(p, "--rr.wcor",
@@ -3164,6 +3401,33 @@ argv$vmin<-argv$vmin*(-1)**argv$vminsign
 argv$vmax<-argv$vmax*(-1)**argv$vmaxsign
 argv$vmin.clim<-argv$vmin.clim*(-1)**argv$vminsign.clim
 argv$vmax.clim<-argv$vmax.clim*(-1)**argv$vmaxsign.clim
+# puddle checks
+if (argv$puddle) {
+  if (!file.exists(file.path(argv$titan_path,"oi_rr","OI_RR_fast.R"))) {
+    print("ERROR: puddle check, file not found")
+    print(file.path(argv$titan_path,"oi_rr","OI_RR_fast.R"))
+    quit(status=1)
+  }
+  if (!file.exists(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))) {
+    print("ERROR: puddle check, file not found")
+    print(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))
+    quit(status=1)
+  }
+  if (!file.exists(file.path(argv$titan_path,"oi_rr","oi_rr_fast.so"))) {
+    print("ERROR: puddle check, file not found")
+    print(file.path(argv$titan_path,"oi_rr","oi_rr_fast.so"))
+    quit(status=1)
+  }
+  # load functions
+  source(file.path(argv$titan_path,"oi_rr","OI_RR_fast.R"))
+  # load external C functions
+  dyn.load(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))
+  dyn.load(file.path(argv$titan_path,"oi_rr","oi_rr_fast.so"))
+  if (any(is.na(argv$thres.puddle))) {
+    print("ERROR: puddle check, thres.puddle must be specified")
+    quit(status=1)
+  }
+}
 # STEVE checks
 if (argv$steve) {
   suppressPackageStartupMessages(library("tripack"))
@@ -4636,6 +4900,128 @@ if (argv$steve) {
 }
 #
 #-----------------------------------------------------------------------------
+# puddle check (first round)
+if (argv$puddle) {
+  if (argv$verbose | argv$debug) nprev<-0
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.puddle[f]
+  ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+  ptmp<-length(ix)
+  if (ptmp<1) {
+    print("puddle check: no valid observations left, no test")
+    mask_puddle<-integer(0)
+  } else {
+    if (!exists("mask_puddle")) {
+      # prepare mask with gridpoints where the calculation can be done
+      t00<-Sys.time()
+      xytmp<-cbind(x[ix],y[ix])
+      Dh_puddle<-apply(xytmp,
+                       FUN=dobs_fun,MARGIN=1,
+                       k=argv$dobs_k.puddle)
+      Dh_puddle<-max(argv$Dh_min.puddle,(Dh_puddle/1000))
+      rm(xytmp)
+      # define raster grid
+      grid_res<-as.integer((Dh_puddle/dobs_k.puddle)*1000)
+      if (argv$verbose | argv$debug) {
+        print(paste("Dh (to the closest",dobs_k.puddle,"neighbour)=",
+              round(Dh_puddle,1),"km"))
+        print(paste("grid resolution=",round(grid_res,0)))
+      }
+      rgrid_puddle<-raster(extent=e,res=grid_res)
+      if (argv$debug) print(rgrid_puddle)
+      rgrid_puddle[]<-NA
+      xygrid_puddle<-xyFromCell(rgrid,1:ncell(rgrid))
+      xgrid_puddle<-xygrid_puddle[,1]
+      ygrid_puddle<-xygrid_puddle[,2]
+      rm(xygrid_puddle)
+      # NOTE: z is not used here, but we are ready to introduce it for future versions
+      zgrid_puddle<-rep(0,length(ygrid_puddle))
+      D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
+                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh)**2.)
+      diag(D)<-diag(D)+eps2
+      InvD<-chol2inv(chol(D))
+      rm(D)
+      xidi<-OI_RR_fast(yo.sel=rep(1,p),
+                       yb.sel=rep(0,p),
+                       xb.sel=rep(0,p),
+                       xgrid.sel=xgrid_puddle,
+                       ygrid.sel=ygrid_puddle,
+                       zgrid.sel=zgrid_puddle,
+                       VecX.sel=x[ix],
+                       VecY.sel=y[ix],
+                       VecZ.sel=rep(0,p),
+                       Dh.cur=Dh,
+                       Dz.cur=1000000)
+      rm(InvD)
+      mask_puddle<-which(xidi>=0.00001)
+      t11<-Sys.time()
+      if (argv$verbose | argv$debug) {
+        print(paste("prepare mask, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+        print(paste("tot points=",length(xgrid_puddle)))
+        print(paste("masked points=",length(mask_puddle)))
+      }
+    } # end "if (!exists("mask_puddle"))"
+  }
+  if (length(mask_puddle)==0) {
+    print("puddle check: no test")
+  } else {
+    xgrid_puddle<-xgrid_puddle[mask_puddle]
+    ygrid_puddle<-ygrid_puddle[mask_puddle]
+    zgrid_puddle<-zgrid_puddle[mask_puddle]
+    # test
+    for (i in 1:argv$i.puddle) {
+      t0a<-Sys.time()
+      for (j in 1:length(argv$thres.puddle)) {
+        # use only (probably) good observations
+        ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+        if (length(ix)>0) {
+          obs<-data.frame(x[ix],y[ix],data$value[ix])
+          aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
+                      thres=argv$thres.puddle[j],
+                      gt_or_lt="lt",
+                      Dh=Dh_puddle,
+                      eps2=argv$eps2.puddle,
+                      n.eveYES_in_the_clump=argv$n_lt.puddle[j],
+                      n.eveNO_in_the_clump=argv$n_ge.puddle[j])
+          sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
+          # set dqcflag
+          if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+        } else {
+          print("no valid observations left, no puddle check")
+        }
+      } # end of loop over threshold that define events
+      if (argv$verbose | argv$debug) {
+        t1a<-Sys.time()
+        print(paste("puddle plot, iteration=",i,
+                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+        ncur<-length(which(dqcflag==argv$puddle.code))
+        print(paste("# suspect observations=",ncur-nprev))
+        nprev<-length(which(dqcflag==argv$puddle.code))
+      } 
+    } # end of loop over test iterations
+    rm(doit)
+    if (argv$verbose | argv$debug) 
+      print("+---------------------------------+")
+    if (argv$debug) {
+      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
+          "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                dqcflag,"\n",sep=";"),append=T)
+    }
+  } # end of "if (length(mask_puddle)==0)"
+} # end of if (argv$puddle)
+#
+#-----------------------------------------------------------------------------
 # check against a first-guess (deterministic)
 if (argv$fg) {
   # set doit vector
@@ -5049,6 +5435,128 @@ if (argv$steve) {
               dqcflag,"\n",sep=";"),append=T)
   }
 }
+#
+#-----------------------------------------------------------------------------
+# puddle check (second round)
+if (argv$puddle) {
+  if (argv$verbose | argv$debug) nprev<-0
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.puddle[f]
+  ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+  ptmp<-length(ix)
+  if (ptmp<1) {
+    print("puddle check: no valid observations left, no test")
+    mask_puddle<-integer(0)
+  } else {
+    if (!exists("mask_puddle")) {
+      # prepare mask with gridpoints where the calculation can be done
+      t00<-Sys.time()
+      xytmp<-cbind(x[ix],y[ix])
+      Dh_puddle<-apply(xytmp,
+                       FUN=dobs_fun,MARGIN=1,
+                       k=argv$dobs_k.puddle)
+      Dh_puddle<-max(argv$Dh_min.puddle,(Dh_puddle/1000))
+      rm(xytmp)
+      # define raster grid
+      grid_res<-as.integer((Dh_puddle/dobs_k.puddle)*1000)
+      if (argv$verbose | argv$debug) {
+        print(paste("Dh (to the closest",dobs_k.puddle,"neighbour)=",
+              round(Dh_puddle,1),"km"))
+        print(paste("grid resolution=",round(grid_res,0)))
+      }
+      rgrid_puddle<-raster(extent=e,res=grid_res)
+      if (argv$debug) print(rgrid_puddle)
+      rgrid_puddle[]<-NA
+      xygrid_puddle<-xyFromCell(rgrid,1:ncell(rgrid))
+      xgrid_puddle<-xygrid_puddle[,1]
+      ygrid_puddle<-xygrid_puddle[,2]
+      rm(xygrid_puddle)
+      # NOTE: z is not used here, but we are ready to introduce it for future versions
+      zgrid_puddle<-rep(0,length(ygrid_puddle))
+      D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
+                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh)**2.)
+      diag(D)<-diag(D)+eps2
+      InvD<-chol2inv(chol(D))
+      rm(D)
+      xidi<-OI_RR_fast(yo.sel=rep(1,p),
+                       yb.sel=rep(0,p),
+                       xb.sel=rep(0,p),
+                       xgrid.sel=xgrid_puddle,
+                       ygrid.sel=ygrid_puddle,
+                       zgrid.sel=zgrid_puddle,
+                       VecX.sel=x[ix],
+                       VecY.sel=y[ix],
+                       VecZ.sel=rep(0,p),
+                       Dh.cur=Dh,
+                       Dz.cur=1000000)
+      rm(InvD)
+      mask_puddle<-which(xidi>=0.00001)
+      t11<-Sys.time()
+      if (argv$verbose | argv$debug) {
+        print(paste("prepare mask, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+        print(paste("tot points=",length(xgrid_puddle)))
+        print(paste("masked points=",length(mask_puddle)))
+      }
+    } # end "if (!exists("mask_puddle"))"
+  }
+  if (length(mask_puddle)==0) {
+    print("puddle check: no test")
+  } else {
+    xgrid_puddle<-xgrid_puddle[mask_puddle]
+    ygrid_puddle<-ygrid_puddle[mask_puddle]
+    zgrid_puddle<-zgrid_puddle[mask_puddle]
+    # test
+    for (i in 1:argv$i.puddle) {
+      t0a<-Sys.time()
+      for (j in 1:length(argv$thres.puddle)) {
+        # use only (probably) good observations
+        ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
+        if (length(ix)>0) {
+          obs<-data.frame(x[ix],y[ix],data$value[ix])
+          aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
+                      thres=argv$thres.puddle[j],
+                      gt_or_lt="lt",
+                      Dh=Dh_puddle,
+                      eps2=argv$eps2.puddle,
+                      n.eveYES_in_the_clump=argv$n_lt.puddle[j],
+                      n.eveNO_in_the_clump=argv$n_ge.puddle[j])
+          sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
+          # set dqcflag
+          if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+        } else {
+          print("no valid observations left, no puddle check")
+        }
+      } # end of loop over threshold that define events
+      if (argv$verbose | argv$debug) {
+        t1a<-Sys.time()
+        print(paste("puddle plot, iteration=",i,
+                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+        ncur<-length(which(dqcflag==argv$puddle.code))
+        print(paste("# suspect observations=",ncur-nprev))
+        nprev<-length(which(dqcflag==argv$puddle.code))
+      } 
+    } # end of loop over test iterations
+    rm(doit)
+    if (argv$verbose | argv$debug) 
+      print("+---------------------------------+")
+    if (argv$debug) {
+      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
+          "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
+      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
+          paste(x,
+                y,
+                z,
+                data$lat,
+                data$lon,
+                data$elev,
+                data$value,
+                data$prid,
+                dqcflag,"\n",sep=";"),append=T)
+    }
+  } # end of "if (length(mask_puddle)==0)"
+} # end of if (argv$puddle)
 #
 #-----------------------------------------------------------------------------
 # check for isolated stations

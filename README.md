@@ -17,6 +17,8 @@ Available checks are (applied sequentially as in this list):
 
 * Isolated event test (STEVE) both over and under multiple thresholds (optional)
 
+* Puddle-check (optional)
+
 * Check against a deterministic first-guess field (optional)
 
 * Check against an ensemble of first-guess fields (optional)
@@ -25,7 +27,9 @@ Available checks are (applied sequentially as in this list):
 
 * Check elevations against digital elevation model (optional)
 
-* Isolated event test (STEVE) both over and under multiple thresholds, 2nd application (optional)
+* Isolated event test (STEVE) both over and under multiple thresholds, 2nd round (optional)
+
+* Puddle-check, 2nd round (optional)
 
 * Detect isolated observations
 
