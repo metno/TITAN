@@ -29,6 +29,47 @@ options(warn = 2, scipen = 999)
 #------------------------------------------------------------------------------
 # FUNCTIONS
 
+#+ call the C-functions
+`OI_RR_fast`<-function(yo.sel,
+                       yb.sel,
+                       xb.sel,
+                       xgrid.sel,
+                       ygrid.sel,
+                       zgrid.sel,
+                       VecX.sel,
+                       VecY.sel,
+                       VecZ.sel,
+                       Dh.cur,
+                       Dz.cur) {
+#------------------------------------------------------------------------------
+  no<-length(yo.sel)
+  ng<-length(xb.sel)
+  xa.sel<-vector(mode="numeric",length=ng)
+  vec<-vector(mode="numeric",length=no)
+  d<-yo.sel-yb.sel
+  out<-.C("oi_rr_first",no=as.integer(no), 
+                        innov=as.double(d),
+                        SRinv=as.numeric(InvD),
+                        vec=as.double(vec) ) 
+  vec[1:no]<-out$vec[1:no]
+  rm(out)
+  out<-.C("oi_rr_fast",ng=as.integer(ng),
+                       no=as.integer(no),
+                       xg=as.double(xgrid.sel),
+                       yg=as.double(ygrid.sel),
+                       zg=as.double(zgrid.sel),
+                       xo=as.double(VecX.sel),
+                       yo=as.double(VecY.sel),
+                       zo=as.double(VecZ.sel),
+                       Dh=as.double(Dh.cur),
+                       Dz=as.double(Dz.cur),
+                       xb=as.double(xb.sel),
+                       vec=as.double(vec),
+                       xa=as.double(xa.sel) )
+  out$xa[1:ng]
+}
+
+
 # auxiliary function to keep/blacklist observations
 setCode_lonlat<-function(lonlat,code) {
 # lonlat. vector. 1=lon; 2=lat
@@ -3215,14 +3256,15 @@ if (!is.na(argv$fg.file)) {
     print(argv$fg.file)
     quit(status=1)
   }
-  if ((argv$dem | argv$dem.fill) &
-      (argv$proj4fg!=argv$proj4dem |
-       !is.character(argv$proj4fg))) {
-    print("ERROR: anomalies found in the proj4 strings:")
-    print(paste("proj4 fg=",argv$proj4fg))
-    print(paste("proj4 dem=",argv$proj4dem))
-    quit(status=1)
-  }
+# no more needed?
+#  if ((argv$dem | argv$dem.fill) &
+#      (argv$proj4fg!=argv$proj4dem |
+#       !is.character(argv$proj4fg))) {
+#    print("ERROR: anomalies found in the proj4 strings:")
+#    print(paste("proj4 fg=",argv$proj4fg))
+#    print(paste("proj4 dem=",argv$proj4dem))
+#    quit(status=1)
+#  }
   if ( argv$variable=="T" &
        !file.exists(argv$fg.demfile)) {
     print("ERROR: for temperature, a digital elevation model must be specified together with a first-guess file")
@@ -3403,11 +3445,6 @@ argv$vmin.clim<-argv$vmin.clim*(-1)**argv$vminsign.clim
 argv$vmax.clim<-argv$vmax.clim*(-1)**argv$vmaxsign.clim
 # puddle checks
 if (argv$puddle) {
-  if (!file.exists(file.path(argv$titan_path,"oi_rr","OI_RR_fast.R"))) {
-    print("ERROR: puddle check, file not found")
-    print(file.path(argv$titan_path,"oi_rr","OI_RR_fast.R"))
-    quit(status=1)
-  }
   if (!file.exists(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))) {
     print("ERROR: puddle check, file not found")
     print(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))
@@ -3418,8 +3455,6 @@ if (argv$puddle) {
     print(file.path(argv$titan_path,"oi_rr","oi_rr_fast.so"))
     quit(status=1)
   }
-  # load functions
-  source(file.path(argv$titan_path,"oi_rr","OI_RR_fast.R"))
   # load external C functions
   dyn.load(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))
   dyn.load(file.path(argv$titan_path,"oi_rr","oi_rr_fast.so"))
@@ -4154,7 +4189,16 @@ if (argv$rr.wcor) {
                 " wind varname has not been specified"))
     quit(status=1)
   }
-  ws10m<-extract(rwind,cbind(x,y),method="bilinear")
+  if (argv$proj4wind!=argv$proj4to) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4from))
+    coord.new<-spTransform(coord,CRS(argv$proj4wind))
+    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
+    xy.tmp<-coordinates(coord.new)
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
+  }
   if (argv$debug)
     plot_debug(ff=file.path(argv$debug.dir,"rrwcor_ws.png"),
                r=rwind,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
@@ -4536,7 +4580,7 @@ if (!is.na(argv$fge.file)) {
                   selection=list(t=argv$fge.t,e=ei[ens],z=4))
       rfge<-raux$stack
     }
-    # output radar data: save the ensemble median
+    # for ''output radar data'' usage: save the ensemble median
     if (argv$radarout) {
       dfge<-getValues(rfge)
       if (any(!is.na(dfge))) {
@@ -5103,10 +5147,8 @@ if (argv$fge) {
     } else {
       ttot<-data$value
     }
-    if (!is.na(argv$sdmin.fge)) 
-      fge.sd<-pmin(fge.sd,argv$sdmin.fge)
-    if (!is.na(argv$iqrmin.fge)) 
-      fge.iqr<-pmin((fge.q75-fge.q25),argv$iqrmin.fge)
+    fge.sd<-pmin(fge.sd,argv$sdmin.fge,na.rm=T)
+    fge.iqr<-pmin((fge.q75-fge.q25),argv$iqrmin.fge,na.rm=T)
     sus<-which( ( 
     (abs(fge.mu-ttot)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
     ((ttot-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
