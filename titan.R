@@ -142,7 +142,9 @@ wolff_correction<-function(par,rr,t2m,ws10m) {
      tau1 + (tau2-tau1) * aux1
   aux2<-exp((t2m-Tsig)/ssig)
   s<-sig1+(sig2-sig1)*(aux2)/(1+aux2)
-  rr.cor<-rr*1./f
+  rr.cor<-rr
+  ix<-which(!is.na(rr) & rr>=0.)
+  if (length(ix)>0) rr.cor[ix]<-rr[ix]*1./f[ix]
   return(list(f=f,sigma=s,rr.cor=rr.cor))
 }
 
@@ -614,9 +616,7 @@ puddle<-function(obs,
   #
   p0<-length(eix0)
   p1<-length(eix1)
-  if ( (p0<=1) | (p1<=1) ) {
-    return(NULL)
-  }
+  if ( (p0<=1) | (p1<=1) ) return(NULL)
   # distance matrix
   Disth<-matrix(ncol=p,nrow=p,data=0.)
   Disth<-(outer(obs$y,obs$y,FUN="-")**2.+
@@ -627,10 +627,11 @@ puddle<-function(obs,
   D<-exp(-0.5*(Disth[eix0,eix0]/Dh)**2.)
   diag(D)<-diag(D)+eps2
   InvD<-chol2inv(chol(D))
+  assign("InvD",InvD,envir=.GlobalEnv)
   rm(D)
   xidi0<-OI_RR_fast(yo.sel=rep(1,p0),
                     yb.sel=rep(0,p0),
-                    xb.sel=rep(0,p0),
+                    xb.sel=rep(0,length(xgrid_puddle)),
                     xgrid.sel=xgrid_puddle,
                     ygrid.sel=ygrid_puddle,
                     zgrid.sel=zgrid_puddle,
@@ -646,10 +647,11 @@ puddle<-function(obs,
   D<-exp(-0.5*(Disth[eix1,eix1]/Dh)**2.)
   diag(D)<-diag(D)+eps2
   InvD<-chol2inv(chol(D))
+  assign("InvD",InvD,envir=.GlobalEnv)
   rm(D)
   xidi1<-OI_RR_fast(yo.sel=rep(1,p1),
                     yb.sel=rep(0,p1),
-                    xb.sel=rep(0,p1),
+                    xb.sel=rep(0,length(xgrid_puddle)),
                     xgrid.sel=xgrid_puddle,
                     ygrid.sel=ygrid_puddle,
                     zgrid.sel=zgrid_puddle,
@@ -661,6 +663,7 @@ puddle<-function(obs,
   t11<-Sys.time()
   if (argv$verbose | argv$debug) 
     print(paste("xIDI eventYES, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+  rm(InvD,envir=.GlobalEnv)
 # x1=1 for grid points where event is YES
   x1<-xidi1
   x1[]<-0
@@ -768,15 +771,15 @@ steve<-function(obs,
     aux<-cbind(obs$x[close2b],obs$y[close2b])
     nokloop<-1
     # tri.mesh is not happy with duplicates, then we use the jitter option
-    jit<-1/mean(c(diff(range(obs$x[close2b])),diff(range(obs$x[close2b]))))
+    jit<-1/mean(c(diff(range(obs$x[close2b])),
+                  diff(range(obs$x[close2b]))))
     aux<-cbind(obs$x[close2b],obs$y[close2b])
     nokloop<-1
     while (anyDuplicated(aux)) {
-      if (nokloop%%2==0) {
-        obs$x[close2b][which(duplicated(aux))]<-obs$x[close2b][which(duplicated(aux))]+1
-      } else {
-        obs$y[close2b][which(duplicated(aux))]<-obs$y[close2b][which(duplicated(aux))]+1
-      }
+      ixdup<-which(duplicated(aux))
+      ndup<-length(ixdup)
+      obs$x[close2b][ixdup]<-obs$x[close2b][ixdup]+runif(ndup)
+      obs$y[close2b][ixdup]<-obs$y[close2b][ixdup]+runif(ndup)
       aux<-cbind(obs$x[close2b],obs$y[close2b])
       nokloop<-nokloop+1
       if (nokloop>10) {
@@ -784,8 +787,10 @@ steve<-function(obs,
         quit(status=1)
       }
     }
+    options(warn = 1, scipen = 999)
     tri.rr<-tri.mesh(obs$x[close2b],obs$y[close2b],
-                     jitter=jit,jitter.iter=20,jitter.random=T)
+                     jitter=jit,jitter.iter=100,jitter.random=T)
+    options(warn = 2, scipen = 999)
     # d. identify all the points (wheter YES or NO) which belongs
     #    to adjacent nodes (respect to the b-th YES point node)
     #  procedure: tri.find-> returns the three vertex indexes of triangle
@@ -1384,6 +1389,12 @@ p <- add_argument(p, "output",
                   help="output file",
                   type="character",
                   default="output.txt")
+# configuration file
+p <- add_argument(p, "--config.file",
+                  help="configuration file",
+                  type="character",
+                  default=NULL,
+                  short="cf")
 #.............................................................................. 
 # VARIABLE definition 
 p<- add_argument(p, "--variable",
@@ -2931,6 +2942,34 @@ p <- add_argument(p, "--timestamp",
 argv <- parse_args(p)
 #
 #-----------------------------------------------------------------------------
+# read configuration file
+if (!is.na(argv$config.file)) {
+  if (file.exists(argv$config.file)) {
+    source(argv$config.file)
+    argv_tmp<-append(argv,conf)
+    names_argv_tmp<-names(argv_tmp)
+    argv_def<-list()
+    names_argv_def<-integer(0)
+    k<-0
+    for (i in 1:length(argv_tmp)) {
+      if (names_argv_tmp[i] %in% names_argv_def) next
+      k<-k+1
+      j<-which(names_argv_tmp==names_argv_tmp[i])
+      argv_def[[k]]<-argv_tmp[[j[length(j)]]]
+      names_argv_def<-c(names_argv_def,names_argv_tmp[i])
+    }
+    names(argv_def)<-names_argv_def
+    rm(argv_tmp,names_argv_tmp,names_argv_def)
+    rm(argv)
+    argv<-argv_def
+    rm(argv_def)
+  } else {
+    print("WARNING: config file not found")
+    print(argv$config.file)
+  }
+}
+#
+#-----------------------------------------------------------------------------
 # CHECKS on input arguments
 if (!file.exists(argv$input)) {
   print("ERROR: input file not found")
@@ -3247,7 +3286,9 @@ if (!argv$spatconv) {
   print("output is in lat-lon coordinates")
   quit(status=1)
 }
-if (argv$laf.sct & (argv$dem | argv$dem.fill))
+if (argv$laf.sct | argv$dem | argv$dem.fill |
+    !is.na(argv$fg.file) | !is.na(argv$fge.file) |
+    !is.na(argv$t2m.file))
   suppressPackageStartupMessages(library("ncdf4")) 
 # first-guess file
 if (!is.na(argv$fg.file)) {
@@ -3404,6 +3445,7 @@ if (any(is.na(argv$doit.isol))) argv$doit.isol<-rep(1,length=nfin)
 if (any(is.na(argv$doit.steve))) argv$doit.steve<-rep(1,length=nfin)
 if (any(is.na(argv$doit.fg))) argv$doit.fg<-rep(1,length=nfin)
 if (any(is.na(argv$doit.fge))) argv$doit.fge<-rep(1,length=nfin)
+if (any(is.na(argv$doit.puddle))) argv$doit.puddle<-rep(1,length=nfin)
 if (any(!(argv$doit.buddy %in% c(0,1,2)))) {
   print("doit.buddy must contain only 0,1,2")
   quit(status=1)
@@ -3430,6 +3472,10 @@ if (any(!(argv$doit.steve %in% c(0,1,2)))) {
 }
 if (any(!(argv$doit.fg %in% c(0,1,2)))) {
   print("doit.fg must contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.puddle %in% c(0,1,2)))) {
+  print("doit.puddle must contain only 0,1,2")
   quit(status=1)
 }
 # set the thresholds for the plausibility check
@@ -3470,25 +3516,25 @@ if (argv$steve) {
     print("ERROR: STEVE, thres.steve must be specified")
     quit(status=1)
   }
-  if (is.na(argv$pmax_lt.steve)) 
+  if (any(is.na(argv$pmax_lt.steve)))
     argv$pmax_lt.steve<-rep(20,length(argv$thres.steve))
-  if (is.na(argv$dmax_lt.steve)) 
+  if (any(is.na(argv$dmax_lt.steve))) 
     argv$dmax_lt.steve<-rep(150000,length(argv$thres.steve))
-  if (is.na(argv$n_lt.steve)) 
+  if (any(is.na(argv$n_lt.steve))) 
     argv$n_lt.steve<-rep(4,length(argv$thres.steve))
-  if (is.na(argv$frac_lt.steve)) 
+  if (any(is.na(argv$frac_lt.steve))) 
     argv$frac_lt.steve<-rep(0.2,length(argv$thres.steve))
-  if (is.na(argv$dmin_next_lt.steve)) 
+  if (any(is.na(argv$dmin_next_lt.steve))) 
     argv$dmin_next_lt.steve<-rep(150000,length(argv$thres.steve))
-  if (is.na(argv$pmax_ge.steve)) 
+  if (any(is.na(argv$pmax_ge.steve))) 
     argv$pmax_ge.steve<-rep(20,length(argv$thres.steve))
-  if (is.na(argv$dmax_ge.steve)) 
+  if (any(is.na(argv$dmax_ge.steve))) 
     argv$dmax_ge.steve<-rep(150000,length(argv$thres.steve))
-  if (is.na(argv$n_ge.steve)) 
+  if (any(is.na(argv$n_ge.steve))) 
     argv$n_ge.steve<-rep(4,length(argv$thres.steve))
-  if (is.na(argv$frac_ge.steve)) 
+  if (any(is.na(argv$frac_ge.steve))) 
     argv$frac_ge.steve<-rep(0.2,length(argv$thres.steve))
-  if (is.na(argv$dmin_next_ge.steve)) 
+  if (any(is.na(argv$dmin_next_ge.steve))) 
     argv$dmin_next_ge.steve<-rep(100000,length(argv$thres.steve))
   if (length(argv$thres.steve)!=length(argv$pmax_lt.steve)) {
     print("ERROR: STEVE, the number of input parameters differ (pmax_lt.steve)")
@@ -3697,7 +3743,7 @@ if (length(ix)>0) {
 }
 if (argv$verbose | argv$debug) {
   print("test for no metdata")
-  print(paste("# observations lacking metadata and/or NAs=",length(which(!meta))))
+  print(paste("# observations lacking metadata and/or NAs=",length(which(dqcflag==argv$nometa.code & !is.na(argv$nometa.code)))))
   print(paste("  # NAs             =",length(which(is.na(data$value[ix])))))
   print(paste("  # lon-lat missing =",length(which(is.na(data$lat[ix]) | 
                                                   is.na(data$lon[ix])))))
@@ -3736,17 +3782,7 @@ if (argv$spatconv) {
   e<-extent(c(xl,yl))
 }
 if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"input_data.txt"),
-      "x;y;z;lat;lon;elev;value;prid;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"input_data.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,"\n",sep=";"),append=T)
+  save.image(file.path(argv$debug.dir,"input_data.RData")) 
   print("+---------------------------------+")
 }
 #
@@ -3787,7 +3823,8 @@ if (argv$dem | argv$dem.fill) {
   # fill missing elevation with dem
   if (argv$dem.fill) {
     iz<-which((is.na(z) & !is.na(zdem)) | 
-              (!is.na(z) & !is.na(zdem) & dqcflag==argv$nometa.code) )
+              (!is.na(z) & !is.na(zdem) & 
+              dqcflag==argv$nometa.code) )
     z[iz]<-zdem[iz]
     dqcflag[iz]<-dqcflag.bak[iz]
     rm(dqcflag.bak)
@@ -3806,20 +3843,7 @@ if (argv$dem | argv$dem.fill) {
     dev.off()
   }
   rm(rdem)
-  if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"input_data_dem.txt"),
-        "x;y;z;lat;lon;elev;value;prid;zdem;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"input_data_dem.txt"),
-        paste(x,
-              y,
-              z,
-              data$lat,
-              data$lon,
-              data$elev,
-              data$value,
-              data$prid,
-              round(zdem,1),"\n",sep=";"),append=T)
-  }
+  if (argv$debug) save.image(file.path(argv$debug.dir,"dem.RData")) 
 } # END read DEM
 if (argv$laf.sct) {
   if (argv$verbose | argv$debug)
@@ -3865,29 +3889,16 @@ if (argv$laf.sct) {
   # use a fake laf
   laf<-rep(1,ndata)
 } # END read LAF
-if (argv$laf.sct) {
-  if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
-        "x;y;z;lat;lon;elev;value;prid;laf;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"input_data_laf.txt"),
-        paste(x,
-              y,
-              z,
-              data$lat,
-              data$lon,
-              data$elev,
-              data$value,
-              data$prid,
-              round(laf,4),"\n",sep=";"),append=T)
-    print("+---------------------------------+")
-  }
+if (argv$debug) {
+  save.image(file.path(argv$debug.dir,"input_data_laf.RData")) 
+  print("+---------------------------------+")
 }
 #
 #-----------------------------------------------------------------------------
 # precipitation (in-situ) and temperature (field) cross-check (optional)
 if (argv$ccrrt) {
   if (argv$debug | argv$verbose) 
-    print("precipitation (in-situ) and temperature (field) cross-check")
+    print(paste0("precipitation (in-situ) and temperature (field) cross-check (",argv$ccrrt.code,")"))
   # read temperature from gridded field
   ti<-nc4.getTime(argv$t2m.file)
   if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
@@ -3979,27 +3990,13 @@ if (argv$ccrrt) {
   #
   if (argv$verbose | argv$debug) {
     print("precipitaton and temperature  crosscheck")
-    print(paste("temp thresholds =",argv$ccrrt.tmin))
+    print(paste("temp thresholds =",toString(argv$ccrrt.tmin)))
     print(paste("# suspect observations=",
           length(which(dqcflag==argv$ccrrt.code))))
     print("+---------------------------------+")
   }
-  if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"dqcres_ccrrt.txt"),
-        "x;y;z;lat;lon;elev;elev_dem;t2m;value;prid;dqcflag;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"dqcres_ccrrt.txt"),
-        paste(x,
-              y,
-              z,
-              zt2mdem,
-              t2m,
-              data$lat,
-              data$lon,
-              data$elev,
-              data$value,
-              data$prid,
-              dqcflag,"\n",sep=";"),append=T)
-  }
+  if (argv$debug)
+    save.image(file.path(argv$debug.dir,"dqcres_ccrrt.RData")) 
   rm(t2m,zt2mdem)
 }
 #
@@ -4212,23 +4209,17 @@ if (argv$rr.wcor) {
   data$value<-res$rr.cor
   data$vsigma<-res$sigma
   rm(res)
+  if (argv$debug | argv$verbose) {
+    ix<-which(data$value>=0 & !is.na(data$value) &
+              is.na(dqcflag))
+    if (length(ix)>0) {
+      lm<-lm(data$value[ix]~data$rawvalue[ix]+0)
+      print(paste0("linear regression, obs_adjusted = ",
+      round(as.numeric(lm$coefficients),3)," * obs_raw"))
+    }
+  }
   if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"rrcor.txt"),
-        "x;y;z;lat;lon;elev;zt2mdem;t2m;ws10m;rr_raw;rr_cor;sigma;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"rrcor.txt"),
-        paste(x,
-              y,
-              z,
-              data$lat,
-              data$lon,
-              data$elev,
-              round(zt2mdem,1),
-              round(t2m,2),
-              round(ws10m,2),
-              round(data$rawvalue,2),
-              round(data$value,2),
-              round(data$vsigma,4),
-              "\n",sep=";"),append=T)
+    save.image(file.path(argv$debug.dir,"rrcor.RData")) 
     print("+---------------------------------+")
   }
 }
@@ -4436,37 +4427,10 @@ if (!is.na(argv$fg.file)) {
       if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
       points(x,y,cex=0.8,pch=19)
       dev.off()
-      rm(rfgdem)
-      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
-          "x;y;z;lat;lon;elev;value;prid;fg;zfg;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fg,4),
-                round(zfgdem,1),"\n",sep=";"),append=T)
-#      rm(zfgdem)
-    } else {
-      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
-          "x;y;z;lat;lon;elev;value;prid;fg;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"input_data_fg.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fg,4),"\n",sep=";"),append=T)
     }
+    save.image(file.path(argv$debug.dir,"input_data_fg.RData")) 
+    if (exists("rfgdem")) rm(rfgdem)
   }
-#
   if (argv$verbose | argv$debug)
     print("+---------------------------------+")
 }
@@ -4640,44 +4604,8 @@ if (!is.na(argv$fge.file)) {
     rm(gdata)
   }
   # debug
-  if (argv$debug) {
-    if (argv$variable=="T") {
-      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
-          "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;zfge;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fge.mu,4),
-                round(fge.sd,4),
-                round(fge.q25,4),
-                round(fge.q50,4),
-                round(fge.q75,4),
-                round(zfgedem,1),"\n",sep=";"),append=T)
-    } else {
-      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
-          "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"input_data_fge.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fge.mu,4),
-                round(fge.sd,4),
-                round(fge.q25,4),
-                round(fge.q50,4),
-                round(fge.q75,4),"\n",sep=";"),append=T)
-    }
-  }
+  if (argv$debug)
+    save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
     print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
@@ -4701,30 +4629,31 @@ if (length(ix)>0) {
 } else {
   print("no valid observations left, no metadata check")
 }
+
+
 if (argv$verbose | argv$debug) {
   print("test for no metdata (2nd round)")
-#  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
-#              z[which(!meta)],data$value[which(!meta)]))
-  print(paste("# observations lacking metadata (tot, 1st+2nd round)=",
-         length(which(dqcflag==argv$nometa.code))))
+  print(paste("# observations lacking metadata and/or NAs=",length(which(dqcflag==argv$nometa.code & !is.na(argv$nometa.code)))))
+  print(paste("  # NAs             =",length(which(is.na(data$value[ix])))))
+  print(paste("  # lon-lat missing =",length(which(is.na(data$lat[ix]) | 
+                                                  is.na(data$lon[ix])))))
+  print(paste("  # z missing       =",length(which(is.na(z[ix]))))) 
+  print(paste("  # z out of range  =",length(which(!is.na(z[ix]) & 
+                                    (z[ix]<argv$zmin | z[ix]>argv$zmax))))) 
   print("+---------------------------------+")
 }
+#if (argv$verbose | argv$debug) {
+#  print("test for no metdata (2nd round)")
+##  print(paste(data$lat[which(!meta)],data$lon[which(!meta)],
+##              z[which(!meta)],data$value[which(!meta)]))
+#  print(paste("# observations lacking metadata (tot, 1st+2nd round)=",
+#         length(which(dqcflag==argv$nometa.code))))
+#  print("+---------------------------------+")
+#}
 rm(ix)
 if (exists("meta")) rm(meta)
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"dqcres_meta.txt"),
-      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"dqcres_meta.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            dqcflag,"\n",sep=";"),append=T)
-}
+if (argv$debug) 
+  save.image(file.path(argv$debug.dir,"dqcres_meta.RData")) 
 #
 #-----------------------------------------------------------------------------
 # plausibility test
@@ -4733,25 +4662,15 @@ ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
            (data$value<argv$vmin | data$value>argv$vmax))
 if (length(ix)>0) dqcflag[ix]<-argv$p.code
 if (argv$verbose | argv$debug) {
-  print("plausibility test")
+  print(paste0("plausibility test (",argv$p.code,")"))
   print(paste("min/max thresholds =",argv$vmin,argv$vmax))
+  print(paste("# <min=",length(which(dqcflag==argv$p.code & data$value<argv$vmin))))
+  print(paste("# >max=",length(which(dqcflag==argv$p.code & data$value>argv$vmax))))
   print(paste("# suspect observations=",length(which(dqcflag==argv$p.code))))
   print("+---------------------------------+")
 }
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"dqcres_plausibility.txt"),
-      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"dqcres_plausibility.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            dqcflag,"\n",sep=";"),append=T)
-}
+if (argv$debug) 
+  save.image(file.path(argv$debug.dir,"dqcres_plausibility.RData")) 
 #
 #-----------------------------------------------------------------------------
 # climatological check 
@@ -4781,20 +4700,8 @@ if (!is.na(argv$month.clim)) {
     print("+---------------------------------+")
   }
   rm(doit)
-  if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"dqcres_monthclim.txt"),
-        "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"dqcres_monthclim.txt"),
-        paste(x,
-              y,
-              z,
-              data$lat,
-              data$lon,
-              data$elev,
-              data$value,
-              data$prid,
-              dqcflag,"\n",sep=";"),append=T)
-  }
+  if (argv$debug) 
+    save.image(file.path(argv$debug.dir,"dqcres_monthclim.RData")) 
 }
 #
 #-----------------------------------------------------------------------------
@@ -4807,6 +4714,7 @@ doit<-vector(length=ndata,mode="numeric")
 doit[]<-NA
 for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy[f]
 # test
+print(paste0("buddy-check (",argv$buddy.code,")"))
 for (i in 1:argv$i.buddy) {
   # use only (probably) good observations with doit!=0
   ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
@@ -4848,27 +4756,25 @@ for (i in 1:argv$i.buddy) {
   }
 }
 rm(doit)
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"dqcres_buddy.txt"),
-      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"dqcres_buddy.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            dqcflag,"\n",sep=";"),append=T)
-}
+if (argv$debug) 
+  save.image(file.path(argv$debug.dir,"dqcres_buddy.RData")) 
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
+if (exists("stSp_3km")) rm(stSp_3km)
+if (exists("sus")) rm(sus)
+if (exists("pog")) rm(pog)
+if (exists("xtot")) rm(xtot)
+if (exists("ytot")) rm(ytot)
+if (exists("ztot")) rm(ztot)
+if (exists("ixyzt_tot")) rm(ixyzt_tot)
 #
 #-----------------------------------------------------------------------------
 # STEVE - isolated event test (YES/NO)
 if (argv$steve) {
-  if (argv$verbose | argv$debug) nprev<-0
+  if (argv$verbose | argv$debug) {
+    nprev<-0
+    print(paste0("STEVE (",argv$steve.code,")"))
+  }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -4921,32 +4827,23 @@ if (argv$steve) {
                   "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
       ncur<-length(which(dqcflag==argv$steve.code))
       print(paste("# suspect observations=",ncur-nprev))
-      nprev<-length(which(dqcflag==argv$steve.code))
+      nprev<-ncur
     }
   }
   rm(doit)
   if (argv$verbose | argv$debug) 
     print("+---------------------------------+")
-  if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"dqcres_steve.txt"),
-        "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"dqcres_steve.txt"),
-        paste(x,
-              y,
-              z,
-              data$lat,
-              data$lon,
-              data$elev,
-              data$value,
-              data$prid,
-              dqcflag,"\n",sep=";"),append=T)
-  }
+  if (argv$debug) 
+    save.image(file.path(argv$debug.dir,"dqcres_steve.RData")) 
 }
 #
 #-----------------------------------------------------------------------------
 # puddle check (first round)
 if (argv$puddle) {
-  if (argv$verbose | argv$debug) nprev<-0
+  if (argv$verbose | argv$debug) {
+    nprev<-0
+    print(paste0("puddle-check (",argv$puddle.code,")"))
+  }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -4961,43 +4858,47 @@ if (argv$puddle) {
       # prepare mask with gridpoints where the calculation can be done
       t00<-Sys.time()
       xytmp<-cbind(x[ix],y[ix])
-      Dh_puddle<-apply(xytmp,
-                       FUN=dobs_fun,MARGIN=1,
-                       k=argv$dobs_k.puddle)
+      Dh_puddle<-dobs_fun(obs=data.frame(x=x[ix],y=y[ix]),
+                          k=argv$dobs_k.puddle)
       Dh_puddle<-max(argv$Dh_min.puddle,(Dh_puddle/1000))
       rm(xytmp)
       # define raster grid
-      grid_res<-as.integer((Dh_puddle/dobs_k.puddle)*1000)
+      grid_res<-as.integer((Dh_puddle/argv$dobs_k.puddle)*1000)
       if (argv$verbose | argv$debug) {
-        print(paste("Dh (to the closest",dobs_k.puddle,"neighbour)=",
+        print(paste("Dh (to the closest",argv$dobs_k.puddle,"neighbour)=",
               round(Dh_puddle,1),"km"))
         print(paste("grid resolution=",round(grid_res,0)))
       }
-      rgrid_puddle<-raster(extent=e,res=grid_res)
-      if (argv$debug) print(rgrid_puddle)
+      rgrid_puddle<-raster(ext=e,resolution=grid_res)
       rgrid_puddle[]<-NA
-      xygrid_puddle<-xyFromCell(rgrid,1:ncell(rgrid))
+      xygrid_puddle<-xyFromCell(rgrid_puddle,1:ncell(rgrid_puddle))
       xgrid_puddle<-xygrid_puddle[,1]
       ygrid_puddle<-xygrid_puddle[,2]
       rm(xygrid_puddle)
       # NOTE: z is not used here, but we are ready to introduce it for future versions
       zgrid_puddle<-rep(0,length(ygrid_puddle))
       D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
-                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh)**2.)
-      diag(D)<-diag(D)+eps2
+                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh_puddle)**2.)
+      diag(D)<-diag(D)+argv$eps2.puddle
+      t00b<-Sys.time()
       InvD<-chol2inv(chol(D))
+      t01b<-Sys.time()
+      print(paste("InvD time",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
       rm(D)
-      xidi<-OI_RR_fast(yo.sel=rep(1,p),
-                       yb.sel=rep(0,p),
-                       xb.sel=rep(0,p),
+      t00b<-Sys.time()
+      xidi<-OI_RR_fast(yo.sel=rep(1,ptmp),
+                       yb.sel=rep(0,ptmp),
+                       xb.sel=rep(0,length(xgrid_puddle)),
                        xgrid.sel=xgrid_puddle,
                        ygrid.sel=ygrid_puddle,
                        zgrid.sel=zgrid_puddle,
                        VecX.sel=x[ix],
                        VecY.sel=y[ix],
-                       VecZ.sel=rep(0,p),
-                       Dh.cur=Dh,
+                       VecZ.sel=rep(0,ptmp),
+                       Dh.cur=Dh_puddle,
                        Dz.cur=1000000)
+      t01b<-Sys.time()
+      print(paste("OI_RR_fast",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
       rm(InvD)
       mask_puddle<-which(xidi>=0.00001)
       t11<-Sys.time()
@@ -5021,7 +4922,6 @@ if (argv$puddle) {
         # use only (probably) good observations
         ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
         if (length(ix)>0) {
-          obs<-data.frame(x[ix],y[ix],data$value[ix])
           aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
                       thres=argv$thres.puddle[j],
                       gt_or_lt="lt",
@@ -5042,32 +4942,24 @@ if (argv$puddle) {
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         ncur<-length(which(dqcflag==argv$puddle.code))
         print(paste("# suspect observations=",ncur-nprev))
-        nprev<-length(which(dqcflag==argv$puddle.code))
+        nprev<-ncur
       } 
     } # end of loop over test iterations
     rm(doit)
     if (argv$verbose | argv$debug) 
       print("+---------------------------------+")
-    if (argv$debug) {
-      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
-          "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                dqcflag,"\n",sep=";"),append=T)
-    }
+    if (argv$debug) 
+      save.image(file.path(argv$debug.dir,"dqcres_puddle.RData")) 
   } # end of "if (length(mask_puddle)==0)"
 } # end of if (argv$puddle)
 #
 #-----------------------------------------------------------------------------
 # check against a first-guess (deterministic)
 if (argv$fg) {
+  if (argv$verbose | argv$debug) {
+    nprev<-0
+    print(paste0("first-guess check det (",argv$fg.code,")"))
+  }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -5098,38 +4990,8 @@ if (argv$fg) {
     print("+---------------------------------+")
   }
   rm(doit)
-  if (argv$debug) {
-    if (argv$variable=="T") {
-      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
-          "x;y;z;lat;lon;elev;value;prid;fg;zfg;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fg,4),
-                round(zfgdem,1),
-                dqcflag,"\n",sep=";"),append=T)
-    } else {
-      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
-          "x;y;z;lat;lon;elev;value;prid;fg;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_fg.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fg,4),
-                dqcflag,"\n",sep=";"),append=T)
-    }
-  }
+  if (argv$debug) 
+    save.image(file.path(argv$debug.dir,"dqcres_fg.RData")) 
 }
 #
 #-----------------------------------------------------------------------------
@@ -5147,8 +5009,8 @@ if (argv$fge) {
     } else {
       ttot<-data$value
     }
-    fge.sd<-pmin(fge.sd,argv$sdmin.fge,na.rm=T)
-    fge.iqr<-pmin((fge.q75-fge.q25),argv$iqrmin.fge,na.rm=T)
+    fge.sd<-pmax(fge.sd,argv$sdmin.fge,na.rm=T)
+    fge.iqr<-pmax((fge.q75-fge.q25),argv$iqrmin.fge,na.rm=T)
     sus<-which( ( 
     (abs(fge.mu-ttot)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
     ((ttot-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
@@ -5169,65 +5031,8 @@ if (argv$fge) {
     print("+---------------------------------+")
   }
   rm(doit)
-  if (argv$debug) {
-    if (argv$variable=="T") {
-      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-      "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;zfge;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fge.mu,4),
-                round(fge.sd,4),
-                round(fge.q25,4),
-                round(fge.q50,4),
-                round(fge.q75,4),
-                round(zfgedem,1),
-                dqcflag,"\n",sep=";"),append=T)
-    } else if (argv$variable=="RR") {
-      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-      "x;y;z;lat;lon;elev;value;value_bc;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                ttot,
-                data$prid,
-                round(fge.mu,4),
-                round(fge.sd,4),
-                round(fge.q25,4),
-                round(fge.q50,4),
-                round(fge.q75,4),
-                dqcflag,"\n",sep=";"),append=T)
-    } else {
-      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-      "x;y;z;lat;lon;elev;value;prid;fge.mu;fge.sd;fge.q25;fge.q50;fge.q75;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_fge.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                round(fge.mu,4),
-                round(fge.sd,4),
-                round(fge.q25,4),
-                round(fge.q50,4),
-                round(fge.q75,4),
-                dqcflag,"\n",sep=";"),append=T)
-    }
-  }
+  if (argv$debug) 
+    save.image(file.path(argv$debug.dir,"dqcres_fge.RData")) 
   if (exists("ttot")) rm(ttot)
   if (exists("ix")) rm(ix)
 }
@@ -5240,7 +5045,7 @@ if (argv$verbose | argv$debug) nprev<-0
 doit<-vector(length=ndata,mode="numeric")
 doit[]<-NA
 for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.sct[f]
-# set min and max for the backgorund values
+# set min and max for the background values
 sctvmin<-ifelse(argv$variable=="RR",-1./argv$boxcox.lambda,
                                     argv$vmin)
 sctvmax<-ifelse(argv$variable=="RR",boxcox(argv$vmax,argv$boxcox.lambda),
@@ -5341,22 +5146,8 @@ if (length(ix)>0) {
 } else {
   print("no valid first guess for the observation error variance found")
 }
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"dqcres_sct.txt"),
-      "x;y;z;lat;lon;elev;value;prid;corep;sctpog;dqcflag;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"dqcres_sct.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            corep,
-            sctpog,
-            dqcflag,"\n",sep=";"),append=T)
-}
+if (argv$debug) 
+  save.image(file.path(argv$debug.dir,"dqcres_sct.RData")) 
 #
 #-----------------------------------------------------------------------------
 # check elevation against dem 
@@ -5384,20 +5175,8 @@ if (argv$dem) {
   }
   rm(doit)
 }
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"dqcres_demcheck.txt"),
-      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"dqcres_demcheck.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            dqcflag,"\n",sep=";"),append=T)
-}
+if (argv$debug) 
+  save.image(file.path(argv$debug.dir,"dqcres_demcheck.RData")) 
 #
 #-----------------------------------------------------------------------------
 # STEVE - isolated event test (YES/NO)
@@ -5462,26 +5241,17 @@ if (argv$steve) {
   rm(doit)
   if (argv$verbose | argv$debug) 
     print("+---------------------------------+")
-  if (argv$debug) {
-    cat(file=file.path(argv$debug.dir,"dqcres_steve2.txt"),
-        "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-    cat(file=file.path(argv$debug.dir,"dqcres_steve2.txt"),
-        paste(x,
-              y,
-              z,
-              data$lat,
-              data$lon,
-              data$elev,
-              data$value,
-              data$prid,
-              dqcflag,"\n",sep=";"),append=T)
-  }
+  if (argv$debug) 
+    save.image(file.path(argv$debug.dir,"dqcres_steve2.RData")) 
 }
 #
 #-----------------------------------------------------------------------------
 # puddle check (second round)
 if (argv$puddle) {
-  if (argv$verbose | argv$debug) nprev<-0
+  if (argv$verbose | argv$debug) {
+    nprev<-0
+    print(paste0("puddle-check 2 (",argv$puddle.code,")"))
+  }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -5492,46 +5262,45 @@ if (argv$puddle) {
     print("puddle check: no valid observations left, no test")
     mask_puddle<-integer(0)
   } else {
-    if (!exists("mask_puddle")) {
+#    if (!exists("mask_puddle")) {
       # prepare mask with gridpoints where the calculation can be done
       t00<-Sys.time()
       xytmp<-cbind(x[ix],y[ix])
-      Dh_puddle<-apply(xytmp,
-                       FUN=dobs_fun,MARGIN=1,
-                       k=argv$dobs_k.puddle)
+      Dh_puddle<-dobs_fun(obs=data.frame(x=x[ix],y=y[ix]),
+                          k=argv$dobs_k.puddle)
       Dh_puddle<-max(argv$Dh_min.puddle,(Dh_puddle/1000))
       rm(xytmp)
       # define raster grid
-      grid_res<-as.integer((Dh_puddle/dobs_k.puddle)*1000)
+      grid_res<-as.integer((Dh_puddle/argv$dobs_k.puddle)*1000)
       if (argv$verbose | argv$debug) {
-        print(paste("Dh (to the closest",dobs_k.puddle,"neighbour)=",
+        print(paste("Dh (to the closest",argv$dobs_k.puddle,"neighbour)=",
               round(Dh_puddle,1),"km"))
         print(paste("grid resolution=",round(grid_res,0)))
       }
-      rgrid_puddle<-raster(extent=e,res=grid_res)
+      rgrid_puddle<-raster(ext=e,resolution=grid_res)
       if (argv$debug) print(rgrid_puddle)
       rgrid_puddle[]<-NA
-      xygrid_puddle<-xyFromCell(rgrid,1:ncell(rgrid))
+      xygrid_puddle<-xyFromCell(rgrid_puddle,1:ncell(rgrid_puddle))
       xgrid_puddle<-xygrid_puddle[,1]
       ygrid_puddle<-xygrid_puddle[,2]
       rm(xygrid_puddle)
       # NOTE: z is not used here, but we are ready to introduce it for future versions
       zgrid_puddle<-rep(0,length(ygrid_puddle))
       D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
-                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh)**2.)
-      diag(D)<-diag(D)+eps2
+                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh_puddle)**2.)
+      diag(D)<-diag(D)+argv$eps2.puddle
       InvD<-chol2inv(chol(D))
       rm(D)
-      xidi<-OI_RR_fast(yo.sel=rep(1,p),
-                       yb.sel=rep(0,p),
-                       xb.sel=rep(0,p),
+      xidi<-OI_RR_fast(yo.sel=rep(1,ptmp),
+                       yb.sel=rep(0,ptmp),
+                       xb.sel=rep(0,length(xgrid_puddle)),
                        xgrid.sel=xgrid_puddle,
                        ygrid.sel=ygrid_puddle,
                        zgrid.sel=zgrid_puddle,
                        VecX.sel=x[ix],
                        VecY.sel=y[ix],
-                       VecZ.sel=rep(0,p),
-                       Dh.cur=Dh,
+                       VecZ.sel=rep(0,ptmp),
+                       Dh.cur=Dh_puddle,
                        Dz.cur=1000000)
       rm(InvD)
       mask_puddle<-which(xidi>=0.00001)
@@ -5541,7 +5310,7 @@ if (argv$puddle) {
         print(paste("tot points=",length(xgrid_puddle)))
         print(paste("masked points=",length(mask_puddle)))
       }
-    } # end "if (!exists("mask_puddle"))"
+#    } # end "if (!exists("mask_puddle"))"
   }
   if (length(mask_puddle)==0) {
     print("puddle check: no test")
@@ -5556,7 +5325,7 @@ if (argv$puddle) {
         # use only (probably) good observations
         ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
         if (length(ix)>0) {
-          obs<-data.frame(x[ix],y[ix],data$value[ix])
+          save.image("tmp.RData")
           aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
                       thres=argv$thres.puddle[j],
                       gt_or_lt="lt",
@@ -5577,26 +5346,14 @@ if (argv$puddle) {
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         ncur<-length(which(dqcflag==argv$puddle.code))
         print(paste("# suspect observations=",ncur-nprev))
-        nprev<-length(which(dqcflag==argv$puddle.code))
+        nprev<-ncur
       } 
     } # end of loop over test iterations
     rm(doit)
     if (argv$verbose | argv$debug) 
       print("+---------------------------------+")
-    if (argv$debug) {
-      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
-          "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-      cat(file=file.path(argv$debug.dir,"dqcres_puddle.txt"),
-          paste(x,
-                y,
-                z,
-                data$lat,
-                data$lon,
-                data$elev,
-                data$value,
-                data$prid,
-                dqcflag,"\n",sep=";"),append=T)
-    }
+    if (argv$debug) 
+      save.image(file.path(argv$debug.dir,"dqcres_puddle2.RData")) 
   } # end of "if (length(mask_puddle)==0)"
 } # end of if (argv$puddle)
 #
@@ -5627,20 +5384,8 @@ if (argv$verbose | argv$debug) {
   print(paste("# isolated observations=",length(which(dqcflag==argv$isol.code))))
   print("+---------------------------------+")
 }
-if (argv$debug) {
-  cat(file=file.path(argv$debug.dir,"dqcres_iso.txt"),
-      "x;y;z;lat;lon;elev;value;prid;dqcflag;\n",append=F)
-  cat(file=file.path(argv$debug.dir,"dqcres_iso.txt"),
-      paste(x,
-            y,
-            z,
-            data$lat,
-            data$lon,
-            data$elev,
-            data$value,
-            data$prid,
-            dqcflag,"\n",sep=";"),append=T)
-}
+if (argv$debug) 
+  save.image(file.path(argv$debug.dir,"dqcres_iso.RData")) 
 #
 #-----------------------------------------------------------------------------
 # observations not flagged are assumed to be good observations 
