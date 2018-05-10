@@ -142,9 +142,10 @@ wolff_correction<-function(par,rr,t2m,ws10m) {
      tau1 + (tau2-tau1) * aux1
   aux2<-exp((t2m-Tsig)/ssig)
   s<-sig1+(sig2-sig1)*(aux2)/(1+aux2)
-  rr.cor<-rr
-  ix<-which(!is.na(rr) & rr>=0.)
-  if (length(ix)>0) rr.cor[ix]<-rr[ix]*1./f[ix]
+#  rr.cor<-rr
+#  ix<-which(!is.na(rr) & rr>=0.)
+#  if (length(ix)>0) rr.cor[ix]<-rr[ix]*1./f[ix]
+  rr.cor<-rr*1./f
   return(list(f=f,sigma=s,rr.cor=rr.cor))
 }
 
@@ -641,8 +642,8 @@ puddle<-function(obs,
                     Dh.cur=Dh,
                     Dz.cur=1000000) 
   t11<-Sys.time()
-  if (argv$verbose | argv$debug) 
-    print(paste("xIDI event NO, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+#  if (argv$verbose | argv$debug) 
+#    print(paste("xIDI event NO, time=",round(t11-t00,1),attr(t11-t00,"unit")))
   t00<-Sys.time()
   D<-exp(-0.5*(Disth[eix1,eix1]/Dh)**2.)
   diag(D)<-diag(D)+eps2
@@ -661,8 +662,8 @@ puddle<-function(obs,
                     Dh.cur=Dh,
                     Dz.cur=1000000) 
   t11<-Sys.time()
-  if (argv$verbose | argv$debug) 
-    print(paste("xIDI eventYES, time=",round(t11-t00,1),attr(t11-t00,"unit")))
+#  if (argv$verbose | argv$debug) 
+#    print(paste("xIDI eventYES, time=",round(t11-t00,1),attr(t11-t00,"unit")))
   rm(InvD,envir=.GlobalEnv)
 # x1=1 for grid points where event is YES
   x1<-xidi1
@@ -680,7 +681,7 @@ puddle<-function(obs,
   r1<-rgrid_puddle
   r1[]<-NA
   r1[mask_puddle]<-x1
-  ytmp<-extract(r1,cbind(obs$x,obs$y),na.rm=T)
+  ytmp<-extract(r1,cbind(obs$x,obs$y),buffer=(2*mean(res(r1))),fun=mean,na.rm=T)
   # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
   cond<-(ytmp==0 & e1) | (ytmp==1 & e0)
   if (any(cond)) ydqc.flag[which(cond)]<-1
@@ -1070,7 +1071,7 @@ nc4in<-function(nc.file,
   if (is.null(out.dim)) {
     ndim<-2
     names<-vector(length=ndim,mode="character")
-    names<-c(dim.names[1],dim.names[2])
+    names<-c(nc.dimnames[1],nc.dimnames[2])
     out.dim<-list(ndim=ndim,names=names)
     rm(ndim,names)
   }
@@ -1103,7 +1104,6 @@ nc4in<-function(nc.file,
   ex.ymax<-max(eval(parse(text=text.ydim)))+dy/2
   nx<-eval(parse(text=paste("nc$dim$",out.dim$names[1],"$len",sep="")))
   ny<-eval(parse(text=paste("nc$dim$",out.dim$names[2],"$len",sep="")))
-
   if (nx>1 & ny>1) {
     is.raster<-T
     r <-raster(ncol=nx, nrow=ny,
@@ -1116,19 +1116,23 @@ nc4in<-function(nc.file,
     s<-NULL
   }
   # time coordinate
-  tcors  <- ncvar_get(nc, varid=out.dim$names[out.dim$tpos])
-  tunits <- ncatt_get(nc, out.dim$names[out.dim$tpos],"units")$value
-  tall <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
-  ntall<-length(tall)
-  tsel<-1:ntall
-  if (!is.null(selection)) {
-    if (!is.null(selection$t)) {
-      if (any(selection$t %in% tall)) {
-        tsel<-which(tall %in% selection$t)
+  if (!is.null(out.dim$tpos)) {
+    tcors  <- ncvar_get(nc, varid=out.dim$names[out.dim$tpos])
+    tunits <- ncatt_get(nc, out.dim$names[out.dim$tpos],"units")$value
+    tall <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
+    ntall<-length(tall)
+    tsel<-1:ntall
+    if (!is.null(selection)) {
+      if (!is.null(selection$t)) {
+        if (any(selection$t %in% tall)) {
+          tsel<-which(tall %in% selection$t)
+        }
       }
     }
+    ntsel<-length(tsel)
+  } else {
+    ntsel<-1
   }
-  ntsel<-length(tsel)
   # ensemble member
   esel<-NULL
   nesel<-0
@@ -1182,25 +1186,79 @@ nc4in<-function(nc.file,
   }
   labels<-list(t=tlab,e=elab,z=zlab)
   data.vec<-array(data=NA,dim=c(nx*ny,jtot))
-  for (t in tsel) {
-    # == cycle for data with 5 dimension (x,y,z,e,t)
-    if ((nzsel>0) & (nesel>0)) {
-      for (e in esel) {
+  if (out.dim$ndim==2) {
+    j<-1
+    start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+    count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+    data <- ncvar_get( nc, var, start=start, count=count )
+    if (length(dim(data))!=2) return(NULL)
+    if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+    if (is.raster) {
+      r[]<-t(data)
+      data.vec[,j]<-getValues(r)
+      if (exists("s")) s<-stack(s,r)
+      if (j==1) {
+        s<-r
+      } else {
+        s<-stack(s,r)
+      }
+    }
+    labels$t[j]<-NA
+  } else {
+    for (t in tsel) {
+      # == cycle for data with 5 dimension (x,y,z,e,t)
+      if ((nzsel>0) & (nesel>0)) {
+        for (e in esel) {
+          for (z in zsel) {
+            j<-j+1
+            start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+            start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
+                                                     # to read timestep t
+            start[out.dimids4var[out.dim$epos]] <- e # change to start=(1,1,1,...,t) 
+                                                     # to read timestep t, ens e
+            start[out.dimids4var[out.dim$zpos]] <- z # change to start=(1,1,1,...,t) 
+                                                     # to read timestep t, ens e, lev z
+            count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+            count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                     # to read 1 tstep
+            count[out.dimids4var[out.dim$epos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                     # to read 1 tstep, 1ens
+            count[out.dimids4var[out.dim$zpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                     # to read 1 tstep, 1ens, 1z
+            data <- ncvar_get( nc, var, start=start, count=count )
+            if (length(dim(data))!=2) return(NULL)
+            if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+            if (is.raster) {
+              r[]<-t(data)
+              data.vec[,j]<-getValues(r)
+              if (j==1) {
+                s<-r
+              } else {
+                s<-stack(s,r)
+              }
+            }
+            labels$t[j]<-tall[t]
+            labels$e[j]<-eall[e]
+            labels$z[j]<-zall[z]
+            if (verbose) print(paste("Data for variable",nc.varname,
+                                     "at timestep",labels$t[j],
+                                     "for ensemble_member",labels$e[j],
+                                     "at elevation",labels$z[j]))
+          }   # end for z
+        } # end for e
+      # == cycle for data with 4 dimension (x,y,z,t)
+      } else if (nzsel>0) {
         for (z in zsel) {
           j<-j+1
           start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
           start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
                                                    # to read timestep t
-          start[out.dimids4var[out.dim$epos]] <- e # change to start=(1,1,1,...,t) 
-                                                   # to read timestep t, ens e
           start[out.dimids4var[out.dim$zpos]] <- z # change to start=(1,1,1,...,t) 
                                                    # to read timestep t, ens e, lev z
           count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
           count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
                                                    # to read 1 tstep
-          count[out.dimids4var[out.dim$epos]] <- 1 # change to count=(nx,ny,nz,...,1)
-                                                   # to read 1 tstep, 1ens
-          count[out.dimids4var[out.dim$zpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+          count[out.dimids4var[out.dim$zpos]] <- 1 # change to count=(nx,ny,nz,...,1) 
                                                    # to read 1 tstep, 1ens, 1z
           data <- ncvar_get( nc, var, start=start, count=count )
           if (length(dim(data))!=2) return(NULL)
@@ -1215,34 +1273,62 @@ nc4in<-function(nc.file,
             }
           }
           labels$t[j]<-tall[t]
-          labels$e[j]<-eall[e]
           labels$z[j]<-zall[z]
           if (verbose) print(paste("Data for variable",nc.varname,
                                    "at timestep",labels$t[j],
-                                   "for ensemble_member",labels$e[j],
                                    "at elevation",labels$z[j]))
         } # end for z
-      } # end for e
-    # == cycle for data with 4 dimension (x,y,z,t)
-    } else if (nzsel>0) {
-      for (z in zsel) {
+      # == cycle for data with 4 dimension (x,y,e,t)
+      } else if (nesel>0) {
+        for (e in esel) {
+          j<-j+1
+          start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
+          start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
+                                                   # to read timestep t
+          start[out.dimids4var[out.dim$epos]] <- e # change to start=(1,1,1,...,t) 
+                                                 # to read timestep t, ens e, lev z
+          count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
+          count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+                                                   # to read 1 tstep
+          count[out.dimids4var[out.dim$epos]] <- 1 # change to count=(nx,ny,nz,...,1) 
+                                                   # to read 1 tstep, 1ens, 1z
+          data <- ncvar_get( nc, var, start=start, count=count )
+          if (is.raster) {
+            if (length(dim(data))!=2) return(NULL)
+            if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
+            r[]<-t(data)
+            data.vec[,j]<-getValues(r)
+            if (j==1) {
+              s<-r
+            } else {
+              s<-stack(s,r)
+            }
+          } else {
+            if (topdown) data[1:length(data)]<-data[length(data):1]
+            data.vec[,j]<-data
+          }
+          labels$t[j]<-tall[t]
+          labels$e[j]<-eall[e]
+          if (verbose) print(paste("Data for variable",nc.varname,
+                                   "at timestep",labels$t[j],
+                                   "for ensemble_member",labels$e[j]))
+        } # end for e
+      # == cycle for data with 3 dimension (x,y,t)
+      } else if (out.dim$ndim>2) {
         j<-j+1
         start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
         start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
                                                  # to read timestep t
-        start[out.dimids4var[out.dim$zpos]] <- z # change to start=(1,1,1,...,t) 
-                                                 # to read timestep t, ens e, lev z
         count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
-        count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
+        count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1) 
                                                  # to read 1 tstep
-        count[out.dimids4var[out.dim$zpos]] <- 1 # change to count=(nx,ny,nz,...,1) 
-                                                 # to read 1 tstep, 1ens, 1z
         data <- ncvar_get( nc, var, start=start, count=count )
         if (length(dim(data))!=2) return(NULL)
         if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
         if (is.raster) {
           r[]<-t(data)
           data.vec[,j]<-getValues(r)
+          if (exists("s")) s<-stack(s,r)
           if (j==1) {
             s<-r
           } else {
@@ -1250,73 +1336,13 @@ nc4in<-function(nc.file,
           }
         }
         labels$t[j]<-tall[t]
-        labels$z[j]<-zall[z]
         if (verbose) print(paste("Data for variable",nc.varname,
-                                 "at timestep",labels$t[j],
-                                 "at elevation",labels$z[j]))
-      } # end for z
-    # == cycle for data with 4 dimension (x,y,e,t)
-    } else if (nesel>0) {
-      for (e in esel) {
-        j<-j+1
-        start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
-        start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
-                                                 # to read timestep t
-        start[out.dimids4var[out.dim$epos]] <- e # change to start=(1,1,1,...,t) 
-                                               # to read timestep t, ens e, lev z
-        count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
-        count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1)
-                                                 # to read 1 tstep
-        count[out.dimids4var[out.dim$epos]] <- 1 # change to count=(nx,ny,nz,...,1) 
-                                                 # to read 1 tstep, 1ens, 1z
-        data <- ncvar_get( nc, var, start=start, count=count )
-        if (is.raster) {
-          if (length(dim(data))!=2) return(NULL)
-          if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
-          r[]<-t(data)
-          data.vec[,j]<-getValues(r)
-          if (j==1) {
-            s<-r
-          } else {
-            s<-stack(s,r)
-          }
-        } else {
-          if (topdown) data[1:length(data)]<-data[length(data):1]
-          data.vec[,j]<-data
-        }
-        labels$t[j]<-tall[t]
-        labels$e[j]<-eall[e]
-        if (verbose) print(paste("Data for variable",nc.varname,
-                                 "at timestep",labels$t[j],
-                                 "for ensemble_member",labels$e[j]))
-      } # end for e
-    # == cycle for data with 3 dimension (x,y,t)
-    } else {
-      j<-j+1
-      start <- rep(1,var.ndims) # begin with start=(1,1,1,...,1)
-      start[out.dimids4var[out.dim$tpos]] <- t # change to start=(1,1,1,...,t) 
-                                               # to read timestep t
-      count <- var.size # begin w/count=(nx,ny,nz,...,nt), reads entire var
-      count[out.dimids4var[out.dim$tpos]] <- 1 # change to count=(nx,ny,nz,...,1) 
-                                               # to read 1 tstep
-      data <- ncvar_get( nc, var, start=start, count=count )
-      if (length(dim(data))!=2) return(NULL)
-      if (topdown) for (i in 1:nx) data[i,1:ny]<-data[i,ny:1]
-      if (is.raster) {
-        r[]<-t(data)
-        data.vec[,j]<-getValues(r)
-        if (exists("s")) s<-stack(s,r)
-        if (j==1) {
-          s<-r
-        } else {
-          s<-stack(s,r)
-        }
-      }
-      labels$t[j]<-tall[t]
-      if (verbose) print(paste("Data for variable",nc.varname,
-                               "at timestep",labels$t[j]))
-    } 
-  } # end for "time"
+                                 "at timestep",labels$t[j]))
+      } else {
+        print("stranger things are going on right now!")
+      } 
+    } # end for "time"
+  }
   nc_close(nc)
   return(list(data=data.vec,stack=s,labels=labels))
 }
@@ -3822,9 +3848,8 @@ if (argv$dem | argv$dem.fill) {
   }
   # fill missing elevation with dem
   if (argv$dem.fill) {
-    iz<-which((is.na(z) & !is.na(zdem)) | 
-              (!is.na(z) & !is.na(zdem) & 
-              dqcflag==argv$nometa.code) )
+    iz<-which( (is.na(z) & !is.na(zdem)) | 
+               (!is.na(zdem) & (z<argv$zmin | z>argv$zmax)) )
     z[iz]<-zdem[iz]
     dqcflag[iz]<-dqcflag.bak[iz]
     rm(dqcflag.bak)
@@ -3925,6 +3950,9 @@ if (argv$ccrrt) {
                   selection=list(t=argv$t2m.t,e=t2m.e)))
   rt2m<-raux$stack
   rm(raux)
+  if (argv$debug)
+    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_t2m.png"),
+               r=rt2m,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
   coord<-SpatialPoints(cbind(data$lon,data$lat),
                        proj4string=CRS(argv$proj4from))
   coord.new<-spTransform(coord,CRS(argv$proj4t2m))
@@ -3932,28 +3960,34 @@ if (argv$ccrrt) {
   t2m<-extract(rt2m,xy.tmp,method="bilinear")
   t2m<-argv$t2m.offset*(-1)**(argv$t2m.negoffset)+
        t2m*argv$t2m.cfact*(-1)**(argv$t2m.negcfact)
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_t2m.png"),
-               r=rt2m,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
   rm(coord,coord.new,xy.tmp)
   # read elevation from gridded field
-  ti<-nc4.getTime(argv$t2m.demfile)
-  if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
-  if (!(argv$t2m.demt %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$t2m.demt)
-    print(ti)
-    quit(status=1)
+  if (!is.null(argv$t2m.demtpos)) {
+    t2m.demtpos<-argv$t2m.demtpos
+    ti<-nc4.getTime(argv$t2m.demfile)
+    if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
+    if (!(argv$t2m.demt %in% ti)) {
+      print("ERROR timestamp requested is not in the file:")
+      print(argv$t2m.demt)
+      print(ti)
+      quit(status=1)
+    }
+  } else {
+    t2m.demtpos<-argv$t2m.demtpos
   }
-  t2m.demepos<-argv$t2m.demepos
-  if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
+  if (!is.null(argv$t2m.demepos)) {
+    t2m.demepos<-argv$t2m.demepos
+    if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
+  } else {
+    t2m.demepos<-NULL
+  }
   t2m.deme<-argv$t2m.deme
   if (is.na(argv$t2m.deme)) t2m.deme<-NULL
   raux<-try(nc4in(nc.file=argv$t2m.demfile,
                   nc.varname=argv$t2m.demvarname,
                   topdown=argv$t2m.demtopdown,
                   out.dim=list(ndim=argv$t2m.demndim,
-                               tpos=argv$t2m.demtpos,
+                               tpos=t2m.demtpos,
                                epos=t2m.demepos,
                                names=argv$t2m.demdimnames),
                   proj4=argv$proj4t2m,
@@ -4042,23 +4076,32 @@ if (argv$rr.wcor) {
                r=rt2m,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4t2m)
   rm(coord,coord.new,xy.tmp)
   # read elevation from gridded field
-  ti<-nc4.getTime(argv$t2m.demfile)
-  if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
-  if (!(argv$t2m.demt %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$t2m.demt)
-    print(ti)
-    quit(status=1)
+  if (!is.null(argv$t2m.demtpos)) {
+    t2m.demtpos<-argv$t2m.demtpos
+    ti<-nc4.getTime(argv$t2m.demfile)
+    if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
+    if (!(argv$t2m.demt %in% ti)) {
+      print("ERROR timestamp requested is not in the file:")
+      print(argv$t2m.demt)
+      print(ti)
+      quit(status=1)
+    }
+  } else {
+    t2m.demtpos<-argv$t2m.demtpos
   }
-  t2m.demepos<-argv$t2m.demepos
-  if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
+  if (!is.null(argv$t2m.demepos)) {
+    t2m.demepos<-argv$t2m.demepos
+    if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
+  } else {
+    t2m.demepos<-NULL
+  }
   t2m.deme<-argv$t2m.deme
   if (is.na(argv$t2m.deme)) t2m.deme<-NULL
   raux<-try(nc4in(nc.file=argv$t2m.demfile,
                   nc.varname=argv$t2m.demvarname,
                   topdown=argv$t2m.demtopdown,
                   out.dim=list(ndim=argv$t2m.demndim,
-                               tpos=argv$t2m.demtpos,
+                               tpos=t2m.demtpos,
                                epos=t2m.demepos,
                                names=argv$t2m.demdimnames),
                   proj4=argv$proj4t2m,
@@ -4866,8 +4909,7 @@ if (argv$puddle) {
       grid_res<-as.integer((Dh_puddle/argv$dobs_k.puddle)*1000)
       if (argv$verbose | argv$debug) {
         print(paste("Dh (to the closest",argv$dobs_k.puddle,"neighbour)=",
-              round(Dh_puddle,1),"km"))
-        print(paste("grid resolution=",round(grid_res,0)))
+              round(Dh_puddle,1),"km (grid res=",round(grid_res,0),"m)"))
       }
       rgrid_puddle<-raster(ext=e,resolution=grid_res)
       rgrid_puddle[]<-NA
@@ -4880,12 +4922,12 @@ if (argv$puddle) {
       D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
                      outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh_puddle)**2.)
       diag(D)<-diag(D)+argv$eps2.puddle
-      t00b<-Sys.time()
+#      t00b<-Sys.time()
       InvD<-chol2inv(chol(D))
-      t01b<-Sys.time()
-      print(paste("InvD time",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
+#      t01b<-Sys.time()
+#      print(paste("InvD time",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
       rm(D)
-      t00b<-Sys.time()
+#      t00b<-Sys.time()
       xidi<-OI_RR_fast(yo.sel=rep(1,ptmp),
                        yb.sel=rep(0,ptmp),
                        xb.sel=rep(0,length(xgrid_puddle)),
@@ -4897,8 +4939,8 @@ if (argv$puddle) {
                        VecZ.sel=rep(0,ptmp),
                        Dh.cur=Dh_puddle,
                        Dz.cur=1000000)
-      t01b<-Sys.time()
-      print(paste("OI_RR_fast",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
+#      t01b<-Sys.time()
+#      print(paste("OI_RR_fast",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
       rm(InvD)
       mask_puddle<-which(xidi>=0.00001)
       t11<-Sys.time()
@@ -4931,7 +4973,7 @@ if (argv$puddle) {
                       n.eveNO_in_the_clump=argv$n_ge.puddle[j])
           sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
           # set dqcflag
-          if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+          if (length(sus)>0) dqcflag[ix[sus]]<-argv$puddle.code
         } else {
           print("no valid observations left, no puddle check")
         }
@@ -5274,11 +5316,9 @@ if (argv$puddle) {
       grid_res<-as.integer((Dh_puddle/argv$dobs_k.puddle)*1000)
       if (argv$verbose | argv$debug) {
         print(paste("Dh (to the closest",argv$dobs_k.puddle,"neighbour)=",
-              round(Dh_puddle,1),"km"))
-        print(paste("grid resolution=",round(grid_res,0)))
+              round(Dh_puddle,1),"km (grid res=",round(grid_res,0),"m)"))
       }
       rgrid_puddle<-raster(ext=e,resolution=grid_res)
-      if (argv$debug) print(rgrid_puddle)
       rgrid_puddle[]<-NA
       xygrid_puddle<-xyFromCell(rgrid_puddle,1:ncell(rgrid_puddle))
       xgrid_puddle<-xygrid_puddle[,1]
@@ -5325,7 +5365,6 @@ if (argv$puddle) {
         # use only (probably) good observations
         ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
         if (length(ix)>0) {
-          save.image("tmp.RData")
           aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
                       thres=argv$thres.puddle[j],
                       gt_or_lt="lt",
@@ -5335,7 +5374,7 @@ if (argv$puddle) {
                       n.eveNO_in_the_clump=argv$n_ge.puddle[j])
           sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
           # set dqcflag
-          if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
+          if (length(sus)>0) dqcflag[ix[sus]]<-argv$puddle.code
         } else {
           print("no valid observations left, no puddle check")
         }
@@ -5395,6 +5434,10 @@ if (argv$verbose | argv$debug) {
   print(paste("# total suspect & no-metadata observations=",
               length(which(dqcflag!=0))," [",
               round(100*length(which(dqcflag!=0))/ndata,0),
+              "%]",sep="") )
+  print(paste("# total good observations=",
+              length(which(dqcflag==0))," [",
+              round(100*length(which(dqcflag==0))/ndata,0),
               "%]",sep="") )
   print("+---------------------------------+")
 }
