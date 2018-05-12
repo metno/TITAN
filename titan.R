@@ -681,7 +681,8 @@ puddle<-function(obs,
   r1<-rgrid_puddle
   r1[]<-NA
   r1[mask_puddle]<-x1
-  ytmp<-extract(r1,cbind(obs$x,obs$y),buffer=(2*mean(res(r1))),fun=mean,na.rm=T)
+#  ytmp<-extract(r1,cbind(obs$x,obs$y),buffer=(2*mean(res(r1))),fun=mean,na.rm=T)
+  ytmp<-extract(r1,cbind(obs$x,obs$y))
   # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
   cond<-(ytmp==0 & e1) | (ytmp==1 & e0)
   if (any(cond)) ydqc.flag[which(cond)]<-1
@@ -5435,9 +5436,17 @@ if (argv$verbose | argv$debug) {
               length(which(dqcflag!=0))," [",
               round(100*length(which(dqcflag!=0))/ndata,0),
               "%]",sep="") )
+   print(paste("# total suspect & no-metadata observations (statistics over not NAs only)=",
+              length(which(dqcflag!=0 & !is.na(data$value)))," [",
+        round(100*length(which(dqcflag!=0 & !is.na(data$value)))/length(which(!is.na(data$value))),0),
+              "%]",sep="") )
   print(paste("# total good observations=",
               length(which(dqcflag==0))," [",
               round(100*length(which(dqcflag==0))/ndata,0),
+              "%]",sep="") )
+  print(paste("# total good observations (statistics over not NAs only)=",
+              length(which(dqcflag==0))," [",
+   round(100*length(which(dqcflag==0 & !is.na(data$value)))/length(which(!is.na(data$value))),0),
               "%]",sep="") )
   print("+---------------------------------+")
 }

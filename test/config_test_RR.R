@@ -12,7 +12,7 @@ conf<-list(
            proj4dem="+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06",
            # precipitation (in-situ) and temperature (field) cross-check
            ccrrt=T,
-           t2m.file="/home/cristianl/data/titan_day/seNorge_v2_0_TEMP1d_grid_20180430.nc",
+           t2m.file="/home/cristianl/data/titan_day/seNorge_v2_0_TEMP1d_grid_20180511.nc",
            t2m.varname="mean_temperature",
            t2m.ndim=3,
            t2m.tpos=3,
@@ -26,7 +26,7 @@ conf<-list(
            t2m.demdimnames=c("easting","northing"),
            # correction for the wind-undercatch of precipitation
            rr.wcor=T,
-           wind.file="/home/cristianl/data/titan_day/MEPSpp_FFMRR-MEPS_lcc_20180430.nc",
+           wind.file="/home/cristianl/data/titan_day/MEPSpp_FFMRR-MEPS_lcc_20180511.nc",
            windspeed.varname="windspeed_10m",
            wind.ndim=3,
            wind.tpos=3,
@@ -75,8 +75,8 @@ conf<-list(
            Dh_min.puddle=25,
            thres.puddle=c(0.1,1),
            eps2.puddle=0.1,
-           n_lt.puddle=c(2,2),
-           n_ge.puddle=c(2,2),
+           n_lt.puddle=c(5,2),
+           n_ge.puddle=c(5,2),
            # SCT
            i.sct=3,
            n.sct=50,
