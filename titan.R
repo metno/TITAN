@@ -2151,7 +2151,8 @@ p <- add_argument(p, "--ccrrt",
                   short="-ccrrtf")
 p <- add_argument(p, "--ccrrt.tmin",
                   help="temperature thresholds (vector)",
-                  type="numeric",
+#                  type="numeric",
+                  type="character",
                   default=NA,
                   nargs=Inf,
                   short="-ccrrtt")
@@ -3427,6 +3428,10 @@ if (length(argv$max.corep)!=nfin)
 # precip and temperature crosscheck
 if (length(argv$ccrrt.tmin)!=nfin) 
   argv$ccrrt.tmin<-rep(argv$ccrrt.tmin[1],length=nfin)
+aux<-vector(length=nfin,mode="numeric")
+for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$ccrrt.tmin[i]))
+argv$ccrrt.tmin<-aux
+rm(aux)
 # SCT
 # if defined, thrpos.sct and thrneg.sct have the priority on thr.sct
 if ( (any(is.na(argv$thrpos.sct)) & any(!is.na(argv$thrpos.sct))) |
