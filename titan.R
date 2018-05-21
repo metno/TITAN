@@ -4623,7 +4623,8 @@ if (!is.na(argv$fge.file)) {
                   proj4=argv$proj4fge,
                   nc.proj4=list(var=argv$fge.proj4_var,
                                 att=argv$fge.proj4_att),
-                  selection=list(t=argv$fge.t,e=ei[ens],z=4))
+#                  selection=list(t=argv$fge.t,e=ei[ens],z=4))
+                  selection=list(t=argv$fge.t,e=ei[ens]))
       rfge<-raux$stack
     }
     # for ''output radar data'' usage: save the ensemble median
@@ -4679,6 +4680,8 @@ if (!is.na(argv$fge.file)) {
   fge.q50<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
   fge.q25<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.25,na.rm=T))})
   fge.q75<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.75,na.rm=T))})
+  if (argv$debug)
+    save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
   rm(edata)
   #
   if (argv$radarout) {
@@ -4686,8 +4689,6 @@ if (!is.na(argv$fge.file)) {
     rm(gdata)
   }
   # debug
-  if (argv$debug)
-    save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
     print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
