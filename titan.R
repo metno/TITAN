@@ -3048,7 +3048,11 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"air_temperature_2m"
       argv$fg.ndim<-5 
       argv$fg.tpos<-3
-      argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
+      if (is.na(argv$fg.dimnames)) {
+        argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
+      } else {
+        argv$fg.ndim<-length(argv$fg.dimnames)
+      }
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.offset<-273.15
       argv$fg.negoffset<-1
@@ -3068,7 +3072,11 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"precipitation_amount_acc"
       argv$fg.ndim<-5 
       argv$fg.tpos<-3
-      argv$fg.dimnames<-c("x","y","time","height0","ensemble_member")
+      if (is.na(argv$fg.dimnames)) {
+        argv$fg.dimnames<-c("x","y","time","height0","ensemble_member")
+      } else {
+        argv$fg.ndim<-length(argv$fg.dimnames)
+      }
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.acc<-TRUE
       argv$fg.topdown<-TRUE
@@ -3078,7 +3086,11 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"relative_humidity_2m"
       argv$fg.ndim<-5 
       argv$fg.tpos<-3
-      argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
+      if (is.na(argv$fg.dimnames)) {
+        argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
+      } else {
+        argv$fg.ndim<-length(argv$fg.dimnames)
+      }
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.cfact<-100.
       argv$fg.topdown<-TRUE
@@ -3093,7 +3105,11 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"lwe_precipitation_rate"
       argv$fg.ndim<-3 
       argv$fg.tpos<-3
-      argv$fg.dimnames<-c("Xc","Yc","time")
+      if (any(is.na(argv$fg.dimnames))) {
+        argv$fg.dimnames<-c("Xc","Yc","time")
+      } else {
+        argv$fg.ndim<-length(argv$fg.dimnames)
+      }
       argv$proj4fg<-"+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
       argv$fg.topdown<-FALSE
     } else {
@@ -3144,7 +3160,11 @@ if (!is.na(argv$fge.type)) {
       argv$fge.varname<-"air_temperature_2m"
       argv$fge.ndim<-5 
       argv$fge.tpos<-3
-      argv$fge.dimnames<-c("x","y","time","height1","ensemble_member")
+      if (is.na(argv$fge.dimnames)) {
+        argv$fge.dimnames<-c("x","y","time","height1","ensemble_member")
+      } else {
+        argv$fge.ndim<-length(argv$fge.dimnames)
+      }
       argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fge.offset<-273.15
       argv$fge.negoffset<-1
@@ -3153,7 +3173,11 @@ if (!is.na(argv$fge.type)) {
       argv$fge.demtpos<-3
       argv$fge.demepos<-5
       argv$fge.deme<-0
-      argv$fge.demdimnames<-c("x","y","time","height0","ensemble_member")
+      if (is.na(argv$fge.demdimnames)) {
+        argv$fge.demdimnames<-c("x","y","time","height0","ensemble_member")
+      } else {
+        argv$fge.demndim<-length(argv$fge.demdimnames)
+      }
       # divide geopotential by g=9.80665. This calculates geopotential height (above mean sea level)
       argv$fge.demcfact<-0.0980665 
       argv$fge.topdown<-TRUE
@@ -3163,7 +3187,11 @@ if (!is.na(argv$fge.type)) {
       argv$fge.varname<-"precipitation_amount_acc"
       argv$fge.ndim<-5 
       argv$fge.tpos<-3
-      argv$fge.dimnames<-c("x","y","time","height0","ensemble_member")
+      if (is.na(argv$fge.dimnames)) {
+        argv$fge.dimnames<-c("x","y","time","height0","ensemble_member")
+      } else {
+        argv$fge.ndim<-length(argv$fge.dimnames)
+      }
       argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fge.acc<-TRUE
       argv$fge.topdown<-TRUE
@@ -3172,12 +3200,16 @@ if (!is.na(argv$fge.type)) {
       argv$fge.varname<-"relative_humidity_2m"
       argv$fge.ndim<-5 
       argv$fge.tpos<-3
-      argv$fge.dimnames<-c("x","y","time","height1","ensemble_member")
+      if (is.na(argv$fge.dimnames)) {
+        argv$fge.dimnames<-c("x","y","time","height1","ensemble_member")
+      } else {
+        argv$fge.ndim<-length(argv$fge.dimnames)
+      }
       argv$proj4fge<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fge.cfact<-100.
       argv$fge.topdown<-TRUE
     } else {
-      print("ERROR in --fg.type, combination of type/variable not available")
+      print("ERROR in --fge.type, combination of type/variable not available")
       quit(status=1)
     } 
   } else {
@@ -4043,7 +4075,8 @@ if (argv$ccrrt) {
 #-----------------------------------------------------------------------------
 # Correction for the wind-undercatch of precipitation (optional)
 if (argv$rr.wcor) {
-  if (argv$debug) print("Correction for the wind-undercatch of precipitation")
+  if (argv$debug | argv$verbose)
+    print("Correction for the wind-undercatch of precipitation")
   # read temperature from gridded field
   ti<-nc4.getTime(argv$t2m.file)
   if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
@@ -4266,10 +4299,10 @@ if (argv$rr.wcor) {
       print(paste0("linear regression, obs_adjusted = ",
       round(as.numeric(lm$coefficients),3)," * obs_raw"))
     }
+    print("+---------------------------------+")
   }
   if (argv$debug) {
     save.image(file.path(argv$debug.dir,"rrcor.RData")) 
-    print("+---------------------------------+")
   }
 }
 #
@@ -4334,7 +4367,7 @@ if (!is.na(argv$fg.file)) {
   # radar fg, data quality control 
   if (argv$fg.type=="radar") {
     if (argv$verbose | argv$debug)
-      print("Read radar and do the DQC")
+      print("Read radar and do the radar-DQC")
     t0a<-Sys.time()
     suppressPackageStartupMessages(library("igraph"))
     dfg<-getValues(rfg)
@@ -4575,7 +4608,7 @@ if (!is.na(argv$fge.file)) {
                       selection=list(t=c(tminus1h,argv$fge.t),e=ei[ens])))
       if (is.null(raux)) {
         print("ERROR while reading file:")
-        print(argv$fg.file)
+        print(argv$fge.file)
         quit(status=1)
       }
       rfge<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
