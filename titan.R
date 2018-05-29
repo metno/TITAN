@@ -1905,8 +1905,7 @@ p <- add_argument(p, "--laf.varname",
                   short="-lfv")
 p <- add_argument(p, "--laf.topdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the laf upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-lftd")
 p <- add_argument(p, "--laf.ndim",
                   help="number of dimensions in the netCDF file",
@@ -1991,8 +1990,7 @@ p <- add_argument(p, "--dem.varname",
                   short="-dmv")
 p <- add_argument(p, "--dem.topdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the dem upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-dmtd")
 p <- add_argument(p, "--dem.ndim",
                   help="number of dimensions in the netCDF file",
@@ -2393,8 +2391,7 @@ p <- add_argument(p, "--t2m.varname",
                   short="-rrwtv")
 p <- add_argument(p, "--t2m.topdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-rrwtt")
 p <- add_argument(p, "--t2m.ndim",
                   help="number of dimensions in the netCDF file",
@@ -2475,8 +2472,7 @@ p <- add_argument(p, "--t2m.demvarname",
                   short="-rrwdv")
 p <- add_argument(p, "--t2m.demtopdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-rrwdtd")
 p <- add_argument(p, "--t2m.demndim",
                   help="number of dimensions in the netCDF file",
@@ -2532,8 +2528,7 @@ p <- add_argument(p, "--v.varname",
                   short="-rrwwv")
 p <- add_argument(p, "--wind.topdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the file upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-rrwwt")
 p <- add_argument(p, "--wind.ndim",
                   help="number of dimensions in the netCDF file",
@@ -2638,8 +2633,7 @@ p <- add_argument(p, "--fg.varname",
                   short="-fgv")
 p <- add_argument(p, "--fg.topdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the fg upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-fgtd")
 p <- add_argument(p, "--fg.ndim",
                   help="number of dimensions in the netCDF file",
@@ -2723,8 +2717,7 @@ p <- add_argument(p, "--fg.demvarname",
                   short="-fgdv")
 p <- add_argument(p, "--fg.demtopdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-fgdtd")
 p <- add_argument(p, "--fg.demndim",
                   help="number of dimensions in the netCDF file",
@@ -2814,8 +2807,7 @@ p <- add_argument(p, "--fge.varname",
                   short="-fgev")
 p <- add_argument(p, "--fge.topdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the fge upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-fgetd")
 p <- add_argument(p, "--fge.acc",
                   help="ensemble first-guess field is accumulated",
@@ -2899,8 +2891,7 @@ p <- add_argument(p, "--fge.demvarname",
                   short="-fgedv")
 p <- add_argument(p, "--fge.demtopdown",
                   help="logical, netCDF topdown parameter. If TRUE then turn the field upside down",
-                  type="logical",
-                  default=FALSE,
+                  flag=T,
                   short="-fgedtd")
 p <- add_argument(p, "--fge.demndim",
                   help="number of dimensions in the netCDF file",
