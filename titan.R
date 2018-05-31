@@ -1117,7 +1117,7 @@ nc4in<-function(nc.file,
     s<-NULL
   }
   # time coordinate
-  if (!is.null(out.dim$tpos)) {
+  if (!is.null(out.dim$tpos) & !is.na(out.dim$tpos) & !is.nan(out.dim$tpos)) {
     tcors  <- ncvar_get(nc, varid=out.dim$names[out.dim$tpos])
     tunits <- ncatt_get(nc, out.dim$names[out.dim$tpos],"units")$value
     tall <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
