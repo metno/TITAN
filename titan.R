@@ -1117,20 +1117,22 @@ nc4in<-function(nc.file,
     s<-NULL
   }
   # time coordinate
-  if (!is.null(out.dim$tpos) & !is.na(out.dim$tpos) & !is.nan(out.dim$tpos)) {
-    tcors  <- ncvar_get(nc, varid=out.dim$names[out.dim$tpos])
-    tunits <- ncatt_get(nc, out.dim$names[out.dim$tpos],"units")$value
-    tall <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
-    ntall<-length(tall)
-    tsel<-1:ntall
-    if (!is.null(selection)) {
-      if (!is.null(selection$t)) {
-        if (any(selection$t %in% tall)) {
-          tsel<-which(tall %in% selection$t)
+  if (!is.null(out.dim$tpos)) {
+    if (!is.na(out.dim$tpos) & !is.nan(out.dim$tpos)) {
+      tcors  <- ncvar_get(nc, varid=out.dim$names[out.dim$tpos])
+      tunits <- ncatt_get(nc, out.dim$names[out.dim$tpos],"units")$value
+      tall <- nc4t2str(nct=tcors,nct.unit=tunits,format="%Y%m%d%H%M")
+      ntall<-length(tall)
+      tsel<-1:ntall
+      if (!is.null(selection)) {
+        if (!is.null(selection$t)) {
+          if (any(selection$t %in% tall)) {
+            tsel<-which(tall %in% selection$t)
+          }
         }
       }
+      ntsel<-length(tsel)
     }
-    ntsel<-length(tsel)
   } else {
     ntsel<-1
   }
@@ -3039,7 +3041,7 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"air_temperature_2m"
       argv$fg.ndim<-5 
       argv$fg.tpos<-3
-      if (is.na(argv$fg.dimnames)) {
+      if (any(is.na(argv$fg.dimnames))) {
         argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
       } else {
         argv$fg.ndim<-length(argv$fg.dimnames)
@@ -3063,7 +3065,7 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"precipitation_amount_acc"
       argv$fg.ndim<-5 
       argv$fg.tpos<-3
-      if (is.na(argv$fg.dimnames)) {
+      if (any(is.na(argv$fg.dimnames))) {
         argv$fg.dimnames<-c("x","y","time","height0","ensemble_member")
       } else {
         argv$fg.ndim<-length(argv$fg.dimnames)
@@ -3077,7 +3079,7 @@ if (!is.na(argv$fg.type)) {
       argv$fg.varname<-"relative_humidity_2m"
       argv$fg.ndim<-5 
       argv$fg.tpos<-3
-      if (is.na(argv$fg.dimnames)) {
+      if (any(is.na(argv$fg.dimnames))) {
         argv$fg.dimnames<-c("x","y","time","height1","ensemble_member")
       } else {
         argv$fg.ndim<-length(argv$fg.dimnames)
@@ -3359,7 +3361,7 @@ if (!is.na(argv$fg.file)) {
 #  }
   if ( argv$variable=="T" &
        !file.exists(argv$fg.demfile)) {
-    print("ERROR: for temperature, a digital elevation model must be specified together with a first-guess file")
+    print("ERROR: for temperature, a digital elevation model must be specified together with a first-guess file (det)")
     quit(status=1)
   }
   suppressPackageStartupMessages(library("ncdf4")) 
@@ -3640,10 +3642,10 @@ if (argv$rr.wcor & argv$variable!="RR") {
 }
 # set the timestamp
 if (!is.na(argv$timestamp)) {
-  argv$fg.t<-argv$timestamp
-  argv$fge.t<-argv$timestamp
-  argv$wind.t<-argv$timestamp
-  argv$t2m.t<-argv$timestamp
+  if (is.na(argv$fg.t)) argv$fg.t<-argv$timestamp
+  if (is.na(argv$fge.t)) argv$fge.t<-argv$timestamp
+  if (is.na(argv$wind.t)) argv$wind.t<-argv$timestamp
+  if (is.na(argv$t2m.t)) argv$t2m.t<-argv$timestamp
 }
 #
 #-----------------------------------------------------------------------------
@@ -4348,7 +4350,7 @@ if (!is.na(argv$fg.file)) {
                                   att=argv$fg.proj4_att),
                     selection=list(t=argv$fg.t,e=fg.e)))
     if (is.null(raux)) {
-      print("ERROR while reading file:")
+      print("ERROR while reading file (var):")
       print(argv$fg.file)
       quit(status=1)
     }
@@ -4356,65 +4358,67 @@ if (!is.na(argv$fg.file)) {
   }
   rm(raux,ti,fg.e,fg.epos)
   # radar fg, data quality control 
-  if (argv$fg.type=="radar") {
-    if (argv$verbose | argv$debug)
-      print("Read radar and do the radar-DQC")
-    t0a<-Sys.time()
-    suppressPackageStartupMessages(library("igraph"))
-    dfg<-getValues(rfg)
-    # a. remove not plausible values
-    radardqc.min<-0
-    radardqc.max<-300
-    ix<-which( !is.na(dfg) & (dfg<radardqc.min | dfg>radardqc.max) )
-    if (length(ix)>0) {
-      dfg[ix]<-NA
-      rfg[]<-dfg
-    }
-    # b. remove patches of connected cells that are too small
-    #  check for small and isolated clumps (patches) of connected cells with 
-    #  precipitation greater than a predefined threshold
-    #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
-    #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
-    radardqc.clump.thr<-c(0,1)
-    radardqc.clump.n<-c(100,50)
-    for (i in 1:length(radardqc.clump.thr)) {
+  if (!is.na(argv$fg.type)) {
+    if (argv$fg.type=="radar") {
+      if (argv$verbose | argv$debug)
+        print("Read radar and do the radar-DQC")
+      t0a<-Sys.time()
+      suppressPackageStartupMessages(library("igraph"))
+      dfg<-getValues(rfg)
+      # a. remove not plausible values
+      radardqc.min<-0
+      radardqc.max<-300
+      ix<-which( !is.na(dfg) & (dfg<radardqc.min | dfg>radardqc.max) )
+      if (length(ix)>0) {
+        dfg[ix]<-NA
+        rfg[]<-dfg
+      }
+      # b. remove patches of connected cells that are too small
+      #  check for small and isolated clumps (patches) of connected cells with 
+      #  precipitation greater than a predefined threshold
+      #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
+      #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
+      radardqc.clump.thr<-c(0,1)
+      radardqc.clump.n<-c(100,50)
+      for (i in 1:length(radardqc.clump.thr)) {
+        raux<-rfg
+        if (any(dfg<=radardqc.clump.thr[i])) 
+          raux[which(dfg<=radardqc.clump.thr[i])]<-NA
+        rclump<-clump(raux)
+        fr<-freq(rclump)
+        ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
+        dfg[getValues(rclump) %in% fr[ix,1]]<-NA
+        rfg[]<-dfg
+        rm(raux,fr,ix,rclump)
+      }
+      # c. remove outliers. Check for outliers in square boxes of 51km by 51km
       raux<-rfg
-      if (any(dfg<=radardqc.clump.thr[i])) 
-        raux[which(dfg<=radardqc.clump.thr[i])]<-NA
-      rclump<-clump(raux)
-      fr<-freq(rclump)
-      ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
-      dfg[getValues(rclump) %in% fr[ix,1]]<-NA
-      rfg[]<-dfg
-      rm(raux,fr,ix,rclump)
-    }
-    # c. remove outliers. Check for outliers in square boxes of 51km by 51km
-    raux<-rfg
-    daux<-boxcox(x=dfg,lambda=0.5)
-    raux[]<-daux
-    radardqc.outl.fact<-51
-    # aggregate over boxes of fact x fact cells, take the mean
-    avg<-getValues(
-          crop(
-           focal(
-            extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-            w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=mean,na.rm=T),
-          raux) )
-    stdev<-getValues(
+      daux<-boxcox(x=dfg,lambda=0.5)
+      raux[]<-daux
+      radardqc.outl.fact<-51
+      # aggregate over boxes of fact x fact cells, take the mean
+      avg<-getValues(
             crop(
              focal(
               extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-              w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
+              w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=mean,na.rm=T),
             raux) )
-    ix<-which(stdev>0)
-    # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
-    suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
-    if (length(suspect)>0) dfg[ix[suspect]]<-NA
-    rfg[]<-dfg
-    rm(raux,daux,avg,stdev,ix,suspect,dfg)
-    if (argv$radarout) rrad<-rfg
-    t1a<-Sys.time()
-    print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+      stdev<-getValues(
+              crop(
+               focal(
+                extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
+                w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
+              raux) )
+      ix<-which(stdev>0)
+      # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
+      suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
+      if (length(suspect)>0) dfg[ix[suspect]]<-NA
+      rfg[]<-dfg
+      rm(raux,daux,avg,stdev,ix,suspect,dfg)
+      if (argv$radarout) rrad<-rfg
+      t1a<-Sys.time()
+      print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+    }
   }
   if (argv$proj4fg!=argv$proj4to) {
     coord<-SpatialPoints(cbind(data$lon,data$lat),
@@ -4682,6 +4686,17 @@ if (!is.na(argv$fge.file)) {
   # debug
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
+    print(paste("fge sd(5,25,50,75,95-th)=",
+          toString(round(as.vector(quantile(fge.sd,
+                             probs=c(0.05,0.25,0.5,0.75,0.95),
+                             na.rm=T)),2))))
+    print(paste("fge iqr(5,25,50,75,95-th)=",
+          toString(round(as.vector(quantile(fge.q75,
+                             probs=c(0.05,0.25,0.5,0.75,0.95),
+                             na.rm=T))-
+                         as.vector(quantile(fge.q25,
+                             probs=c(0.05,0.25,0.5,0.75,0.95),
+                             na.rm=T)),2))))
     print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
     print("+---------------------------------+")
   }
