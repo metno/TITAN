@@ -13,6 +13,8 @@ Available checks are (applied sequentially as in this list):
 
 * Climatological check, predefined range for each month (optional)
 
+* Buddy-check (event-based)
+
 * Buddy-check
 
 * Isolated event test (STEVE) both over and under multiple thresholds (optional)
