@@ -95,27 +95,65 @@ nstat<-function(xy,drmin) {
 }
 
 #+ summary statistics in a box of /pm "drmin" centered on location "ixyz" 
-statSpat<-function(ixyzt,drmin,gamma=-0.0065) {
+statSpat<-function(ixyztp,
+                   drmin,
+                   gamma=-0.0065,
+                   priority=F,
+                   statistics="buddy_standard", #buddy_event
+                   event_threshold=NULL,
+                   event_def=NULL) {
 # input
-# ixyz=vector. 1=index;2=x;3=y;4=z;5=t
+# ixyz=vector. 1=index;2=x;3=y;4=z;5=t;6=priority
 # output
 # 1=nobs;2=maxVertDist[m];3=mean(temp);4=sd(temp)
 # NOTE: temperature is adjusted for elevation differences (gamma=-0.0065 K/m)
 #------------------------------------------------------------------------------
-  if (any(is.na(ixyzt))) return(c(NA,NA,NA,NA))
-  i<-which(abs(ixyzt[2]-xtot)<=drmin & 
-           abs(ixyzt[3]-ytot)<=drmin)
-  if (length(i)==1) return(c(1,NA,NA,NA))
-  dz<-ztot[i]-ixyzt[4]
-  if (argv$variable=="T") {
-    tcor<-ttot[i]-gamma*dz
+  if (any(is.na(ixyztp))) return(c(NA,NA,NA,NA))
+  if (priority) {
+    i<-which(abs(ixyztp[2]-xtot)<=drmin & 
+             abs(ixyztp[3]-ytot)<=drmin &
+             itot!=ixyztp[1]            &
+             (priotot<ixyztp[6] | priotot<0) )
   } else {
-    tcor<-ttot[i]
+    i<-which(abs(ixyztp[2]-xtot)<=drmin & 
+             abs(ixyztp[3]-ytot)<=drmin &
+             itot!=ixyztp[1])
   }
-  tmean<-mean(tcor) 
-  tsd<-sd(tcor) 
-  dz_mx<-max(abs(dz))
-  return(c(length(i),round(dz_mx,0),round(tmean,1),round(tsd,3)))
+  if (length(i)==0) return(c(0,NA,NA,NA))
+  if (length(i)==1) return(c(1,NA,NA,NA))
+  dz<-ztot[i]-ixyztp[4]
+  if (argv$variable=="T") {
+    t2use<-ttot[i]-gamma*dz
+  } else {
+    t2use<-ttot[i]
+  }
+  if (statistics=="buddy_standard") {
+    tmean<-mean(t2use) 
+    tsd<-sd(t2use) 
+    dz_mx<-max(abs(dz))
+    return(c(length(i),round(dz_mx,0),round(tmean,1),round(tsd,3)))
+  } else if (statistics=="buddy_event") {
+    if (event_def=="gt") {
+      eve<-ifelse(ixyztp[4]>event_threshold,1,0)
+      eve_yes.prob<-which(t2use>event_threshold)/length(i)
+    } else if (event_def=="ge") {
+      eve<-ifelse(ixyztp[4]>=event_threshold,1,0)
+      eve_yes.prob<-which(t2use>=event_threshold)/length(i)
+    } else if (event_def=="lt") {
+      eve<-ifelse(ixyztp[4]<event_threshold,1,0)
+      eve_yes.prob<-which(t2use<event_threshold)/length(i)
+    } else if (event_def=="le") {
+      eve<-ifelse(ixyztp[4]<=event_threshold,1,0)
+      eve_yes.prob<-which(t2use<=event_threshold)/length(i)
+    } else {
+      eve<-NA
+      eve_yes.prob<-NA
+    }
+    dz_mx<-max(abs(dz))
+    return(c(length(i),round(dz_mx,0),round(eve,0),eve_yes.prob))
+  } else {
+    return(c(NA,NA,NA,NA))
+  }
 }
 
 #+ Correction for wind-induced undercatch of precipitation (Wolff et al., 2015)
@@ -1560,6 +1598,11 @@ p <- add_argument(p, "--puddle.code",
                   type="numeric",
                   default=12,
                   short="-ccrrtc")
+p <- add_argument(p, "--buddy_eve.code",
+  help="quality code returned in case of the buddy check event-based fails",
+                  type="numeric",
+                  default=13,
+                  short="-buddyec")
 p <- add_argument(p, "--black.code",
     help="quality code assigned to observations listed in the blacklist",
                   type="numeric",
@@ -1784,6 +1827,48 @@ p <- add_argument(p, "--vmaxsign.clim",
                   nargs=12,
                   default=c(0,0,0,0,0,0,0,0,0,0,0,0))
 #.............................................................................. 
+# Buddy-check (event-based)
+p <- add_argument(p, "--buddy_eve",
+                  help="do the buddy check event-based",
+                  flag=T,
+                  short="-Be")
+p <- add_argument(p, "--thr_eve.buddy_eve",
+                  help=paste("numeric vector with the thresholds used to define events (same units of the specified variable). Each threshold defines two events: (i) less than the threshold and (ii) greater or equal to it."),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dr.buddy_eve",
+                  help="numeric vector of the same dimension of thr_eve.buddy_eve. perform the buddy_eve-check in a dr-by-dr square-box around each observation [m] (default is 3000m)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--i.buddy_eve",
+                  help="number of buddy_eve-check iterations",
+                  type="integer",
+                  default=1,
+                  short="-iBe")
+p <- add_argument(p, "--thr.buddy_eve",
+                  help="buddy_eve-check threshold (same dimension of thr_eve.buddy_eve). flag observation if: is event(no) and at least a fraction of thr.buddy_eve of the neighbouring observations are event(yes) OR is event(yes) and at least a fraction of thr.buddy_eve of the neighbouring observations are event(no). (default is 0.9, i.e. 90% of the neighbouring observations)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--n.buddy_eve",
+                  help="numeric vector of the same dimension of thr_eve.buddy_eve. minimum number of neighbouring observations to perform the buddy-check (dafualt is set to 5)",
+                  type="integer",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--dz.buddy_eve",
+                  help="numeric vector of the same dimension of thr_eve.buddy_eve. maximum allowed range of elevation in a square-box to perform the buddy_eve-check (i.e. no check if elevation > dz.buddy_eve) (default is 30m)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--prio.buddy_eve",
+                  help="priorities used in the buddy_eve check. One positive value for each provider. The lower the number the more priority that provider gets. In the first round of the buddy_eve check, high priority observations are not compared against lower priority observations. From the second round onwards, all the providers are set to the same priority value.",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-prBe")
+#.............................................................................. 
 # Buddy-check
 p <- add_argument(p, "--dr.buddy",
                   help="perform the buddy-check in a dr-by-dr square-box around each observation [m]",
@@ -1810,6 +1895,12 @@ p <- add_argument(p, "--dz.buddy",
                   type="numeric",
                   default=30,
                   short="-zB")
+p <- add_argument(p, "--prio.buddy",
+                  help="priorities used in the buddy check. One positive value for each provider. The lower the number the more priority that provider gets. In the first round of the buddy check, high priority observations are not compared against lower priority observations. From the second round onwards, all the providers are set to the same priority value.",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-prB")
 #.............................................................................. 
 # isolated stations
 p <- add_argument(p, "--dr.isol",
@@ -2284,6 +2375,12 @@ p <- add_argument(p, "--doit.buddy",
                   default=NA,
                   nargs=Inf,
                   short="-dob")
+p <- add_argument(p, "--doit.buddy_eve",
+                  help=paste("customize the buddy_eve-test application.",comstr),
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf,
+                  short="-dobe")
 p <- add_argument(p, "--doit.sct",
                   help=paste("customize the application of SCT.",comstr),
                   type="numeric",
@@ -3495,6 +3592,7 @@ if (length(argv$eps2.sct)!=nfin)
   argv$eps2.sct<-rep(argv$eps2.sct[1],length=nfin)
 # doit flags
 if (any(is.na(argv$doit.buddy))) argv$doit.buddy<-rep(1,length=nfin)
+if (any(is.na(argv$doit.buddy_eve))) argv$doit.buddy_eve<-rep(1,length=nfin)
 if (any(is.na(argv$doit.sct))) argv$doit.sct<-rep(1,length=nfin)
 if (any(is.na(argv$doit.clim))) argv$doit.clim<-rep(1,length=nfin)
 if (any(is.na(argv$doit.dem))) argv$doit.dem<-rep(1,length=nfin)
@@ -3505,6 +3603,10 @@ if (any(is.na(argv$doit.fge))) argv$doit.fge<-rep(1,length=nfin)
 if (any(is.na(argv$doit.puddle))) argv$doit.puddle<-rep(1,length=nfin)
 if (any(!(argv$doit.buddy %in% c(0,1,2)))) {
   print("doit.buddy must contain only 0,1,2")
+  quit(status=1)
+}
+if (any(!(argv$doit.buddy_eve %in% c(0,1,2)))) {
+  print("doit.buddy_eve must contain only 0,1,2")
   quit(status=1)
 }
 if (any(!(argv$doit.sct %in% c(0,1,2)))) {
@@ -3546,6 +3648,13 @@ argv$vmin<-argv$vmin*(-1)**argv$vminsign
 argv$vmax<-argv$vmax*(-1)**argv$vmaxsign
 argv$vmin.clim<-argv$vmin.clim*(-1)**argv$vminsign.clim
 argv$vmax.clim<-argv$vmax.clim*(-1)**argv$vmaxsign.clim
+# buddy priorities
+if (is.null(argv$prio.buddy)) argv$prio.buddy<-rep(-1,length=nfin)
+if (any(is.na(argv$prio.buddy))) argv$prio.buddy<-rep(-1,length=nfin)
+if (length(argv$prio.buddy)!=nfin) argv$prio.buddy<-rep(-1,length=nfin)
+if (is.null(argv$prio.buddy_eve)) argv$prio.buddy_eve<-rep(-1,length=nfin)
+if (any(is.na(argv$prio.buddy_eve))) argv$prio.buddy_eve<-rep(-1,length=nfin)
+if (length(argv$prio.buddy_eve)!=nfin) argv$prio.buddy_eve<-rep(-1,length=nfin)
 # puddle checks
 if (argv$puddle) {
   if (!file.exists(file.path(argv$titan_path,"oi_rr","oi_rr_first.so"))) {
@@ -3566,6 +3675,25 @@ if (argv$puddle) {
     quit(status=1)
   }
 }
+# buddy_eve checks
+if (any(is.na(argv$thr_eve.buddy_eve)))
+  argv$thr_eve.buddy_eve<-c(0.1,1,10)
+if (any(is.na(argv$dr.buddy_eve)))
+  argv$dr.buddy_eve<-c(3000,3000,3000)
+if (length(argv$dr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
+  argv$dr.buddy_eve<-c(3000,3000,3000)
+if (any(is.na(argv$thr.buddy_eve)))
+  argv$thr.buddy_eve<-c(0.9,0.9,1)
+if (length(argv$thr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
+  argv$thr.buddy_eve<-c(0.9,0.9,1)
+if (any(is.na(argv$n.buddy_eve)))
+  argv$n.buddy_eve<-c(5,5,5)
+if (length(argv$n.buddy_eve)!=length(argv$n_eve.buddy_eve))
+  argv$n.buddy_eve<-c(5,5,5)
+if (any(is.na(argv$dz.buddy_eve)))
+  argv$dz.buddy_eve<-c(1500,1500,1500)
+if (length(argv$dz.buddy_eve)!=length(argv$n_eve.buddy_eve))
+  argv$dz.buddy_eve<-c(1500,1500,1500)
 # STEVE checks
 if (argv$steve) {
   suppressPackageStartupMessages(library("tripack"))
@@ -3663,12 +3791,12 @@ for (f in 1:nfin) {
                      stringsAsFactors=F,
                      strip.white=T)
   # varidx is used also in the output session
-  varidx<-match(c(argv$varname.lat[f],
+  varidxtmp<-match(c(argv$varname.lat[f],
                   argv$varname.lon[f],
                   argv$varname.elev[f],
                   argv$varname.value[f]),
                 names(datain))
-  if (any(is.na(varidx))) {
+  if (any(is.na(varidxtmp))) {
     print("ERROR in the specification of the variable names")
     print(paste("latitutde=",argv$varname.lat[f]))
     print(paste("longitude=",argv$varname.lon[f]))
@@ -3679,7 +3807,7 @@ for (f in 1:nfin) {
     print(names(datain))
     quit(status=1)
   }
-  datatmp<-data.frame(datain[,varidx])
+  datatmp<-data.frame(datain[,varidxtmp])
   names(datatmp)<-c("lat","lon","elev","value")
   datatmp$lat<-suppressWarnings(as.numeric(datatmp$lat))
   datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
@@ -3712,6 +3840,7 @@ for (f in 1:nfin) {
     rm(out)
   }
   if (first) {
+    varidx<-varidxtmp
     data<-datatmp
     first<-F
     z<-auxz
@@ -3722,9 +3851,11 @@ for (f in 1:nfin) {
       # varidx.opt is used in the output session
       varidx.opt<-match(argv$varname.opt,
                         names(datain))
-      dataopt<-array(data=NA,dim=c(ndatatmp,
-                                   length(argv$varname.opt)))
-      dataopt<-datain[,varidx.opt[which(!is.na(varidx.opt))],drop=F]
+      dataopt<-as.data.frame(array(data=NA,
+                             dim=c(ndatatmp,length(argv$varname.opt))))
+      names(dataopt)<-argv$varname.opt
+      if (any(!is.na(varidx.opt)))
+        dataopt<-datain[,varidx.opt[which(!is.na(varidx.opt))],drop=F]
     }
   } else {
     data<-rbind(data,datatmp)
@@ -3735,19 +3866,37 @@ for (f in 1:nfin) {
     if (any(!is.na(argv$varname.opt))) {
       varidx.opt.check<-match(argv$varname.opt,
                         names(datain))
-      if (any(varidx.opt.check!=varidx.opt | 
-              (is.na(varidx.opt.check) & !is.na(varidx.opt)) |
-              (is.na(varidx.opt) & !is.na(varidx.opt.check)) )) {
-        print("ERROR the header of file")
-        print(argv$input.files[f])
-        print("is different from the header of the first file")
-        print(argv$input.files[1])
-        quit(status=1)
+      if (any(!is.na(varidx.opt.check) & is.na(varidx.opt))) {
+        ixopt<-which(!is.na(varidx.opt.check) & is.na(varidx.opt))
+        for (iopt in ixopt) {
+          if (varidx.opt.check[iopt] %in% varidx.opt) {
+            varidx.opt[iopt]<-max(varidx.opt,na.rm=T)+1
+          } else { 
+            varidx.opt[iopt]<-varidx.opt.check[iopt]
+          }
+        }
+        rm(ixopt,iopt)
       }
+#      if (any(varidx.opt.check!=varidx.opt | 
+#              (is.na(varidx.opt.check) & !is.na(varidx.opt)) |
+#              (is.na(varidx.opt) & !is.na(varidx.opt.check)) )) {
+#        print("WARNING the header of file")
+#        print(argv$input.files[f])
+#        print("is different from the header of the first file")
+#        print(argv$input.files[1])
+#      }  
+      dataopttmp<-as.data.frame(array(data=NA,
+                                dim=c(ndatatmp,length(argv$varname.opt))))
+      names(dataopttmp)<-argv$varname.opt
+      if (any(!is.na(varidx.opt.check)))
+        dataopttmp<-datain[,varidx.opt.check[which(!is.na(varidx.opt.check))],
+                           drop=F]
       dataopt<-rbind(dataopt,
-        datain[,varidx.opt[which(!is.na(varidx.opt))],drop=F])
+                     dataopttmp)
+      rm(dataopttmp)
     }
   }
+  rm(varidxtmp)
 }
 rm(datatmp,datain,auxz,aux)
 ndata<-length(data$lat)
@@ -4794,16 +4943,112 @@ if (!is.na(argv$month.clim)) {
 }
 #
 #-----------------------------------------------------------------------------
-# buddy check 
+# buddy check (event-based)
+#  Define an event compare each observation against the average of neighbouring observations 
+# NOTE: keep-listed stations are used but they canNOT be flagged here
+if (argv$buddy_eve) {
+  if (argv$verbose | argv$debug) nprev<-0
+  # set doit vector
+  doit<-vector(length=ndata,mode="numeric")
+  doit[]<-NA
+  prio<-vector(length=ndata,mode="numeric")
+  prio[]<-NA
+  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy_eve[f]
+  for (f in 1:nfin) prio[data$prid==argv$prid[f]]<-argv$prio.buddy_eve[f]
+  # test
+  print(paste0("buddy_eve-check (",argv$buddy_eve.code,")"))
+  print(paste0("priorities ",toString(argv$prio.buddy_eve)))
+  for (i in 1:argv$i.buddy_eve) {
+    for (j in 1:length(argv$thr_eve.buddy_eve)) {
+      # use only (probably) good observations with doit!=0
+      ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
+                 doit!=0 )
+      t0a<-Sys.time()
+      if (length(ix)>0) {
+        # define global 1D vector used in statSpat (1D for fast access)
+        itot<-1:length(ix)
+        xtot<-x[ix]
+        ytot<-y[ix]
+        ztot<-as.numeric(z[ix])
+        priotot<-as.numeric(prio[ix])
+        ttot<-data$value[ix]
+        # apply will loop over this 4D array
+        ixyztp_tot<-cbind(itot,xtot,ytot,ztot,ttot,priotot)
+        stSp_buddy_eve<-apply(ixyztp_tot,
+                              FUN=statSpat,
+                              MARGIN=1,
+                              drmin=argv$dr.buddy_eve[j],
+                              priority=ifelse(i==1,T,F),
+                              statistics="buddy_event", #buddy_event
+                              event_threshold=argv$thr_eve.buddy_eve[j],
+                              event_def="lt")
+        # suspect if:
+        if (argv$thr.buddy_eve[j]<1) { 
+          sus<-which( 
+      (stSp_buddy_eve[1,]>argv$n.buddy_eve[j] & 
+       stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+       is.na(dqcflag[ix])) &
+      doit[ix]==1 & 
+      ((stSp_buddy_eve[3,]==0 & stSp_buddy_eve[4,]>=argv$thr.buddy_eve[j]) |
+       (stSp_buddy_eve[3,]==1 & stSp_buddy_eve[4,]<=(1-argv$thr.buddy_eve[j]))))
+        } else if (argv$thr.buddy_eve[j]>=1) {
+          nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
+          nno<-stSp_buddy_eve[1,]-nyes
+          sus<-which( 
+      (stSp_buddy_eve[1,]>argv$n.buddy_eve[j] & 
+       stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+       is.na(dqcflag[ix])) &
+      doit[ix]==1 & 
+      ((stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
+       (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j])))
+          rm(nyes,nno)
+        } else {
+          sus<-integer(0)
+        }
+        # set dqcflag
+        if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
+      } else {
+        print("no valid observations left, no buddy_eve check")
+      }
+      if (argv$verbose | argv$debug) {
+        t1a<-Sys.time()
+        print(paste("buddy_eve-check, iteration=",i,
+                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+        ncur<-length(which(dqcflag==argv$buddy_eve.code))
+        print(paste("# suspect observations=",ncur-nprev))
+        nprev<-length(which(dqcflag==argv$buddy_eve.code))
+      }
+    }
+  }
+  rm(doit)
+  if (argv$debug) 
+    save.image(file.path(argv$debug.dir,"dqcres_buddy_eve.RData")) 
+  if (argv$verbose | argv$debug) 
+    print("+---------------------------------+")
+  if (exists("stSp_buddy_eve")) rm(stSp_buddy_eve)
+  if (exists("sus")) rm(sus)
+  if (exists("xtot")) rm(xtot)
+  if (exists("ytot")) rm(ytot)
+  if (exists("ztot")) rm(ztot)
+  if (exists("itot")) rm(itot)
+  if (exists("ixyztp_tot")) rm(ixyztp_tot)
+}
+#
+#-----------------------------------------------------------------------------
+# buddy check (standard)
 #  compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$verbose | argv$debug) nprev<-0
 # set doit vector
 doit<-vector(length=ndata,mode="numeric")
 doit[]<-NA
+prio<-vector(length=ndata,mode="numeric")
+prio[]<-NA
 for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy[f]
+for (f in 1:nfin) prio[data$prid==argv$prid[f]]<-argv$prio.buddy[f]
 # test
 print(paste0("buddy-check (",argv$buddy.code,")"))
+print(paste0("priorities ",toString(argv$prio.buddy)))
 for (i in 1:argv$i.buddy) {
   # use only (probably) good observations with doit!=0
   ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
@@ -4811,23 +5056,29 @@ for (i in 1:argv$i.buddy) {
   t0a<-Sys.time()
   if (length(ix)>0) {
     # define global 1D vector used in statSpat (1D for fast access)
+    itot<-1:length(ix)
     xtot<-x[ix]
     ytot<-y[ix]
     ztot<-as.numeric(z[ix])
+    priotot<-as.numeric(prio[ix])
     if (argv$variable=="RR") {
       ttot<-boxcox(x=data$value[ix],lambda=argv$boxcox.lambda)
     } else {
       ttot<-data$value[ix]
     }
     # apply will loop over this 4D array
-    ixyzt_tot<-cbind(1:length(xtot),xtot,ytot,ztot,ttot)
-    stSp_3km<-apply(ixyzt_tot,FUN=statSpat,MARGIN=1,drmin=argv$dr.buddy)
+    ixyztp_tot<-cbind(itot,xtot,ytot,ztot,ttot,priotot)
+    stSp_buddy<-apply(ixyztp_tot,
+                      FUN=statSpat,
+                      MARGIN=1,
+                      drmin=argv$dr.buddy,
+                      priority=ifelse(i==1,T,F))
     # probability of gross error
-    pog<-abs(ttot-stSp_3km[3,])/stSp_3km[4,]
+    pog<-abs(ttot-stSp_buddy[3,])/stSp_buddy[4,]
     # suspect if: 
     sus<-which( (pog>argv$thr.buddy & 
-                 stSp_3km[1,]>argv$n.buddy & 
-                 stSp_3km[2,]<argv$dz.buddy &
+                 stSp_buddy[1,]>argv$n.buddy & 
+                 stSp_buddy[2,]<argv$dz.buddy &
                  is.na(dqcflag[ix])) &
                  doit[ix]==1 )
     # set dqcflag
@@ -4849,13 +5100,14 @@ if (argv$debug)
   save.image(file.path(argv$debug.dir,"dqcres_buddy.RData")) 
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
-if (exists("stSp_3km")) rm(stSp_3km)
+if (exists("stSp_buddy")) rm(stSp_buddy)
 if (exists("sus")) rm(sus)
 if (exists("pog")) rm(pog)
 if (exists("xtot")) rm(xtot)
 if (exists("ytot")) rm(ytot)
 if (exists("ztot")) rm(ztot)
-if (exists("ixyzt_tot")) rm(ixyzt_tot)
+if (exists("itot")) rm(itot)
+if (exists("ixyztp_tot")) rm(ixyztp_tot)
 #
 #-----------------------------------------------------------------------------
 # STEVE - isolated event test (YES/NO)
@@ -5154,7 +5406,7 @@ for (i in 1:argv$i.sct) {
       ir<-1:ncell(r)
       r[]<-1:ncell(r)
     }
-    # define global 1D vector used in statSpat (1D for fast access)
+    # define global 1D vector used in sct (1D for fast access)
     xtot<-x[ix]
     ytot<-y[ix]
     ztot<-z[ix]
@@ -5453,7 +5705,7 @@ for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.iso[f]
 #
 ix<-which(is.na(dqcflag) & doit!=0)
 if (length(ix)>0) {
-  # define global 1D vector used in statSpat (1D for fast access)
+  # define global 1D vector used in nstat (1D for fast access)
   xtot<-x[ix]
   ytot<-y[ix]
   xy<-cbind(xtot,ytot)
