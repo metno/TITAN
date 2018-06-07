@@ -103,55 +103,78 @@ statSpat<-function(ixyztp,
                    event_threshold=NULL,
                    event_def=NULL) {
 # input
-# ixyz=vector. 1=index;2=x;3=y;4=z;5=t;6=priority
+# 123456
+# ixyztp=vector. 1=index;2=x;3=y;4=z;5=t;6=priority
 # output
+# "buddy_standard"
 # 1=nobs;2=maxVertDist[m];3=mean(temp);4=sd(temp)
+# "buddy_event"
+# 1=nobs;2=maxVertDist[m];
+# 3=event occurrence (1=yes,0=no);
+# 4=frequency of event=yes in the surroundings
 # NOTE: temperature is adjusted for elevation differences (gamma=-0.0065 K/m)
 #------------------------------------------------------------------------------
-  if (any(is.na(ixyztp))) return(c(NA,NA,NA,NA))
-  if (priority) {
-    i<-which(abs(ixyztp[2]-xtot)<=drmin & 
-             abs(ixyztp[3]-ytot)<=drmin &
-             itot!=ixyztp[1]            &
-             (priotot<ixyztp[6] | priotot<0) )
-  } else {
-    i<-which(abs(ixyztp[2]-xtot)<=drmin & 
-             abs(ixyztp[3]-ytot)<=drmin &
-             itot!=ixyztp[1])
+  if (any(is.na(ixyztp))) {
+#    print("1")
+    return(c(NA,NA,NA,NA))
   }
-  if (length(i)==0) return(c(0,NA,NA,NA))
-  if (length(i)==1) return(c(1,NA,NA,NA))
-  dz<-ztot[i]-ixyztp[4]
-  if (argv$variable=="T") {
-    t2use<-ttot[i]-gamma*dz
+  if (priority) {
+    ixx<-which(abs(ixyztp[2]-xtot)<=drmin & 
+               abs(ixyztp[3]-ytot)<=drmin &
+               itot!=ixyztp[1]            &
+               (priotot<ixyztp[6] | priotot<0) )
   } else {
-    t2use<-ttot[i]
+    ixx<-which(abs(ixyztp[2]-xtot)<=drmin & 
+               abs(ixyztp[3]-ytot)<=drmin &
+               itot!=ixyztp[1])
+  }
+  if (length(ixx)==0) {
+#    print("2")
+    return(c(0,NA,NA,NA))
+  }
+  if (length(ixx)==1) {
+#    print("3")
+    return(c(1,NA,NA,NA))
+  }
+  dz<-ztot[ixx]-ixyztp[4]
+  if (argv$variable=="T") {
+    t2use<-ttot[ixx]-gamma*dz
+  } else {
+    t2use<-ttot[ixx]
   }
   if (statistics=="buddy_standard") {
     tmean<-mean(t2use) 
     tsd<-sd(t2use) 
     dz_mx<-max(abs(dz))
-    return(c(length(i),round(dz_mx,0),round(tmean,1),round(tsd,3)))
+    return(c(length(ixx),round(dz_mx,0),round(tmean,1),round(tsd,3)))
   } else if (statistics=="buddy_event") {
     if (event_def=="gt") {
-      eve<-ifelse(ixyztp[4]>event_threshold,1,0)
-      eve_yes.prob<-which(t2use>event_threshold)/length(i)
+      eve<-as.integer(ifelse(ixyztp[5]>event_threshold,1,0))
+      eve_yes.prob<-length(which(t2use>event_threshold))/length(ixx)
     } else if (event_def=="ge") {
-      eve<-ifelse(ixyztp[4]>=event_threshold,1,0)
-      eve_yes.prob<-which(t2use>=event_threshold)/length(i)
+      eve<-as.integer(ifelse(ixyztp[5]>=event_threshold,1,0))
+      eve_yes.prob<-length(which(t2use>=event_threshold))/length(ixx)
     } else if (event_def=="lt") {
-      eve<-ifelse(ixyztp[4]<event_threshold,1,0)
-      eve_yes.prob<-which(t2use<event_threshold)/length(i)
+      eve<-as.integer(ifelse(ixyztp[5]<event_threshold,1,0))
+      eve_yes.prob<-length(which(t2use<event_threshold))/length(ixx)
     } else if (event_def=="le") {
-      eve<-ifelse(ixyztp[4]<=event_threshold,1,0)
-      eve_yes.prob<-which(t2use<=event_threshold)/length(i)
+      eve<-as.integer(ifelse(ixyztp[5]<=event_threshold,1,0))
+      eve_yes.prob<-length(which(t2use<=event_threshold))/length(ixx)
     } else {
       eve<-NA
       eve_yes.prob<-NA
     }
     dz_mx<-max(abs(dz))
-    return(c(length(i),round(dz_mx,0),round(eve,0),eve_yes.prob))
+#    print(paste(
+#          ixyztp[6],
+#          length(ixx),
+#          round(dz_mx,0),
+#          eve,
+#          eve_yes.prob,
+#          length(ixx)*eve_yes.prob))
+    return(c(length(ixx),round(dz_mx,0),eve,eve_yes.prob))
   } else {
+#    print("4")
     return(c(NA,NA,NA,NA))
   }
 }
@@ -2241,7 +2264,7 @@ p <- add_argument(p, "--ccrrt",
                   flag=T,
                   short="-ccrrtf")
 p <- add_argument(p, "--ccrrt.tmin",
-                  help="temperature thresholds (vector)",
+                  help="temperature thresholds (vector, negative values start with \"_\" (e.g. _2=-2)",
 #                  type="numeric",
                   type="character",
                   default=NA,
@@ -4445,13 +4468,13 @@ if (argv$rr.wcor) {
   data$vsigma<-res$sigma
   rm(res)
   if (argv$debug | argv$verbose) {
-    ix<-which(data$value>=0 & !is.na(data$value) &
-              is.na(dqcflag))
+    print(paste0("# observations (ok-so-far) = ",
+          length(which(!is.na(data$value) & is.na(dqcflag)))))
     print(paste0("# observations (>=0 & ok-so-far) = ",
-          length(which(data$value>=0 & !is.na(data$value) &
-              is.na(dqcflag)))))
+          length(which(data$value>=0 & !is.na(data$value) & is.na(dqcflag)))))
     print(paste0("# not NAs-observations set to NAs after this correction = ",
           length(which( is.na(data$value) & !is.na(data$rawvalue) ))))
+    ix<-which(data$value>=0 & !is.na(data$value) & is.na(dqcflag))
     if (length(ix)>0) {
       lm<-lm(data$value[ix]~data$rawvalue[ix]+0)
       print(paste0("linear regression, obs_adjusted = ",
@@ -4931,9 +4954,12 @@ if (length(ix)>0) dqcflag[ix]<-argv$p.code
 if (argv$verbose | argv$debug) {
   print(paste0("plausibility test (",argv$p.code,")"))
   print(paste("min/max thresholds =",argv$vmin,argv$vmax))
-  print(paste("# <min=",length(which(dqcflag==argv$p.code & data$value<argv$vmin))))
-  print(paste("# >max=",length(which(dqcflag==argv$p.code & data$value>argv$vmax))))
-  print(paste("# suspect observations=",length(which(dqcflag==argv$p.code))))
+  print(paste("# <min=",length(which(dqcflag==argv$p.code & 
+                                     data$value<argv$vmin))))
+  print(paste("# >max=",length(which(dqcflag==argv$p.code & 
+                                     data$value>argv$vmax))))
+  print(paste("# suspect observations=",length(which(dqcflag==argv$p.code & 
+                                                     !is.na(dqcflag)))))
   print("+---------------------------------+")
 }
 if (argv$debug) 
@@ -5018,8 +5044,8 @@ if (argv$buddy_eve) {
        stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
        is.na(dqcflag[ix])) &
       doit[ix]==1 & 
-      ((stSp_buddy_eve[3,]==0 & stSp_buddy_eve[4,]>=argv$thr.buddy_eve[j]) |
-       (stSp_buddy_eve[3,]==1 & stSp_buddy_eve[4,]<=(1-argv$thr.buddy_eve[j]))))
+      ( (stSp_buddy_eve[3,]==0 & ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
+        (stSp_buddy_eve[3,]==1 & (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
         } else if (argv$thr.buddy_eve[j]>=1) {
           nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
           nno<-stSp_buddy_eve[1,]-nyes
@@ -5028,8 +5054,8 @@ if (argv$buddy_eve) {
        stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
        is.na(dqcflag[ix])) &
       doit[ix]==1 & 
-      ((stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
-       (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j])))
+      ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
+        (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
           rm(nyes,nno)
         } else {
           sus<-integer(0)
@@ -5042,13 +5068,14 @@ if (argv$buddy_eve) {
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
         print(paste("buddy_eve-check, iteration=",i,
+                    "event is: less than",argv$thr_eve.buddy_eve[j],
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         ncur<-length(which(dqcflag==argv$buddy_eve.code))
         print(paste("# suspect observations=",ncur-nprev))
         nprev<-length(which(dqcflag==argv$buddy_eve.code))
       }
-    }
-  }
+    } # end for j
+  }  # end for i
   rm(doit)
   if (argv$debug) 
     save.image(file.path(argv$debug.dir,"dqcres_buddy_eve.RData")) 

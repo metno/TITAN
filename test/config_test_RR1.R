@@ -1,6 +1,6 @@
 conf<-list(
            verbose=T,
-           debug=F,
+           debug=T,
            debug.dir="/home/cristianl/scratch",
            #
            spatconv=T,
