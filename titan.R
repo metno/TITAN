@@ -4921,7 +4921,6 @@ rm(ix)
 if (exists("meta")) rm(meta)
 if (argv$debug) 
   save.image(file.path(argv$debug.dir,"dqcres_meta.RData")) 
-q()
 #
 #-----------------------------------------------------------------------------
 # plausibility test
