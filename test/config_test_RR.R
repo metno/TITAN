@@ -77,6 +77,8 @@ conf<-list(
            eps2.puddle=0.1,
            n_lt.puddle=c(5,2),
            n_ge.puddle=c(5,2),
+#           n_lt.puddle=c(400,25),
+#           n_ge.puddle=c(400,25),
            # SCT
            i.sct=3,
            n.sct=50,

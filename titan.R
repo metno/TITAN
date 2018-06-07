@@ -3937,25 +3937,31 @@ if (argv$verbose | argv$debug) {
 dqcflag.bak<-dqcflag # .bak, if dem.fill to distinguish NAs / keep.code
 ix<-which(is.na(dqcflag) | dqcflag==argv$keep.code)
 if (length(ix)>0) {
-  meta<-!is.na(data$lat[ix]) & 
-        !is.na(data$lon[ix]) &
-        !is.na(z[ix]) & 
-        z[ix]>=argv$zmin & 
-        z[ix]<=argv$zmax &
-        !is.na(data$value[ix]) 
-  if (any(!meta)) dqcflag[ix[which(!meta)]]<-argv$nometa.code
+  meta<-is.na(data$lat[ix]) | 
+        is.na(data$lon[ix]) |
+        is.na(z[ix]) | 
+        z[ix]<argv$zmin | 
+        z[ix]>argv$zmax |
+        is.na(data$value[ix]) 
+  if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
 }
 if (argv$verbose | argv$debug) {
-  print("test for no metdata")
-  print(paste("# observations lacking metadata and/or NAs=",length(which(dqcflag==argv$nometa.code & !is.na(argv$nometa.code)))))
-  print(paste("  # NAs             =",length(which(is.na(data$value[ix])))))
-  print(paste("  # lon-lat missing =",length(which(is.na(data$lat[ix]) | 
-                                                  is.na(data$lon[ix])))))
-  print(paste("  # z missing       =",length(which(is.na(z[ix]))))) 
-  print(paste("  # z out of range  =",length(which(!is.na(z[ix]) & 
-                                    (z[ix]<argv$zmin | z[ix]>argv$zmax))))) 
+  flagaux<-dqcflag==argv$nometa.code & !is.na(dqcflag)
+  print("test for no metdata, statistics over the whole dataset")
+  print(paste("# observations lacking metadata and/or NAs=",
+        length(which(flagaux))))
+  print(paste("  # NAs             =",
+        length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
+  print(paste("  # lon-lat missing =",
+        length(which(flagaux & (is.na(data$lat) | is.na(data$lon))))))
+  print(paste("  # z missing       =",
+        length(which(flagaux & is.na(z)))))
+  print(paste("  # z out of range  =",
+        length(which(flagaux & !is.na(z) & 
+                     (z<argv$zmin | z>argv$zmax) ))))
+  rm(flagaux)
   print("+---------------------------------+")
 }
 rm(ix)
@@ -4028,8 +4034,12 @@ if (argv$dem | argv$dem.fill) {
   }
   # fill missing elevation with dem
   if (argv$dem.fill) {
-    iz<-which( (is.na(z) & !is.na(zdem)) | 
-               (!is.na(zdem) & (z<argv$zmin | z>argv$zmax)) )
+    iz<-which( !is.na(data$value) &
+               !is.na(data$lat)   & 
+               !is.na(data$lon)   &
+               !is.na(zdem) &
+               !(zdem<argv$zmin | zdem>argv$zmax) &
+               (is.na(z) | (z<argv$zmin | z>argv$zmax)) )
     z[iz]<-zdem[iz]
     dqcflag[iz]<-dqcflag.bak[iz]
     rm(dqcflag.bak)
@@ -4094,7 +4104,7 @@ if (argv$laf.sct) {
   # use a fake laf
   laf<-rep(1,ndata)
 } # END read LAF
-if (argv$debug) {
+if (argv$laf.sct & argv$debug) {
   save.image(file.path(argv$debug.dir,"input_data_laf.RData")) 
   print("+---------------------------------+")
 }
@@ -4200,13 +4210,14 @@ if (argv$ccrrt) {
   # cross-check
   for (f in 1:nfin) 
     dqcflag[which(data$prid==argv$prid[f] & 
-                  t2m<argv$ccrrt.tmin[f])]<-argv$ccrrt.code
+                  t2m<argv$ccrrt.tmin[f] &
+                  is.na(dqcflag))]<-argv$ccrrt.code
   #
   if (argv$verbose | argv$debug) {
     print("precipitaton and temperature  crosscheck")
     print(paste("temp thresholds =",toString(argv$ccrrt.tmin)))
     print(paste("# suspect observations=",
-          length(which(dqcflag==argv$ccrrt.code))))
+          length(which(dqcflag==argv$ccrrt.code & !is.na(dqcflag)))))
     print("+---------------------------------+")
   }
   if (argv$debug)
@@ -4436,6 +4447,11 @@ if (argv$rr.wcor) {
   if (argv$debug | argv$verbose) {
     ix<-which(data$value>=0 & !is.na(data$value) &
               is.na(dqcflag))
+    print(paste0("# observations (>=0 & ok-so-far) = ",
+          length(which(data$value>=0 & !is.na(data$value) &
+              is.na(dqcflag)))))
+    print(paste0("# not NAs-observations set to NAs after this correction = ",
+          length(which( is.na(data$value) & !is.na(data$rawvalue) ))))
     if (length(ix)>0) {
       lm<-lm(data$value[ix]~data$rawvalue[ix]+0)
       print(paste0("linear regression, obs_adjusted = ",
@@ -4857,27 +4873,40 @@ if (!is.na(argv$fge.file)) {
 # NOTE: keep-listed stations could be flagged here
 ix<-which(is.na(dqcflag) | dqcflag==argv$keep.code)
 if (length(ix)>0) {
-  meta<-!is.na(data$lat[ix]) & 
-        !is.na(data$lon[ix]) &
-        !is.na(z[ix]) & 
-        z[ix]>=argv$zmin & 
-        z[ix]<=argv$zmax &
-        !is.na(data$value[ix]) 
-  if (any(!meta)) dqcflag[ix[which(!meta)]]<-argv$nometa.code
+#  meta<-!is.na(data$lat[ix]) & 
+#        !is.na(data$lon[ix]) &
+#        !is.na(z[ix]) & 
+#        z[ix]>=argv$zmin & 
+#        z[ix]<=argv$zmax &
+#        !is.na(data$value[ix]) 
+#  if (any(!meta)) dqcflag[ix[which(!meta)]]<-argv$nometa.code
+  meta<-is.na(data$lat[ix]) | 
+        is.na(data$lon[ix]) |
+        is.na(z[ix]) | 
+        z[ix]<argv$zmin | 
+        z[ix]>argv$zmax |
+        is.na(data$value[ix]) 
+  if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
 }
 
 
 if (argv$verbose | argv$debug) {
-  print("test for no metdata (2nd round)")
-  print(paste("# observations lacking metadata and/or NAs=",length(which(dqcflag==argv$nometa.code & !is.na(argv$nometa.code)))))
-  print(paste("  # NAs             =",length(which(is.na(data$value[ix])))))
-  print(paste("  # lon-lat missing =",length(which(is.na(data$lat[ix]) | 
-                                                  is.na(data$lon[ix])))))
-  print(paste("  # z missing       =",length(which(is.na(z[ix]))))) 
-  print(paste("  # z out of range  =",length(which(!is.na(z[ix]) & 
-                                    (z[ix]<argv$zmin | z[ix]>argv$zmax))))) 
+  flagaux<-dqcflag==argv$nometa.code & !is.na(dqcflag)
+  print("test for no metdata (2nd round), statistics over the whole dataset")
+  print(paste("# observations lacking metadata and/or NAs=",
+        length(which(flagaux))))
+  print(paste("  # NAs             =",
+        length(which(flagaux & is.na(data$value)))))
+  print(paste("  # lon-lat missing =",
+        length(which(flagaux & (is.na(data$lat) | is.na(data$lon))))))
+  print(paste("  # z missing       =",
+        length(which(flagaux & is.na(z)))))
+  print(paste("  # z out of range  =",
+        length(which(flagaux & !is.na(z) & 
+                     (z<argv$zmin | z>argv$zmax) ))))
+  rm(flagaux)
   print("+---------------------------------+")
 }
 #if (argv$verbose | argv$debug) {
@@ -4892,6 +4921,7 @@ rm(ix)
 if (exists("meta")) rm(meta)
 if (argv$debug) 
   save.image(file.path(argv$debug.dir,"dqcres_meta.RData")) 
+q()
 #
 #-----------------------------------------------------------------------------
 # plausibility test
