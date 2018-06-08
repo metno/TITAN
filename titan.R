@@ -1871,7 +1871,7 @@ p <- add_argument(p, "--i.buddy_eve",
                   default=1,
                   short="-iBe")
 p <- add_argument(p, "--thr.buddy_eve",
-                  help="buddy_eve-check threshold (same dimension of thr_eve.buddy_eve). flag observation if: is event(no) and at least a fraction of thr.buddy_eve of the neighbouring observations are event(yes) OR is event(yes) and at least a fraction of thr.buddy_eve of the neighbouring observations are event(no). (default is 0.9, i.e. 90% of the neighbouring observations)",
+                  help="buddy_eve-check threshold (same dimension of thr_eve.buddy_eve). flag observation as suspect if: is event(no) and less than a fraction of thr.buddy_eve of the neighbouring observations are event(no) OR is event(yes) and less than a fraction of thr.buddy_eve of the neighbouring observations are event(yes). (default is 0.05, i.e. 5% of the neighbouring observations)",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
@@ -3706,9 +3706,9 @@ if (any(is.na(argv$dr.buddy_eve)))
 if (length(argv$dr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
   argv$dr.buddy_eve<-c(3000,3000,3000)
 if (any(is.na(argv$thr.buddy_eve)))
-  argv$thr.buddy_eve<-c(0.9,0.9,1)
+  argv$thr.buddy_eve<-c(0.05,0.05,1)
 if (length(argv$thr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
-  argv$thr.buddy_eve<-c(0.9,0.9,1)
+  argv$thr.buddy_eve<-c(0.05,0.05,1)
 if (any(is.na(argv$n.buddy_eve)))
   argv$n.buddy_eve<-c(5,5,5)
 if (length(argv$n.buddy_eve)!=length(argv$n_eve.buddy_eve))
@@ -5040,22 +5040,22 @@ if (argv$buddy_eve) {
         # suspect if:
         if (argv$thr.buddy_eve[j]<1) { 
           sus<-which( 
-      (stSp_buddy_eve[1,]>argv$n.buddy_eve[j] & 
-       stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-       is.na(dqcflag[ix])) &
-      doit[ix]==1 & 
-      ( (stSp_buddy_eve[3,]==0 & ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
-        (stSp_buddy_eve[3,]==1 & (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
+            (stSp_buddy_eve[1,]>argv$n.buddy_eve[j] & 
+            stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+            is.na(dqcflag[ix])) &
+            doit[ix]==1 & 
+            ( (stSp_buddy_eve[3,]==0 & ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
+              (stSp_buddy_eve[3,]==1 & (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
         } else if (argv$thr.buddy_eve[j]>=1) {
           nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
           nno<-stSp_buddy_eve[1,]-nyes
           sus<-which( 
-      (stSp_buddy_eve[1,]>argv$n.buddy_eve[j] & 
-       stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-       is.na(dqcflag[ix])) &
-      doit[ix]==1 & 
-      ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
-        (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
+            (stSp_buddy_eve[1,]>argv$n.buddy_eve[j] & 
+            stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+            is.na(dqcflag[ix])) &
+            doit[ix]==1 & 
+            ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
+            (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
           rm(nyes,nno)
         } else {
           sus<-integer(0)
