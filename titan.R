@@ -746,7 +746,7 @@ puddle<-function(obs,
   ytmp<-extract(r1,cbind(obs$x,obs$y))
   # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
   cond<-(ytmp==0 & e1) | (ytmp==1 & e0)
-  if (any(cond)) ydqc.flag[which(cond)]<-1
+  if (any(cond, na.rm=TRUE)) ydqc.flag[which(cond)]<-1
   # case 2. puddle of YES surrounded by NO
   out<-remove_ltNobsClumps(r=r1,
                            n=n.eveYES_in_the_clump,
