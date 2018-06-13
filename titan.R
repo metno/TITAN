@@ -73,12 +73,8 @@ options(warn = 2, scipen = 999)
 # auxiliary function to keep/blacklist observations
 setCode_lonlat<-function(lonlat,code) {
 # lonlat. vector. 1=lon; 2=lat
-  print("0")
-  print(lonlat)
-  print(cbind(datatmp$lon,datatmp$lat))
   ix<-which(datatmp$lon==lonlat[1] & datatmp$lat==lonlat[2])
   if (length(ix)>0)  {
-    print("1")
     aux[ix]<-code
     assign("aux",aux,envir=.GlobalEnv)
   }
