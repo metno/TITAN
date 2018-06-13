@@ -3141,10 +3141,10 @@ if (any(is.na(argv$prid))) {
   }
 }
 # set offsets and correction factors
-if (is.na(argv$input.offset)) argv$input.offset<-rep(0,nfin)
-if (is.na(argv$input.negoffset)) argv$input.negoffset<-rep(0,nfin)
-if (is.na(argv$input.cfact)) argv$input.cfact<-rep(1,nfin)
-if (is.na(argv$input.negcfact)) argv$input.negcfact<-rep(0,nfin)
+if (any(is.na(argv$input.offset))) argv$input.offset<-rep(0,nfin)
+if (any(is.na(argv$input.negoffset))) argv$input.negoffset<-rep(0,nfin)
+if (any(is.na(argv$input.cfact))) argv$input.cfact<-rep(1,nfin)
+if (any(is.na(argv$input.negcfact))) argv$input.negcfact<-rep(0,nfin)
 argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
 argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
 # check variable
