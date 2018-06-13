@@ -1506,6 +1506,7 @@ p <- add_argument(p, "--titan_path",
                   default=NULL,
                   short="-tip")
 #.............................................................................. 
+neg.str<-"Negative values can be specified in either one of these two ways: (1) by using the corresponding \"...neg...\" command line argument; (2) negative values start with \"_\" (e.g. _2=-2)"
 # ADDITIONAL input files / providers
 p <- add_argument(p, "--input.files",
                   help="additional input files (provider2 provider3 ...)",
@@ -1520,8 +1521,8 @@ p <- add_argument(p, "--prid",
                   nargs=Inf,
                   short="-pr")
 p <- add_argument(p, "--input.offset",
-   help="offset applied to the input files (one for each provider, default=0)",
-                  type="numeric",
+                  help=paste("offset applied to the input files (one for each provider, default=0).",neg.str),
+                  type="character",
                   default=NA,
                   nargs=Inf,
                   short="-io")
@@ -1531,9 +1532,10 @@ p <- add_argument(p, "--input.negoffset",
                   default=NA,
                   nargs=Inf,
                   short="-ion")
+#
 p <- add_argument(p, "--input.cfact",
-   help="correction factor applied to the input files (one for each provider, default=1)",
-                  type="numeric",
+                  help=paste("correction factor applied to the input files (one for each provider, default=1)",neg.str),
+                  type="character",
                   default=NA,
                   nargs=Inf, 
                   short="-icf")
@@ -1794,13 +1796,13 @@ p <- add_argument(p, "--tmax",
                   default=NA,
                   short="-TP")
 p <- add_argument(p, "--vmin",
-                  help="minimum allowed value [units of the variable specified]",
-                  type="numeric",
-                  default=-50)
+                  help=paste("minimum allowed value [units of the variable specified]",neg.str),
+                  type="character",
+                  default="_50")
 p <- add_argument(p, "--vmax",
-                  help="maximum allowed value [units of the variable specified]",
-                  type="numeric",
-                  default=40)
+                  help=paste("maximum allowed value [units of the variable specified]",neg.str),
+                  type="character",
+                  default="40")
 p <- add_argument(p, "--vminsign",
                   help="minimum allowed value, sign [1=neg, 0=pos]",
                   type="numeric",
@@ -1825,15 +1827,15 @@ p <- add_argument(p, "--tmax.clim",
                   short="-TC",
                   default=rep(NA,12))
 p <- add_argument(p, "--vmin.clim",
-                  help="minimum allowed value [units of the variable specified]",
-                  type="numeric",
+                  help=paste("minimum allowed value [units of the variable specified]",neg.str),
+                  type="character",
                   nargs=12,
-                  default=c(45,45,40,35,20,15,10,15,15,20,35,45))
+                  default=c("_45","_45","_40","_35","_20","_15","_10","_15","_15","_20","_35","_45"))
 p <- add_argument(p, "--vmax.clim",
-                  help="maximum allowed value [units of the variable specified]",
-                  type="numeric",
+                  help=paste("maximum allowed value [units of the variable specified]",neg.str),
+                  type="character",
                   nargs=12,
-                  default=c(20,20,25,25,35,35,40,40,35,30,25,20))
+                  default=c("20","20","25","25","35","35","40","40","35","30","25","20"))
 p <- add_argument(p, "--month.clim",
                   help="month (number 1-12)",
                   type="numeric",
@@ -1843,7 +1845,7 @@ p <- add_argument(p, "--vminsign.clim",
                   help="minimum allowed value, sign [1=neg, 0=pos]",
                   type="numeric",
                   nargs=12,
-                  default=c(1,1,1,1,1,1,1,1,1,1,1,1))
+                  default=c(0,0,0,0,0,0,0,0,0,0,0,0))
 p <- add_argument(p, "--vmaxsign.clim",
                   help="maximum allowed value, sign [1=neg, 0=pos]",
                   type="numeric",
@@ -3140,13 +3142,44 @@ if (any(is.na(argv$prid))) {
     quit(status=1)
   }
 }
+# set input offsets and correction factors
+if (any(is.na(argv$input.offset))) {
+  argv$input.offset<-rep(0,length=nfin)
+} else {
+  if (length(argv$input.offset)!=nfin) 
+    argv$input.offset<-rep(argv$input.offset[1],length=nfin)
+  aux<-vector(length=nfin,mode="numeric")
+  for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$input.offset[i]))
+  argv$input.offset<-aux
+  rm(aux)
+  if (!any(is.na(argv$input.negoffset))) {
+    if (length(argv$input.negoffset)!=nfin) 
+      argv$input.negoffset<-rep(argv$input.negoffset[1],length=nfin)
+    argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
+  }
+}
+if (any(is.na(argv$input.cfact))) {
+  argv$input.cfact<-rep(0,length=nfin)
+} else {
+  if (length(argv$input.cfact)!=nfin) 
+    argv$input.cfact<-rep(argv$input.cfact[1],length=nfin)
+  aux<-vector(length=nfin,mode="numeric")
+  for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$input.cfact[i]))
+  argv$input.cfact<-aux
+  rm(aux)
+  if (!any(is.na(argv$input.negcfact))) {
+    if (length(argv$input.negcfact)!=nfin) 
+      argv$input.negcfact<-rep(argv$input.negcfact[1],length=nfin)
+    argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
+  }
+}
 # set offsets and correction factors
-if (any(is.na(argv$input.offset))) argv$input.offset<-rep(0,nfin)
-if (any(is.na(argv$input.negoffset))) argv$input.negoffset<-rep(0,nfin)
-if (any(is.na(argv$input.cfact))) argv$input.cfact<-rep(1,nfin)
-if (any(is.na(argv$input.negcfact))) argv$input.negcfact<-rep(0,nfin)
-argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
-argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
+#if (any(is.na(argv$input.offset))) argv$input.offset<-rep(0,nfin)
+#if (any(is.na(argv$input.negoffset))) argv$input.negoffset<-rep(0,nfin)
+#if (any(is.na(argv$input.cfact))) argv$input.cfact<-rep(1,nfin)
+#if (any(is.na(argv$input.negcfact))) argv$input.negcfact<-rep(0,nfin)
+#argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
+#argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
 # check variable
 if (!(argv$variable %in% c("T","RH","RR","SD"))) {
   print("variable must be one of T, RH, RR, SD")
@@ -3497,6 +3530,11 @@ if (!is.na(argv$month.clim) & (argv$month.clim<1 | argv$month.clim>12)) {
   print("ERROR: month number is wrong:")
   print(paste("month number=",argv$month.clim))
   quit(status=1)
+} else if (!is.na(argv$month.clim) & 
+           (length(which(!is.na(argv$vmin.clim)))!=12 | 
+            length(which(!is.na(argv$vmax.clim)))!=12) ) {
+  print("ERROR: climatological check, vmin.clim and/or vmax.clim vectors must have 12 arguments")
+  quit(status=1)
 }
 # blacklist
 if (any(!is.na(argv$blacklist.lat)) | 
@@ -3667,9 +3705,13 @@ if (any(is.na(argv$vmin.clim)) & !any(is.na(argv$tmin.clim)))
   argv$vmin.clim<-argv$tmin.clim
 if (any(is.na(argv$vmax.clim)) & !any(is.na(argv$tmax.clim))) 
   argv$vmax.clim<-argv$tmax.clim
+argv$vmin<-as.numeric(gsub("_","-",argv$vmin))
 argv$vmin<-argv$vmin*(-1)**argv$vminsign
+argv$vmax<-as.numeric(gsub("_","-",argv$vmax))
 argv$vmax<-argv$vmax*(-1)**argv$vmaxsign
+argv$vmin.clim<-as.numeric(gsub("_","-",argv$vmin.clim))
 argv$vmin.clim<-argv$vmin.clim*(-1)**argv$vminsign.clim
+argv$vmax.clim<-as.numeric(gsub("_","-",argv$vmax.clim))
 argv$vmax.clim<-argv$vmax.clim*(-1)**argv$vmaxsign.clim
 # buddy priorities
 if (is.null(argv$prio.buddy)) argv$prio.buddy<-rep(-1,length=nfin)
