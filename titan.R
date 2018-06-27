@@ -2281,7 +2281,7 @@ p <- add_argument(p,"--ccrrt.filemeps",
                   default=NULL,
                   short="-ccrrtfm")
 #.............................................................................. 
-# precipitation and temperature cross-check
+# puddle check
 p <- add_argument(p, "--puddle",
                   help="puddle check",
                   flag=T,
@@ -4868,7 +4868,8 @@ if (!is.na(argv$fge.file)) {
   rm(edata)
   #
   if (argv$radarout) {
-    fge.gq50<-apply(gdata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
+#    fge.gq50<-apply(gdata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
+    fge.gmu<-rowMeans(gdata,na.rm=T)
     rm(gdata)
   }
   # debug
@@ -5334,7 +5335,7 @@ if (argv$puddle) {
       } # end of loop over threshold that define events
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
-        print(paste("puddle plot, iteration=",i,
+        print(paste("puddle check, iteration=",i,
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         ncur<-length(which(dqcflag==argv$puddle.code))
         print(paste("# suspect observations=",ncur-nprev))
@@ -5735,7 +5736,7 @@ if (argv$puddle) {
       } # end of loop over threshold that define events
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
-        print(paste("puddle plot, iteration=",i,
+        print(paste("puddle check, iteration=",i,
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         ncur<-length(which(dqcflag==argv$puddle.code))
         print(paste("# suspect observations=",ncur-nprev))
@@ -5830,15 +5831,18 @@ if (argv$radarout) {
     plot_debug(ff=file.path(argv$debug.dir,"radar_1_fgegrid.png"),
                r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
   # keep points where radar prec is greater than the ensemble median
-  ix2<-which(!is.na(daux) & daux<fge.gq50) # indx over fge-vec
+#  ix2<-which(!is.na(daux) & daux<fge.gq50) # indx over fge-vec
+  ix2<-which(!is.na(daux) & daux<fge.gmu) # indx over fge-vec
   if (length(ix2)>0) daux[ix2]<-NA
   raux[]<-daux
   if (argv$debug) { 
     plot_debug(ff=file.path(argv$debug.dir,"radar_2_fgegrid.png"),
                r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
-    ixdeb<-which(!is.na(fge.gq50) & !is.na(daux))
+#    ixdeb<-which(!is.na(fge.gq50) & !is.na(daux))
+    ixdeb<-which(!is.na(fge.gmu) & !is.na(daux))
     png(file=file.path(argv$debug.dir,"radar_vs_fgegq50.png"))
-    plot(daux[ixdeb],fge.gq50[ixdeb],xlab="radar (mm)",
+#    plot(daux[ixdeb],fge.gq50[ixdeb],xlab="radar (mm)",
+    plot(daux[ixdeb],fge.gmu[ixdeb],xlab="radar (mm)",
          ylab="numerical model, ensemble median (mm)")
     dev.off()
   }
