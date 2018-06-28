@@ -5003,7 +5003,10 @@ if (!is.na(argv$month.clim)) {
 #  Define an event compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$buddy_eve) {
-  if (argv$verbose | argv$debug) nprev<-0
+  nprev<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
+  ncur<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
+  nprev[]<-0
+  ncur[]<-0
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -5016,6 +5019,8 @@ if (argv$buddy_eve) {
   print(paste0("priorities ",toString(argv$prio.buddy_eve)))
   for (i in 1:argv$i.buddy_eve) {
     for (j in 1:length(argv$thr_eve.buddy_eve)) {
+      if ((ncur[j]-nprev[j])==0 & i>2) break
+      nprev[j]<-ncur[j]
       # use only (probably) good observations with doit!=0
       ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
                  doit!=0 )
@@ -5066,14 +5071,13 @@ if (argv$buddy_eve) {
       } else {
         print("no valid observations left, no buddy_eve check")
       }
+      ncur[j]<-length(which(dqcflag==argv$buddy_eve.code))
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
         print(paste("buddy_eve-check, iteration=",i,
                     "event is: less than",argv$thr_eve.buddy_eve[j],
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        ncur<-length(which(dqcflag==argv$buddy_eve.code))
-        print(paste("# suspect observations=",ncur-nprev))
-        nprev<-length(which(dqcflag==argv$buddy_eve.code))
+        print(paste("# suspect observations=",ncur[j]-nprev[j]))
       }
     } # end for j
   }  # end for i
@@ -5095,7 +5099,7 @@ if (argv$buddy_eve) {
 # buddy check (standard)
 #  compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
-if (argv$verbose | argv$debug) nprev<-0
+nprev<-0
 # set doit vector
 doit<-vector(length=ndata,mode="numeric")
 doit[]<-NA
@@ -5143,14 +5147,15 @@ for (i in 1:argv$i.buddy) {
   } else {
     print("no valid observations left, no buddy check")
   }
+  ncur<-length(which(dqcflag==argv$buddy.code))
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
     print(paste("buddy-check, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-    ncur<-length(which(dqcflag==argv$buddy.code))
     print(paste("# suspect observations=",ncur-nprev))
-    nprev<-length(which(dqcflag==argv$buddy.code))
   }
+  if ((ncur-nprev)==0 & i>2) break
+  nprev<-ncur
 }
 rm(doit)
 if (argv$debug) 
@@ -5169,8 +5174,8 @@ if (exists("ixyztp_tot")) rm(ixyztp_tot)
 #-----------------------------------------------------------------------------
 # STEVE - isolated event test (YES/NO)
 if (argv$steve) {
+  nprev<-0
   if (argv$verbose | argv$debug) {
-    nprev<-0
     print(paste0("STEVE (",argv$steve.code,")"))
   }
   # set doit vector
@@ -5219,14 +5224,15 @@ if (argv$steve) {
         print("no valid observations left, no STEVE")
       }
     } # end of loop over threshold that define events
+    ncur<-length(which(dqcflag==argv$steve.code))
     if (argv$verbose | argv$debug) {
       t1a<-Sys.time()
       print(paste("STEVE, iteration=",i,
                   "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-      ncur<-length(which(dqcflag==argv$steve.code))
       print(paste("# suspect observations=",ncur-nprev))
-      nprev<-ncur
     }
+    if ((ncur-nprev)==0) break
+    nprev<-ncur
   }
   rm(doit)
   if (argv$verbose | argv$debug) 
@@ -5238,8 +5244,8 @@ if (argv$steve) {
 #-----------------------------------------------------------------------------
 # puddle check (first round)
 if (argv$puddle) {
+  nprev<-0
   if (argv$verbose | argv$debug) {
-    nprev<-0
     print(paste0("puddle-check (",argv$puddle.code,")"))
   }
   # set doit vector
@@ -5333,14 +5339,15 @@ if (argv$puddle) {
           print("no valid observations left, no puddle check")
         }
       } # end of loop over threshold that define events
+      ncur<-length(which(dqcflag==argv$puddle.code))
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
         print(paste("puddle check, iteration=",i,
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        ncur<-length(which(dqcflag==argv$puddle.code))
         print(paste("# suspect observations=",ncur-nprev))
-        nprev<-ncur
       } 
+      if ((ncur-nprev)==0) break
+      nprev<-ncur
     } # end of loop over test iterations
     rm(doit)
     if (argv$verbose | argv$debug) 
@@ -5354,7 +5361,6 @@ if (argv$puddle) {
 # check against a first-guess (deterministic)
 if (argv$fg) {
   if (argv$verbose | argv$debug) {
-    nprev<-0
     print(paste0("first-guess check det (",argv$fg.code,")"))
   }
   # set doit vector
@@ -5437,7 +5443,7 @@ if (argv$fge) {
 #-----------------------------------------------------------------------------
 # SCT - Spatial Consistency Test
 # NOTE: keep-listed stations are used but they canNOT be flagged here
-if (argv$verbose | argv$debug) nprev<-0
+nprev<-0
 # set doit vector
 doit<-vector(length=ndata,mode="numeric")
 doit[]<-NA
@@ -5499,14 +5505,15 @@ for (i in 1:argv$i.sct) {
   } else {
     print("no valid observations left, no SCT")
   }
+  ncur<-length(which(dqcflag==argv$sct.code))
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
     print(paste("SCT, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-    ncur<-length(which(dqcflag==argv$sct.code))
     print(paste("# suspect observations=",ncur-nprev))
-    nprev<-length(which(dqcflag==argv$sct.code))
   }
+  if ((ncur-nprev)==0) break
+  nprev<-ncur
 }
 rm(doit)
 if (argv$verbose | argv$debug) 
@@ -5576,10 +5583,13 @@ if (argv$debug)
   save.image(file.path(argv$debug.dir,"dqcres_demcheck.RData")) 
 #
 #-----------------------------------------------------------------------------
-# STEVE - isolated event test (YES/NO)
+# STEVE (second round) - isolated event test (YES/NO)
 if (argv$steve) {
   t0a<-Sys.time()
-  if (argv$verbose | argv$debug) nprev<-0
+  if (argv$verbose | argv$debug) {
+    print(paste0("STEVE 2 (",argv$steve.code,")"))
+  }
+  nprev<-0
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -5626,14 +5636,15 @@ if (argv$steve) {
         print("no valid observations left, no STEVE")
       }
     } # end of loop over threshold that define events
+    ncur<-length(which(dqcflag==argv$steve.code))
     if (argv$verbose | argv$debug) {
       t1a<-Sys.time()
       print(paste("STEVE, iteration=",i,
                   "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-      ncur<-length(which(dqcflag==argv$steve.code))
       print(paste("# suspect observations=",ncur-nprev))
-      nprev<-length(which(dqcflag==argv$steve.code))
     }
+    if ((ncur-nprev)==0) break
+    nprev<-ncur
   }
   rm(doit)
   if (argv$verbose | argv$debug) 
@@ -5645,8 +5656,8 @@ if (argv$steve) {
 #-----------------------------------------------------------------------------
 # puddle check (second round)
 if (argv$puddle) {
+  nprev<-0
   if (argv$verbose | argv$debug) {
-    nprev<-0
     print(paste0("puddle-check 2 (",argv$puddle.code,")"))
   }
   # set doit vector
@@ -5740,8 +5751,9 @@ if (argv$puddle) {
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         ncur<-length(which(dqcflag==argv$puddle.code))
         print(paste("# suspect observations=",ncur-nprev))
-        nprev<-ncur
       } 
+      if ((ncur-nprev)==0) break
+      nprev<-ncur
     } # end of loop over test iterations
     rm(doit)
     if (argv$verbose | argv$debug) 
