@@ -3888,23 +3888,23 @@ for (f in 1:nfin) {
   aux<-rep(NA,length=ndatatmp)
   if (any(!is.na(argv$blacklist.idx)) & 
       any(argv$blacklist.fidx==argv$prid[f])) {
-  if (any(!is.na(argv$blacklist.idx)) & any(argv$blacklist.fidx==f)) {
-    aux[argv$blacklist.idx[which(argv$blacklist.fidx==f)]]<-argv$black.code  
+    aux[argv$blacklist.idx[which(argv$blacklist.fidx==argv$prid[f])]]<-argv$black.code  
   }
-  if (any(!is.na(argv$blacklist.lat)) & any(argv$blacklist.fll==f)) {
-    out<-apply(cbind(argv$blacklist.lon[argv$blacklist.fll==f],
-                     argv$blacklist.lat[argv$blacklist.fll==f])
+  if (any(!is.na(argv$blacklist.lat)) & 
+      any(argv$blacklist.fll==argv$prid[f])) {
+    out<-apply(cbind(argv$blacklist.lon[which(argv$blacklist.fll==argv$prid[f])],
+                     argv$blacklist.lat[which(argv$blacklist.fll==argv$prid[f])])
                ,FUN=setCode_lonlat,MARGIN=1,code=argv$black.code)
     rm(out)
   }
   if (any(!is.na(argv$keeplist.idx)) & 
       any(argv$keeplist.fidx==argv$prid[f])) {
-  if (any(!is.na(argv$keeplist.idx)) & any(argv$keeplist.fidx==f)) {
-    aux[argv$keeplist.idx[which(argv$keeplist.fidx==f)]]<-argv$keep.code  
+    aux[argv$keeplist.idx[which(argv$keeplist.fidx==argv$prid[f])]]<-argv$keep.code  
   }
-  if (any(!is.na(argv$keeplist.lat)) & any(argv$keeplist.fll==f)) {
-    out<-apply(cbind(argv$keeplist.lon[argv$keeplist.fll==f],
-                     argv$keeplist.lat[argv$keeplist.fll==f])
+  if (any(!is.na(argv$keeplist.lat)) & 
+      any(argv$keeplist.fll==argv$prid[f])) {
+    out<-apply(cbind(argv$keeplist.lon[which(argv$keeplist.fll==argv$prid[f])],
+                     argv$keeplist.lat[which(argv$keeplist.fll==argv$prid[f])])
                ,FUN=setCode_lonlat,MARGIN=1,code=argv$keep.code)
     rm(out)
   }
