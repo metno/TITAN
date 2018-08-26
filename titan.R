@@ -3159,7 +3159,7 @@ if (any(is.na(argv$input.offset))) {
   }
 }
 if (any(is.na(argv$input.cfact))) {
-  argv$input.cfact<-rep(0,length=nfin)
+  argv$input.cfact<-rep(1,length=nfin)
 } else {
   if (length(argv$input.cfact)!=nfin) 
     argv$input.cfact<-rep(argv$input.cfact[1],length=nfin)
