@@ -576,10 +576,11 @@ sct<-function(ixynp,
       break
     }
   } # end cycle SCT model
-  # coefficient of observation representativeness
-  # this call to ecdf(x)(x) should be the same as rank(x)/length(x)
-  corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
-  assign("corep",corep,envir=.GlobalEnv)
+  # coefficient of observation representativeness (more than 1 obs left)
+  if (length(sel)>1) { 
+    corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
+    assign("corep",corep,envir=.GlobalEnv)
+  }
   # debug: begin
 #  if (argv$debug) {
 #  }
