@@ -1623,7 +1623,7 @@ p <- add_argument(p, "--puddle.code",
              help=paste("quality code returned in case of puddle check fails"),
                   type="numeric",
                   default=12,
-                  short="-ccrrtc")
+                  short="-puddlec")
 p <- add_argument(p, "--buddy_eve.code",
   help="quality code returned in case of the buddy check event-based fails",
                   type="numeric",
