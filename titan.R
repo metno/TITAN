@@ -5932,26 +5932,32 @@ if (argv$radarout) {
                  r=rrad,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fg)
     # prepare list of valid radar-points in output CRS
     ix1<-which(!is.na(drad)) # indx over fg-vec
-    radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
-    names(radxy)<-c("x","y")
-    coordinates(radxy)<-c("x","y")
-    proj4string(radxy)<-CRS(argv$proj4fg)
-    radxy.from<-as.data.frame(spTransform(radxy,CRS=argv$proj4from))  
-    radx.from<-radxy.from[,1]
-    rady.from<-radxy.from[,2]
-    radrr<-drad[ix1]
-    if (argv$debug) {
-      ixdeb<-which(dqcflag==0 & !is.na(dqcflag))
-      png(file=file.path(argv$debug.dir,"radar_4_ll.png"),
-                         width=800,height=800)
-      plotp(x=c(data$lon[ixdeb],radx.from),
-            y=c(data$lat[ixdeb],rady.from),
-            val=c(data$value[ixdeb],radrr),
-            br=c(0,0.1,0.5,1,2,3,4,5,7,10,15,20,50,100),
-            col=c("gray",rev(rainbow(12))),
-            map=NULL,map.br=NULL,map.col=NULL,
-            xl=range(radx.from),yl=range(rady.from))
-      dev.off() 
+    if(length(ix1) > 0) {
+      radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
+      names(radxy)<-c("x","y")
+      coordinates(radxy)<-c("x","y")
+      proj4string(radxy)<-CRS(argv$proj4fg)
+      radxy.from<-as.data.frame(spTransform(radxy,CRS=argv$proj4from))  
+      radx.from<-radxy.from[,1]
+      rady.from<-radxy.from[,2]
+      radrr<-drad[ix1]
+      if (argv$debug) {
+        ixdeb<-which(dqcflag==0 & !is.na(dqcflag))
+        png(file=file.path(argv$debug.dir,"radar_4_ll.png"),
+                           width=800,height=800)
+        plotp(x=c(data$lon[ixdeb],radx.from),
+              y=c(data$lat[ixdeb],rady.from),
+              val=c(data$value[ixdeb],radrr),
+              br=c(0,0.1,0.5,1,2,3,4,5,7,10,15,20,50,100),
+              col=c("gray",rev(rainbow(12))),
+              map=NULL,map.br=NULL,map.col=NULL,
+              xl=range(radx.from),yl=range(rady.from))
+        dev.off() 
+      }
+    } else {
+      radx.from<-integer(0)
+      rady.from<-integer(0)
+      radrr<-integer(0)
     }
   # case of no valid radar-data points found
   } else {
