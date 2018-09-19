@@ -951,9 +951,17 @@ function(file.name,varid="time") {
 function(file.name,varid="ensemble_member") {
     # open netCDF file
     defs<-nc_open(file.name)
-    vals<-ncvar_get(defs, varid=varid)
-    # close file
+    i<-0
+    for (j in 1:defs$ndims) if (defs$dim[[j]]$name==varid) i<-j
+    if (i==0) {
+      for (j in 1:defs$nvars) if (defs$var[[j]]$name==varid) i<-j
+      if (i==0) { nc_close(defs); return(NULL) }
+      vals<-ncvar_get(defs, varid=varid)
+    } else {
+      vals<-defs$dim[[i]]$vals
+    }
     nc_close(defs)
+    # close file
     # return the result
     vals    
 }
@@ -4813,11 +4821,12 @@ if (!is.na(argv$fge.file)) {
     rm(rfgedem)
   }
   #
-  ei<-nc4.getDim(argv$fge.file,varid=argv$fge.dimnames[argv$fge.epos])
   if (is.na(argv$fge.epos)) {
     print("ERROR fge.epos must have a valid value")
     quit(status=1)
   }
+  ei<-nc4.getDim(argv$fge.file,
+                 varid=argv$fge.dimnames[argv$fge.epos])
   edata<-array(data=NA,dim=c(ndata,length(ei)))
   first<-T
   for (ens in 1:length(ei)) {
@@ -4835,13 +4844,15 @@ if (!is.na(argv$fge.file)) {
                       proj4=argv$proj4fge,
                       nc.proj4=list(var=argv$fge.proj4_var,
                                     att=argv$fge.proj4_att),
-                      selection=list(t=c(tminus1h,argv$fge.t),e=ei[ens])))
+                      selection=list(t=c(tminus1h,argv$fge.t),
+                                     e=ei[ens])))
       if (is.null(raux)) {
         print("ERROR while reading file:")
         print(argv$fge.file)
         quit(status=1)
       }
-      rfge<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
+      rfge<-raster(raux$stack,"layer.2")-
+            raster(raux$stack,"layer.1")
     } else {
       raux<-nc4in(nc.file=argv$fge.file,
                   nc.varname=argv$fge.varname,
@@ -5845,23 +5856,43 @@ if (argv$debug)
 # observations not flagged are assumed to be good observations 
 dqcflag[is.na(dqcflag)]<-0
 if (argv$verbose | argv$debug) {
-  print("summary")
-  print(paste("# total suspect & no-metadata observations=",
-              length(which(dqcflag!=0))," [",
-              round(100*length(which(dqcflag!=0))/ndata,0),
-              "%]",sep="") )
-   print(paste("# total suspect & no-metadata observations (statistics over not NAs only)=",
-              length(which(dqcflag!=0 & !is.na(data$value)))," [",
-        round(100*length(which(dqcflag!=0 & !is.na(data$value)))/length(which(!is.na(data$value))),0),
-              "%]",sep="") )
-  print(paste("# total good observations=",
-              length(which(dqcflag==0))," [",
-              round(100*length(which(dqcflag==0))/ndata,0),
-              "%]",sep="") )
-  print(paste("# total good observations (statistics over not NAs only)=",
-              length(which(dqcflag==0))," [",
-   round(100*length(which(dqcflag==0 & !is.na(data$value)))/length(which(!is.na(data$value))),0),
-              "%]",sep="") )
+  nsus<-length(which(dqcflag!=0))
+  nok<-length(which(dqcflag==0))
+  nsus_notna<-length(which(dqcflag!=0 & !is.na(data$value)))
+  nok_notna<-length(which(dqcflag==0 & !is.na(data$value)))
+  nnotna<-length(which(!is.na(data$value)))
+  nna<-length(which(is.na(data$value)))
+#  print(paste("# total suspect & no-metadata observations=",
+#              nsus," [",round(100*nsus/ndata,0),"%]",sep="") )
+  print("summary:")
+  print(" #  NAs, number of observations with no value (NAs)")
+  print(" #  sus, number of suspicious observations or no-metadata")
+  print(" # good, number of good observations")
+  print(" NOTE for sus and good, the statistics consider only observations not NAs")
+  print("summary:")
+  print(paste0(" #  NAs= ",nna))
+  print(paste0(" #  sus= ",nsus_notna," [",round(100*nsus_notna/nnotna,0),"%]"))
+  print(paste0(" # good= ",nok," [", round(100*nok_notna/nnotna,0), "%]"))
+   if (nfin>1) {
+    for (f in 1:nfin) {
+      nsus<-length(which(dqcflag!=0 & data$prid==argv$prid[f]))
+      nok<-length(which(dqcflag==0 & data$prid==argv$prid[f]))
+      nsus_notna<-length(which(dqcflag!=0 & 
+                               !is.na(data$value) & 
+                               data$prid==argv$prid[f]))
+      nok_notna<-length(which(dqcflag==0 & 
+                              !is.na(data$value) & 
+                              data$prid==argv$prid[f]))
+      nnotna<-length(which(!is.na(data$value) & 
+                           data$prid==argv$prid[f]))
+      nna<-length(which(is.na(data$value) & data$prid==argv$prid[f]))
+      print(paste("--> summary provider",argv$prid[f]))
+      print(paste0("  #  NAs= ",nna))
+      print(paste0("  #  sus= ",nsus_notna," [",round(100*nsus_notna/nnotna,0),"%]"))
+      print(paste0("  # good= ",nok," [", round(100*nok_notna/nnotna,0), "%]"))
+
+    }
+  }
   print("+---------------------------------+")
 }
 #
@@ -5880,11 +5911,22 @@ if (argv$radarout) {
   proj4string(radxy)<-CRS(argv$proj4fg)
   radxy.fge<-spTransform(radxy,CRS=argv$proj4fge) #ix1-vec
   radxy.fge<-as.data.frame(radxy.fge)
-  # aggregate radar values onto the fge grid
-  raux<-rasterize(radxy.fge, #fge-grid
-                  rfge.grid,
-                  drad[ix1],
-                  fun=mean)
+  # default: aggregate radar values onto the fge grid
+  # if fge grid is not defined, then use a template
+  if (exists("rfge.grid")) {
+    raux<-rasterize(radxy.fge, #fge-grid
+                    rfge.grid,
+                    drad[ix1],
+                    fun=mean)
+  } else if (exists("rdem")) {
+    raux<-rasterize(radxy.fge, #fge-grid
+                    rdem,
+                    drad[ix1],
+                    fun=mean)
+  } else {
+    print("please define either rdem or rfge")
+    quit(status=1)
+  }
   raux[raux<=0]<-NA 
   daux<-getValues(raux) #fge-vec
   if (argv$debug) 
