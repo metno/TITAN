@@ -361,11 +361,15 @@ sct<-function(ixynp,
   } else {
     j<-which(itot==ixynp[1])
   }
-  if (length(j)==0) return(-1)
+  if (length(j)==0) {
+    if (argv$verbose) print(paste("warning: no stations in box",ixynp[1]))
+    return(-1)
+  }
   # case of just one station
   if (ixynp[4]==1) {
     sctpog[ix[j]]<--1
     assign("sctpog",sctpog,envir=.GlobalEnv)
+    if (argv$verbose) print(paste("warning: just one station in box",ixynp[1]))
     return(-1)
   }
   # "zopt" and "topt" are set as global variables, so that they can be used by 
@@ -1676,6 +1680,11 @@ p <- add_argument(p, "--latmax",
                   type="numeric",
                   default=71.8,
                   short="-lax")
+p <- add_argument(p, "--dqc_inbox_only",
+                  help="perform dqc only in the defined box (lonmin,lonmax,latmin,latmax)",
+                  type="logical",
+                  default=F)
+
 # transformation between coordinate reference systems
 p <- add_argument(p, "--spatconv",
                   help="flag for conversion of spatial coordinates before running the data quality checks",
@@ -1744,6 +1753,10 @@ p <- add_argument(p, "--varname.elev.out",
                   help="elevation variable name in the output file",
                   type="character",
                   default="elev")
+p <- add_argument(p, "--elev_not_used",
+                  help="elevation is not used (will be set to zero)",
+                  type="logical",
+                  default=F)
 p <- add_argument(p, "--varname.value",
                   help="character vector, variable name(s) in the input file (default ''value'')",
                   type="character",
@@ -2721,6 +2734,26 @@ p <- add_argument(p, "--thrneg.fg",
      help="maximum allowed deviation between observation and fg (if obs<fg)",
                   type="numeric",
                   default=NA)
+p <- add_argument(p, "--perc.fg_minval",
+     help="do the prec.fg test only for values greater than the specified threshold",
+                  type="numeric",
+                  default=1)
+p <- add_argument(p, "--thrperc.fg",
+     help="maximum allowed deviation between observation and fg (as %, e.g. 0.1=10%)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--thrpercpos.fg",
+     help="maximum allowed deviation between observation and fg (if obs>fg, as %, e.g. 0.1=10%)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--thrpercneg.fg",
+     help="maximum allowed deviation between observation and fg (if obs<fg, as %, e.g. 0.1=10%)",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--fg.dodqc",
+                  help="check the first-guess field for weird values",
+                  type="logical",
+                  default=T)
 p <- add_argument(p,"--fg.type",
                   help="file type for the first-guess (e.g., meps)",
                   type="character",
@@ -3864,12 +3897,23 @@ for (f in 1:nfin) {
                      sep=argv$separator[f],
                      stringsAsFactors=F,
                      strip.white=T)
+  # if elev is not present that create a fake one
+  varidxtmp<-match(argv$varname.elev[f],names(datain))
+  if (is.na(varidxtmp)) {
+    argv$varname.elev[f]<-"elev"
+    if (argv$elev_not_used) {
+      datain$elev<-rep(0,length=length(datain[[1]]))
+    } else {
+      datain$elev<-rep(NA,length=length(datain[[1]]))
+    }
+  }
+  rm(varidxtmp)
   # varidx is used also in the output session
   varidxtmp<-match(c(argv$varname.lat[f],
-                  argv$varname.lon[f],
-                  argv$varname.elev[f],
-                  argv$varname.value[f]),
-                names(datain))
+                     argv$varname.lon[f],
+                     argv$varname.elev[f],
+                     argv$varname.value[f]),
+                   names(datain))
   if (any(is.na(varidxtmp))) {
     print("ERROR in the specification of the variable names")
     print(paste("latitutde=",argv$varname.lat[f]))
@@ -4021,6 +4065,11 @@ if (length(ix)>0) {
         z[ix]<argv$zmin | 
         z[ix]>argv$zmax |
         is.na(data$value[ix]) 
+  if (argv$dqc_inbox_only) 
+    meta<- meta | ( data$lat[ix] < argv$latmin | 
+                    data$lat[ix] > argv$latmax |
+                    data$lon[ix] < argv$lonmin | 
+                    data$lon[ix] > argv$lonmax )
   if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
@@ -4030,15 +4079,18 @@ if (argv$verbose | argv$debug) {
   print("test for no metdata, statistics over the whole dataset")
   print(paste("# observations lacking metadata and/or NAs=",
         length(which(flagaux))))
-  print(paste("  # NAs             =",
+  print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-  print(paste("  # lon-lat missing =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon))))))
-  print(paste("  # z missing       =",
+  print(paste("  # lon-lat missing (*) =",
+        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
+                     data$lat < argv$latmin | data$lat > argv$latmax | 
+                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
+  print(paste("  # z missing           =",
         length(which(flagaux & is.na(z)))))
-  print(paste("  # z out of range  =",
+  print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
+  print("(*) or outside the specified box")
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -4049,12 +4101,19 @@ if (exists("meta")) rm(meta)
 # coordinate transformation
 if (argv$spatconv) {
   if (argv$debug) print("conversion of spatial coordinates")
-  coord<-SpatialPoints(cbind(data$lon,data$lat),
+  ix<-which(is.na(dqcflag)) 
+  # initialization
+  x<-data$lon
+  y<-data$lon
+  x[]<-NA
+  y[]<-NA
+  # do it
+  coord<-SpatialPoints(cbind(data$lon[ix],data$lat[ix]),
                        proj4string=CRS(argv$proj4from))
   coord.new<-spTransform(coord,CRS(argv$proj4to))
   xy.new<-coordinates(coord.new)
-  x<-round(xy.new[,1],0)
-  y<-round(xy.new[,2],0)
+  x[ix]<-round(xy.new[,1],0)
+  y[ix]<-round(xy.new[,2],0)
   xp<-expand.grid(c(argv$lonmin,argv$lonmax),c(argv$latmin,argv$latmax))
   coord<-SpatialPoints(xp,
                        proj4string=CRS(argv$proj4from))
@@ -4602,7 +4661,7 @@ if (!is.na(argv$fg.file)) {
   rm(raux,ti,fg.e,fg.epos)
   # radar fg, data quality control 
   if (!is.na(argv$fg.type)) {
-    if (argv$fg.type=="radar") {
+    if (argv$fg.type=="radar" & argv$fg.dodqc) {
       if (argv$verbose | argv$debug)
         print("Read radar and do the radar-DQC")
       t0a<-Sys.time()
@@ -4979,15 +5038,18 @@ if (argv$verbose | argv$debug) {
   print("test for no metdata (2nd round), statistics over the whole dataset")
   print(paste("# observations lacking metadata and/or NAs=",
         length(which(flagaux))))
-  print(paste("  # NAs             =",
-        length(which(flagaux & is.na(data$value)))))
-  print(paste("  # lon-lat missing =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon))))))
-  print(paste("  # z missing       =",
+  print(paste("  # NAs                 =",
+        length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
+  print(paste("  # lon-lat missing (*) =",
+        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
+                     data$lat < argv$latmin | data$lat > argv$latmax | 
+                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
+  print(paste("  # z missing           =",
         length(which(flagaux & is.na(z)))))
-  print(paste("  # z out of range  =",
+  print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
+  print("(*) or outside the specified box")
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -5427,18 +5489,39 @@ if (argv$fg) {
   for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.fg[f]
   # use only (probably) good observations
   ix<-which(is.na(dqcflag) & doit!=0)
+  if (exists("sus")) rm(sus)
+  sus<-integer(0)
   if (length(ix)>0) {
-    if (is.na(argv$thrpos.fg) | is.na(argv$thrneg.fg)) {
-      sus<-which(!is.na(fg) & 
-                 is.na(dqcflag) & 
-                 (abs(data$value-fg)>argv$thr.fg) &
-                 doit==1)
-    } else {
-      sus<-which(!is.na(fg) & 
-                 is.na(dqcflag) & 
-                 ( ((data$value-fg)>argv$thrpos.fg) | 
-                   ((fg-data$value)>argv$thrneg.fg) ) &
-                 doit==1)
+    if (is.null(argv$thr.fg)) argv$thr.fg<-NA
+    if (is.null(argv$thrpos.fg)) argv$thrpos.fg<-NA
+    if (is.null(argv$thrneg.fg)) argv$thrneg.fg<-NA
+    aux<-(!is.na(fg) & is.na(dqcflag) & doit==1)
+    dev<-fg
+    dev[]<-NA
+    dev[which(aux)]<-data$value[which(aux)]-fg[which(aux)]
+    if (!is.na(argv$thr.fg)) 
+      sus<-c(sus, which( aux & abs(dev)>argv$thr.fg ) ) 
+    if (!is.na(argv$thrpos.fg)) 
+      sus<-c(sus, which( aux & dev>argv$thrpos.fg ) ) 
+    if (!is.na(argv$thrneg.fg)) 
+      sus<-c(sus, which( aux & dev<(-argv$thrneg.fg) ) ) 
+    rm(aux,dev)
+    if (is.null(argv$perc.fg_minval)) argv$perc.fg_minval<-NA
+    if (is.null(argv$thrperc.fg)) argv$thrperc.fg<-NA
+    if (is.null(argv$thrposperc.fg)) argv$thrposperc.fg<-NA
+    if (is.null(argv$thrnegperc.fg)) argv$thrnegperc.fg<-NA
+    if (!is.na(argv$perc.fg_minval)) {
+      aux<-(!is.na(fg) & is.na(dqcflag) & doit==1 & fg>=argv$perc.fg_minval)
+      devperc<-fg
+      devperc[]<-NA
+      devperc[which(aux)]<-(data$value[which(aux)]-fg[which(aux)])/fg[which(aux)]
+      if (!is.na(argv$thrperc.fg)) 
+        sus<-c(sus, which( aux & abs(devperc)>argv$thrperc.fg ) ) 
+      if (!is.na(argv$thrpercpos.fg)) 
+        sus<-c(sus, which( aux & devperc>argv$thrposperc.fg ) ) 
+      if (!is.na(argv$thrpercneg.fg)) 
+        sus<-c(sus, which( aux & devperc<(-argv$thrnegperc.fg) ) ) 
+      rm(aux,devperc)
     }
     # set dqcflag
     if (length(sus)>0) dqcflag[sus]<-argv$fg.code
