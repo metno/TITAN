@@ -3502,6 +3502,7 @@ if (length(argv$separator)==0)
   argv$separator<-rep(";",nfin)
 if (length(argv$separator)!=nfin) 
   argv$separator<-rep(argv$separator[1],nfin)
+for (i in 1:length(argv$separator)) if (argv$separator[i]=="comma")  argv$separator[i]<-","
 if (any(is.na(argv$varname.lat))) 
   argv$varname.lat<-rep("lat",nfin)
 if (length(argv$varname.lat)==0) 
