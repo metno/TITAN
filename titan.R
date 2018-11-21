@@ -4560,12 +4560,10 @@ if (argv$rr.wcor) {
     quit(status=1)
   }
   if (argv$proj4wind!=argv$proj4to) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4from))
-    coord.new<-spTransform(coord,CRS(argv$proj4wind))
-    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
-    xy.tmp<-coordinates(coord.new)
-    rm(coord,coord.new,xy.tmp)
+    ws10m<-extract(rwind, 
+           coordinates( spTransform( SpatialPoints(cbind(data$lon,data$lat), 
+                                           proj4string=CRS(argv$proj4from)),
+                                    CRS(argv$proj4wind)) ), method="bilinear")
   } else {
     ws10m<-extract(rwind,cbind(x,y),method="bilinear")
   }
