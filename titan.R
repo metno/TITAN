@@ -921,17 +921,30 @@ steve<-function(obs,
 # identify eventYES points surrounded only by eventNO points (close enough)
   if (neve.vec>0) {
     for (j in 1:neve.vec) {
-      eve.j<-eve.vec[j,1:Leve.vec[j]]
-      ix.eY.pts<-which(eve.j %in% eix)
-      n.eY<-length(ix.eY.pts)
-      frac.eY<-n.eY/Leve.vec[j]
+      eve.j<-eve.vec[j,1:Leve.vec[j]] # nodes adjacent to the jth obs
+      ix.eY.pts<-which(eve.j %in% eix) # YES nodes
+      n.eY<-length(ix.eY.pts) # number of YES nodes
+      frac.eY<-n.eY/Leve.vec[j] # fraction of YES nodes
       if (n.eY<n.connected_eveYES & frac.eY<frac.eveYES_in_the_clump) {
         eve.j.eY<-eve.j[ix.eY.pts]
-        aux.dist<-(outer(obs$y[eve.j.eY],obs$y[eve.j],FUN="-")**2.+
-                   outer(obs$x[eve.j.eY],obs$x[eve.j],FUN="-")**2.)**0.5
-        min.dist.from.eY.stn<-min(aux.dist[aux.dist>0])
-        if (min.dist.from.eY.stn<dmin.next_eveYES) 
+        # if just one YES node, then flag the jth obs
+        if (n.eY==1) {
           ydqc.flag[eve.j.eY]<-200
+        # if more than one then the nearest YES node must be distant enough
+        } else {
+          aux.dist<-(outer(obs$y[eve.j.eY],obs$y[eve.j],FUN="-")**2.+
+                     outer(obs$x[eve.j.eY],obs$x[eve.j],FUN="-")**2.)**0.5
+          min.dist.from.eY.stn<-min(aux.dist[aux.dist>0])
+          if (min.dist.from.eY.stn>=dmin.next_eveYES) {
+            ydqc.flag[eve.j.eY]<-200
+# debug
+#            png(file="foo.png",height=800,width=800)
+#            plot(obs$x[eve.j],obs$y[eve.j])
+#            points(obs$x[eve.j.eY],obs$y[eve.j.eY],pch=19,col="red")
+#            dev.off()
+#            q()
+          }
+        }
       }
     }
     rm(eve.j,ix.eY.pts)
