@@ -623,6 +623,7 @@ remove_ltNobsClumps<-function(r,n,reverse=F,obs) {
     d[dd==0]<-1
     d[dd>0]<-0
     r[]<-d
+    rm(dd)
   }
   rc<-clump(r)
   dc<-getValues(rc)
@@ -645,6 +646,7 @@ remove_ltNobsClumps<-function(r,n,reverse=F,obs) {
     dd<-d
     d[dd==0]<-1
     d[dd>0]<-0
+    rm(dd)
   }
   r[]<-d
   return(list(r=r,obsflag=obsflag))
@@ -741,16 +743,16 @@ puddle<-function(obs,
   }
 # -- remove YES(NO) observations close to a lot of NO(YES) ones --
 # observations might be correct but they will create unrealistic patterns, 
-# either a "puudle"/hole or a isolated max, in the analysis field because the local 
+# either a "puddle"/hole or a isolated max, in the analysis field because the local 
 # observation density is not sufficient to properly describe such small-scale
 # features
   r1<-rgrid_puddle
   r1[]<-NA
   r1[mask_puddle]<-x1
 #  ytmp<-extract(r1,cbind(obs$x,obs$y),buffer=(2*mean(res(r1))),fun=mean,na.rm=T)
-  ytmp<-extract(r1,cbind(obs$x,obs$y))
+  ytmp<-extract(r1,cbind(obs$x,obs$y),method="bilinear")
   # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
-  cond<-(ytmp==0 & e1) | (ytmp==1 & e0)
+  cond<-(ytmp<=0.1 & e1) | (ytmp>=0.9 & e0)
   if (any(cond, na.rm=TRUE)) ydqc.flag[which(cond)]<-1
   # case 2. puddle of YES surrounded by NO
   out<-remove_ltNobsClumps(r=r1,
@@ -5458,7 +5460,7 @@ if (argv$puddle) {
           print("no valid observations left, no puddle check")
         }
       } # end of loop over threshold that define events
-      ncur<-length(which(dqcflag==argv$puddle.code))
+      ncur<-length(which(dqcflag==argv$puddle.code & !is.na(dqcflag)))
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
         print(paste("puddle check, iteration=",i,
@@ -5584,6 +5586,8 @@ if (argv$fge) {
 #-----------------------------------------------------------------------------
 # SCT - Spatial Consistency Test
 # NOTE: keep-listed stations are used but they canNOT be flagged here
+if (argv$verbose | argv$debug) 
+  print(paste0("SCT (",argv$sct.code,")"))
 nprev<-0
 # set doit vector
 doit<-vector(length=ndata,mode="numeric")
@@ -5698,6 +5702,8 @@ if (argv$debug)
 # check elevation against dem 
 # NOTE: keep-listed stations canNOT be flagged here
 if (argv$dem) {
+  if (argv$verbose | argv$debug) 
+    print(paste0("check for stations too far from dem (",argv$dem.code,")"))
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -5797,7 +5803,7 @@ if (argv$steve) {
 #-----------------------------------------------------------------------------
 # puddle check (second round)
 if (argv$puddle) {
-  nprev<-0
+  nprev<-length(which(dqcflag==argv$puddle.code))
   if (argv$verbose | argv$debug) {
     print(paste0("puddle-check 2 (",argv$puddle.code,")"))
   }
