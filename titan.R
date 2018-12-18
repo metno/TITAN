@@ -4117,19 +4117,18 @@ if (exists("meta")) rm(meta)
 # coordinate transformation
 if (argv$spatconv) {
   if (argv$debug) print("conversion of spatial coordinates")
-  ix<-which(is.na(dqcflag)) 
   # initialization
   x<-data$lon
   y<-data$lon
   x[]<-NA
   y[]<-NA
   # do it
-  coord<-SpatialPoints(cbind(data$lon[ix],data$lat[ix]),
+  coord<-SpatialPoints(cbind(data$lon,data$lat),
                        proj4string=CRS(argv$proj4from))
   coord.new<-spTransform(coord,CRS(argv$proj4to))
   xy.new<-coordinates(coord.new)
-  x[ix]<-round(xy.new[,1],0)
-  y[ix]<-round(xy.new[,2],0)
+  x<-round(xy.new[,1],0)
+  y<-round(xy.new[,2],0)
   xp<-expand.grid(c(argv$lonmin,argv$lonmax),c(argv$latmin,argv$latmax))
   coord<-SpatialPoints(xp,
                        proj4string=CRS(argv$proj4from))
@@ -4192,7 +4191,7 @@ if (argv$dem | argv$dem.fill) {
                !is.na(data$lon)   &
                !is.na(zdem) &
                !(zdem<argv$zmin | zdem>argv$zmax) &
-               (is.na(z) | (z<argv$zmin | z>argv$zmax)) )
+               (is.na(z) | is.nan(z) | (z<argv$zmin | z>argv$zmax)) )
     z[iz]<-zdem[iz]
     dqcflag[iz]<-dqcflag.bak[iz]
     rm(dqcflag.bak)
