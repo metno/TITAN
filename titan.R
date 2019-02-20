@@ -463,136 +463,174 @@ sct<-function(ixynp,
         t2neg.vec[ipx]<-T2neg[f]
     }
   }
-  #  dqc flags
-  dqctmp<-dqcflag[ix[j]]
-  doittmp<-doit[ix[j]]
-  #  probability of gross error (pog)
-  pog<-dqctmp
-  pog[]<-NA
-  # set to optimal Dh for the SCT
-  # either Dhmin or the average 10-percentile of the set of distances between a 
-  # station and all the others
-  Dh<-max(Dhmin,
-          mean(apply(cbind(1:nrow(disth),disth),
-                     MARGIN=1,
-                     FUN=function(x){
-       as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],
-                          probs=0.1))})))
-  # background error correlation matrix
-  S<-exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
-  if (argv$laf.sct) {
-    S<-S * (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
-  }
-  # S+eps2I
-  diag(S)<-diag(S)+eps2.vec
-  # innvoation
-  d<-topt-tb
-  # select observations used in the test
-  sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-  # select observations to test 
-  sel2check<-which(is.na(dqctmp) & doittmp==1)
-  first<-T
-  # loop over SCT iterations 
-  # NOTE: SCT flags at most one observation, iterate until no observations fail
-  while (length(sel)>1) { 
-#    # update selection
-#    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-#    sel2check<-which(is.na(dqctmp))
-#    if (length(sel2check)==0) break
-    # first iteration, inver the matrix
-    if (first) {
-      SRinv<-chol2inv(chol(S))
-      # from S+R go back to S
-      diag(S)<-diag(S)-eps2.vec
-      first<-F
-    } else if (length(indx)>1) {
-      S<-S[-indx,-indx]
-      eps2.vec<-eps2.vec[-indx]
-      diag(S)<-diag(S)+eps2.vec
-      SRinv<-chol2inv(chol(S))
-      # from S+R go back to S
-      diag(S)<-diag(S)-eps2.vec
-    } else {
-      # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
-      aux<-SRinv
-      SRinv<-aux[-indx,-indx]-
-             (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
-      S<-S[-indx,-indx]
-      eps2.vec<-eps2.vec[-indx]
-      rm(aux)
-    }
-    # next tree lines: compute cvres=(obs - CrossValidation_prediction)
-    Zinv<-1/diag(SRinv)
-    SRinv.d<-crossprod(SRinv,d[sel])
-    ares<-crossprod(S,SRinv.d)-d[sel] #   a-Obs
-    cvres<--Zinv*SRinv.d              # CVa-Obs, Lussana et al 2010 Eq(A13)
-    sig2o<-mean(d[sel]*(-ares))       # Lussana et al 2010, Eq(32)
-    if (sig2o<0.01) sig2o<-0.01       # safe threshold  
-    # pog=cvres/(sig2obs+sig2CVpred), Lussana et al 2010 Eq(20)
-    pog[sel]<-(ares*cvres)/sig2o
-    sctpog[ix[j[sel]]]<-pog[sel]
+
+  if(argv$smartbox.sct & argv$variable == "T") {
+    # Use the smart-box approach implemented in C
+    ns = length(j)
+
+    # TODO: Deal with sel vs sel2check in sct_wrapper
+    out<-.C("sct_smart_boxes",ns=as.integer(ns),
+                                       x=as.double(xtot[j]),
+                                       y=as.double(ytot[j]),
+                                       z=as.double(ztot[j]),
+                                       t=as.double(ttot[j]),
+                                       nmax=as.integer(1000),
+                                       nmin=as.integer(100),
+                                       nminprof=as.integer(nmin),
+                                       dzmin=as.double(dzmin),
+                                       dhmin=as.double(Dhmin),
+                                       dz=as.double(Dz),
+                                       t2pos=as.double(t2pos.vec),
+                                       t2neg=as.double(t2neg.vec),
+                                       eps2=as.double(eps2.vec),
+                                       flags=as.integer(1:ns),
+                                       sct=as.double(1:ns),
+                                       rep=as.double(1:ns),
+                                       boxids=as.integer(1:ns))
+
+    keeping = which(out$flags == 0)
+    remove = which(out$flags == 1)
+    dqcflag[ix[j[remove]]] <- sus.code
+
+    assign("dqcflag",dqcflag,envir=.GlobalEnv)
+    corep[ix[j]] <- out$rep
+    corep[ix[j[remove]]] <- NA
+    assign("corep",corep,envir=.GlobalEnv)
+    sctpog[ix[j]] <- out$sct
     assign("sctpog",sctpog,envir=.GlobalEnv)
-    if (length(sel2check)==0) break
-    # define the threshold for each observation
-    if (any(!is.na(t2pos.vec))) {
-      cvres<-(-cvres) # Obs-CVa 
-      # cvres is a sel-vector, while T2vec is a sel2check-vector
-      # sel includes all the sel2check values, plus possibly others
-      T2vec<-vector(length=length(sel2check),mode="numeric")
-      match<-match(sel2check,sel)
-      ipos2check<-which(cvres[match]>=0 & is.na(dqctmp[sel2check]))
-      if (length(ipos2check)>0) 
-        T2vec[ipos2check]<- t2pos.vec[sel2check[ipos2check]]
-      ipos2check<-which(cvres[match]<0 & is.na(dqctmp[sel2check]))
-      if (length(ipos2check)>0)
-        T2vec[ipos2check]<- t2neg.vec[sel2check[ipos2check]]
-      rm(ipos2check)
-    } else {
-      T2vec<-t2.vec[sel2check]
+
+    return(length(remove))
+  }
+  else {
+    #  dqc flags
+    dqctmp<-dqcflag[ix[j]]
+    doittmp<-doit[ix[j]]
+    #  probability of gross error (pog)
+    pog<-dqctmp
+    pog[]<-NA
+    # set to optimal Dh for the SCT
+    # either Dhmin or the average 10-percentile of the set of distances between a 
+    # station and all the others
+    Dh<-max(Dhmin,
+            mean(apply(cbind(1:nrow(disth),disth),
+                       MARGIN=1,
+                       FUN=function(x){
+         as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],
+                            probs=0.1))})))
+    # background error correlation matrix
+    S<-exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
+    if (argv$laf.sct) {
+      S<-S * (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
     }
-    # check if any obs fails the test
-    if (any(pog[sel2check]>T2vec)) {
-      # flag as suspect only the observation with the largest cvres 
-      # allow for more than obs being flagged at the same time
-      if (faster) {
-        if (any(pog[sel2check]>(2*T2vec))) {
-          indx<-which(pog[sel2check]>(2*T2vec))
+    # S+eps2I
+    diag(S)<-diag(S)+eps2.vec
+    # innvoation
+    d<-topt-tb
+    # select observations used in the test
+    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
+    # select observations to test 
+    sel2check<-which(is.na(dqctmp) & doittmp==1)
+    first<-T
+    # loop over SCT iterations 
+    # NOTE: SCT flags at most one observation, iterate until no observations fail
+    while (length(sel)>1) { 
+  #    # update selection
+  #    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
+  #    sel2check<-which(is.na(dqctmp))
+  #    if (length(sel2check)==0) break
+      # first iteration, inver the matrix
+      if (first) {
+        SRinv<-chol2inv(chol(S))
+        # from S+R go back to S
+        diag(S)<-diag(S)-eps2.vec
+        first<-F
+      } else if (length(indx)>1) {
+        S<-S[-indx,-indx]
+        eps2.vec<-eps2.vec[-indx]
+        diag(S)<-diag(S)+eps2.vec
+        SRinv<-chol2inv(chol(S))
+        # from S+R go back to S
+        diag(S)<-diag(S)-eps2.vec
+      } else {
+        # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
+        aux<-SRinv
+        SRinv<-aux[-indx,-indx]-
+               (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
+        S<-S[-indx,-indx]
+        eps2.vec<-eps2.vec[-indx]
+        rm(aux)
+      }
+      # next tree lines: compute cvres=(obs - CrossValidation_prediction)
+      Zinv<-1/diag(SRinv)
+      SRinv.d<-crossprod(SRinv,d[sel])
+      ares<-crossprod(S,SRinv.d)-d[sel] #   a-Obs
+      cvres<--Zinv*SRinv.d              # CVa-Obs, Lussana et al 2010 Eq(A13)
+      sig2o<-mean(d[sel]*(-ares))       # Lussana et al 2010, Eq(32)
+      if (sig2o<0.01) sig2o<-0.01       # safe threshold  
+      # pog=cvres/(sig2obs+sig2CVpred), Lussana et al 2010 Eq(20)
+      pog[sel]<-(ares*cvres)/sig2o
+      sctpog[ix[j[sel]]]<-pog[sel]
+      assign("sctpog",sctpog,envir=.GlobalEnv)
+      if (length(sel2check)==0) break
+      # define the threshold for each observation
+      if (any(!is.na(t2pos.vec))) {
+        cvres<-(-cvres) # Obs-CVa 
+        # cvres is a sel-vector, while T2vec is a sel2check-vector
+        # sel includes all the sel2check values, plus possibly others
+        T2vec<-vector(length=length(sel2check),mode="numeric")
+        match<-match(sel2check,sel)
+        ipos2check<-which(cvres[match]>=0 & is.na(dqctmp[sel2check]))
+        if (length(ipos2check)>0) 
+          T2vec[ipos2check]<- t2pos.vec[sel2check[ipos2check]]
+        ipos2check<-which(cvres[match]<0 & is.na(dqctmp[sel2check]))
+        if (length(ipos2check)>0)
+          T2vec[ipos2check]<- t2neg.vec[sel2check[ipos2check]]
+        rm(ipos2check)
+      } else {
+        T2vec<-t2.vec[sel2check]
+      }
+      # check if any obs fails the test
+      if (any(pog[sel2check]>T2vec)) {
+        # flag as suspect only the observation with the largest cvres 
+        # allow for more than obs being flagged at the same time
+        if (faster) {
+          if (any(pog[sel2check]>(2*T2vec))) {
+            indx<-which(pog[sel2check]>(2*T2vec))
+          } else {
+            ixprobsus<-which(pog[sel2check]>T2vec)
+            indx<-ixprobsus[which.max(pog[ixprobsus])]
+          }
         } else {
           ixprobsus<-which(pog[sel2check]>T2vec)
           indx<-ixprobsus[which.max(pog[ixprobsus])]
         }
+        dqctmp[sel2check[indx]]<-sus.code
+        # update global variable with flags
+        dqcflag[ix[j[sel2check[indx]]]]<-sus.code
+        assign("dqcflag",dqcflag,envir=.GlobalEnv)
+        # update corep (useful from 2nd iteration onwards, if an obs fails the
+        # sct, then no need for representativeness
+        corep[ix[j[sel2check[indx]]]]<-NA
+        assign("corep",corep,envir=.GlobalEnv)
+        # update selection
+        sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
+        sel2check<-which(is.na(dqctmp) & doittmp==1)
       } else {
-        ixprobsus<-which(pog[sel2check]>T2vec)
-        indx<-ixprobsus[which.max(pog[ixprobsus])]
+        break
       }
-      dqctmp[sel2check[indx]]<-sus.code
-      # update global variable with flags
-      dqcflag[ix[j[sel2check[indx]]]]<-sus.code
-      assign("dqcflag",dqcflag,envir=.GlobalEnv)
-      # update corep (useful from 2nd iteration onwards, if an obs fails the
-      # sct, then no need for representativeness
-      corep[ix[j[sel2check[indx]]]]<-NA
+    } # end cycle SCT model
+    # coefficient of observation representativeness (more than 1 obs left)
+    if (length(sel)>1) { 
+      corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
       assign("corep",corep,envir=.GlobalEnv)
-      # update selection
-      sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-      sel2check<-which(is.na(dqctmp) & doittmp==1)
-    } else {
-      break
     }
-  } # end cycle SCT model
-  # coefficient of observation representativeness (more than 1 obs left)
-  if (length(sel)>1) { 
-    corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
-    assign("corep",corep,envir=.GlobalEnv)
+    # debug: begin
+    #  if (argv$debug) {
+    #  }
+    # debug: end
+    return(length(which(dqctmp==sus.code)))
   }
-  # debug: begin
-#  if (argv$debug) {
-#  }
-  # debug: end
-  return(length(which(dqctmp==sus.code)))
 }
-
-
 #+ find the n-th largest element from each matrix row 
 findRow <- function (x,n) {   
 # order by row number then by value
@@ -2093,6 +2131,9 @@ p <- add_argument(p, "--fast.sct",
                       "flagging more than one observation simulataneously"),
                   flag=T,
                   short="-fS")
+p <- add_argument(p, "--smartbox.sct",
+                  help=paste("use smart boxes in the spatial consistency test for temperature"),
+                  flag=T)
 #.............................................................................. 
 # observation representativeness
 p <- add_argument(p, "--mean.corep",
@@ -3798,6 +3839,8 @@ if (argv$puddle) {
     quit(status=1)
   }
 }
+print(argv$titan_path)
+dyn.load(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))
 # buddy_eve checks
 if (any(is.na(argv$thr_eve.buddy_eve)))
   argv$thr_eve.buddy_eve<-c(0.1,1,10)
