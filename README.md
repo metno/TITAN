@@ -1,4 +1,4 @@
-# TITAN - data quality control
+# TITAN - auTomatIc daTa quAlity coNtrol
 
 Automatic quality control of in-situ observations with an emphasis on spatial controls.
 
