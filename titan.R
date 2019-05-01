@@ -1412,18 +1412,27 @@ spint_cool<-function(i,
 #------------------------------------------------------------------------------
 # spatial interpolation for the cool test. Defualt is nearest neighbour.
 #------------------------------------------------------------------------------
-  if (mode=="nearest") {
-    ixnear<-which.min((abs(xgrid_cool[i]-xobs_cool)+
-                       abs(ygrid_cool[i]-yobs_cool)))
-    if (sqrt((xgrid_cool[i]-xobs_cool[ixnear])**2+
-             (ygrid_cool[i]-yobs_cool[ixnear])**2)>dh_max) 
-      return(NA)
-    ifelse(yo_cool[ixnear]<thres,return(0),return(1))
+  if (mode=="nearest") { 
+    deltax<-abs(xgrid_cool[i]-xobs_cool)
+    deltay<-abs(ygrid_cool[i]-yobs_cool)
+    if (!any(deltax<dh_max & deltay<dh_max)) return(NA)
+    if (any(deltax<(dh_max/20) & deltay<(dh_max/20))) {
+      ixnear<-which(deltax<(dh_max/20) & deltay<(dh_max/20))
+    } else if (any(deltax<(dh_max/10) & deltay<(dh_max/10))) {
+      ixnear<-which(deltax<(dh_max/10) & deltay<(dh_max/10))
+    } else {
+      ixnear<-which(deltax<(dh_max) & deltay<(dh_max))
+    }
+    ixnearest<-which.min(deltax[ixnear]*deltax[ixnear]+
+                         deltay[ixnear]*deltay[ixnear])
+#    if (sqrt((xgrid_cool[i]-xobs_cool[ixnear])**2+
+#             (ygrid_cool[i]-yobs_cool[ixnear])**2)>dh_max) 
+#      return(NA)
+    ifelse(yo_cool[ixnear[ixnearest]]<thres,return(0),return(1))
   } else {
     return(NA)
   }
 }
-
 
 #==============================================================================
 #  MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN*MAIN
@@ -3067,6 +3076,8 @@ if (!is.na(argv$config.file)) {
     print(argv$config.file)
   }
 }
+jump<-T
+if (!jump) {
 #
 #-----------------------------------------------------------------------------
 if (!is.na(argv$cores)) {
@@ -6020,8 +6031,15 @@ if (argv$cool) {
           pridobs_to_check_cool<-data$prid[ix]
           xobs_cool<-c(x[ix],xobs_cool_aux)
           yobs_cool<-c(y[ix],yobs_cool_aux)
-          pridobs_cool<-c(data$prid[ix],pridobs_cool_aux)
           yo_cool<-c(data$value[ix],yo_cool_aux)
+          rgrid1<-rasterize(x=cbind(xobs_cool,yobs_cool),
+                            y=rgrid_cool,
+                            field=yo_cool,fun=mean,na.rm=T)
+          ix1<-which(!is.na(getValues(rgrid1)))
+          xy1<-xyFromCell(rgrid1,ix1)
+          xobs_cool<-xy1[,1]
+          yobs_cool<-xy1[,2]
+          yo_cool<-getValues(rgrid1)[ix1]
           if (!is.na(argv$cores)) {
             arr<-t(mcmapply(spint_cool,
                             1:ngrid_cool,
