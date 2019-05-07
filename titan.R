@@ -1284,9 +1284,9 @@ oi_var_gridpoint_by_gridpoint<-function(i,
                     vert_coord=zobs_spint[ixa],
                     gamma=fg_gamma,
                     obs=yo_spint[ixa])
-      aaa<-tvertprof_basic(1:2000,
-                                  t0=opt$minimum,
-                                  gamma=fg_gamma)
+#      aaa<-tvertprof_basic(1:2000,
+#                                  t0=opt$minimum,
+#                                  gamma=fg_gamma)
       yb_spint_i<-tvertprof_basic(zobs_spint[ixa],
                                   t0=opt$minimum,
                                   gamma=fg_gamma)
@@ -1312,12 +1312,12 @@ oi_var_gridpoint_by_gridpoint<-function(i,
                       a=opt$par[3],
                       h0=opt$par[4],
                       h1i=opt$par[5])
-      aaa<-tvertprof(z=1:2000,
-                      t0=opt$par[1],
-                      gamma=opt$par[2],
-                      a=opt$par[3],
-                      h0=opt$par[4],
-                      h1i=opt$par[5])
+#      aaa<-tvertprof(z=1:2000,
+#                      t0=opt$par[1],
+#                      gamma=opt$par[2],
+#                      a=opt$par[3],
+#                      h0=opt$par[4],
+#                      h1i=opt$par[5])
     } else if (fg=="mean") {
       yb_spint_i<-rep(yo_mean,length=p_i)
       xb_i<-yo_mean
@@ -3076,8 +3076,6 @@ if (!is.na(argv$config.file)) {
     print(argv$config.file)
   }
 }
-jump<-T
-if (!jump) {
 #
 #-----------------------------------------------------------------------------
 if (!is.na(argv$cores)) {
@@ -4647,7 +4645,7 @@ if (!is.na(argv$fg.file)) {
         rm(raux,fr,ix,rclump)
       }
       # c. remove outliers. Check for outliers in square boxes of 51km by 51km
-      if (argv$verbose | argv$debug) print(" remove outliers")
+#      if (argv$verbose | argv$debug) print(" remove outliers")
       raux<-rfg
       daux<-boxcox(x=dfg,lambda=0.5)
       raux[]<-daux
@@ -4722,7 +4720,10 @@ if (!is.na(argv$fg.file)) {
       rm(raux,daux,avg,stdev,ix,suspect,dfg)
       if (argv$radarout) rrad<-rfg
       t1a<-Sys.time()
-      print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+      if (argv$verbose | argv$debug) {
+        print(paste(" remove outliers - time",round(t1a-t0a,1),
+                                              attr(t1a-t0a,"unit")))
+      }
     }
   }
   if (argv$proj4fg!=argv$proj4_where_dqc_is_done) {
@@ -5589,6 +5590,7 @@ for (i in 1:argv$i.sct) {
       cont_sct_loop<-0
       obs_to_check<-rep(T,length(dqcflag))
       obs_to_check[!is.na(doit) & doit!=1]<-F
+      obs_to_use<-rep(T,length(dqcflag))
       if (argv$transf.sct) {
         yo_sct<-boxcox(x=data$value,lambda=argv$boxcox.lambda)
       } else {
@@ -5607,6 +5609,7 @@ for (i in 1:argv$i.sct) {
           b_sct<-fge.mu
         }
         argv$fglab.sct<-NA
+        obs_to_use<-!is.na(b_sct) & !is.nan(b_sct) & is.finite(b_sct)
       } else if (argv$usefg.sct) {
         if (argv$transf.sct) {
           b_sct<-boxcox(x=fg,lambda=argv$boxcox.lambda)
@@ -5614,12 +5617,14 @@ for (i in 1:argv$i.sct) {
           b_sct<-fg
         }
         argv$fglab.sct<-NA
+        obs_to_use<-!is.na(b_sct) & !is.nan(b_sct) & is.finite(b_sct)
       }
       while (sct_loop) {
         cont_sct_loop<-cont_sct_loop+1
         t00a<-Sys.time()
         if (cont_sct_loop>(length(ix)/2)) break
-        ixg<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & obs_to_check)
+        ixg<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
+                    obs_to_check & obs_to_use )
         nobs_to_check<-length(ixg)
         xgrid_spint<-x[ixg]
         ygrid_spint<-y[ixg]
@@ -5627,7 +5632,8 @@ for (i in 1:argv$i.sct) {
         lafgrid_spint<-laf[ixg]
         yo_to_check<-yo_sct[ixg]
         if (argv$usefge.sct | argv$usefg.sct) xb_spint<-b_sct[ixg]
-        ixo<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 )
+        ixo<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 &
+                    obs_to_use )
         xobs_spint<-x[ixo]
         yobs_spint<-y[ixo]
         zobs_spint<-z[ixo]
@@ -5997,7 +6003,7 @@ if (argv$debug)
 if (argv$cool) {
   nprev<-0
   if (argv$verbose | argv$debug) {
-    print(paste0("cool-check (",argv$cool.code,")"))
+    print(paste0("cool test (",argv$cool.code,")"))
   }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")

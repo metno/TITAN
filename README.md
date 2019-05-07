@@ -9,6 +9,8 @@ Available checks are (applied sequentially as in this list):
 
 * Precipitation (in-situ) and temperature (field) cross-check (optional)
 
+* Check elevations against digital elevation model (optional)
+
 * Plausibility check
 
 * Climatological check, predefined range for each month (optional)
@@ -17,21 +19,13 @@ Available checks are (applied sequentially as in this list):
 
 * Buddy-check
 
-* Isolated event test (STEVE) both over and under multiple thresholds (optional)
-
-* Puddle-check (optional)
-
 * Check against a deterministic first-guess field (optional)
 
 * Check against an ensemble of first-guess fields (optional)
 
 * Spatial Consistency Test (SCT)
 
-* Check elevations against digital elevation model (optional)
-
-* Isolated event test (STEVE) both over and under multiple thresholds, 2nd round (optional)
-
-* Puddle-check, 2nd round (optional)
+* Check fOr hOLes in the field (COOL test) (optional)
 
 * Detect isolated observations
 
@@ -49,7 +43,6 @@ Ensure the following R-libraries (and their dependencies) are installed:
    * raster
    * rgdal
    * ncdf4 (optional, used only if additional geographical information are required)
-   * tripack (optional, used by STEVE)
    * igraph (optional, used to post-process radar-derived precipitation)
 
 
