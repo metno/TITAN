@@ -1408,6 +1408,7 @@ oi_var_gridpoint_by_gridpoint<-function(i,
 spint_cool<-function(i,
                      thres,  # same unit as yo_cool
                      dh_max, # max distance to be considered a nn
+                     condition="lt",
                      mode="nearest") {
 #------------------------------------------------------------------------------
 # spatial interpolation for the cool test. Defualt is nearest neighbour.
@@ -1428,7 +1429,15 @@ spint_cool<-function(i,
 #    if (sqrt((xgrid_cool[i]-xobs_cool[ixnear])**2+
 #             (ygrid_cool[i]-yobs_cool[ixnear])**2)>dh_max) 
 #      return(NA)
-    ifelse(yo_cool[ixnear[ixnearest]]<thres,return(0),return(1))
+    if (condition=="lt") {
+      ifelse(yo_cool[ixnear[ixnearest]]< thres,return(0),return(1))
+    } else if (condition=="le") {
+      ifelse(yo_cool[ixnear[ixnearest]]<=thres,return(0),return(1))
+    } else if (condition=="gt") {
+      ifelse(yo_cool[ixnear[ixnearest]]> thres,return(0),return(1))
+    } else if (condition=="ge") {
+      ifelse(yo_cool[ixnear[ixnearest]]>=thres,return(0),return(1))
+    }
   } else {
     return(NA)
   }
@@ -2230,6 +2239,11 @@ p <- add_argument(p, "--i.cool",
                   default=1)
 p <- add_argument(p, "--thres.cool",
                   help="numeric vector with the thresholds used to define events (same units of the specified variable). A threshold transforms an observation into a binary event: observation is less than the threshold OR observations is greater or equal to it.",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--condition.cool",
+                  help="character vector specifying the conditions to apply at each of the thresholds (\"lt\"=less than; \"le\"=less or equal than; \"gt\"=greater than; \"ge\"=greater or equal than).",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
@@ -3719,8 +3733,22 @@ if (argv$cool) {
   if (any(is.na(argv$thres.cool))) {
     print("++ WARNING")
     print("COOL test has NAs among the specified thresholds")
-    print(" TITAN will use only the defualt threshold of 0.1")
+    print(" TITAN will use only the default threshold of 0.1")
     argv$thres.cool<-vector();argv$thres.cool[1]<-0.1
+  }
+  if ( any( is.na(argv$condition.cool) | 
+       !(argv$condition.cool %in% c("lt","le","gt","ge")) )) {
+    print("++ WARNING")
+    print("COOL test has NAs and/or not allowed strings among the specified conditions")
+    print(" TITAN will use only the default condition \"lt\"")
+    argv$condition.cool<-vector();argv$condition.cool[1]<-"lt"
+  }
+  if (length(argv$condition.cool)!=length(argv$thres.cool)) {
+    print("++ WARNING")
+    print("COOL test, different lengths for vectors thres.cool and condition.cool")
+    print(" TITAN will use the default condition \"lt\" for all thresholds")
+    argv$condition.cool<-vector(mode="character",length=length(argv$thres.cool))
+    argv$condition.cool[]<-"lt"
   }
   n.cool<-array(data=NA,dim=c(length(argv$thres.cool),(nfin+1))) 
   for (i in 1:length(argv$thres.cool)) {
@@ -5062,7 +5090,7 @@ if (argv$debug)
 # NOTE: keep-listed stations canNOT be flagged here
 if (argv$dem) {
   if (argv$verbose | argv$debug) 
-    print(paste0("check for stations too far from dem (",argv$dem.code,")"))
+    print(paste0("check station elevations against digital elevation model (",argv$dem.code,")"))
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
@@ -5079,7 +5107,7 @@ if (argv$dem) {
     print("no valid observations left, no dem check")
   }
   if (argv$verbose | argv$debug) {
-    print(paste("# observations too far from dem=",
+    print(paste("#stations with elevations too different from digital elevation model =",
                 length(which(dqcflag==argv$dem.code))))
     print("+---------------------------------+")
   }
@@ -5145,10 +5173,7 @@ if (!is.na(argv$month.clim)) {
 #  Define an event compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$buddy_eve) {
-  nprev<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
-  ncur<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
-  nprev[]<-0
-  ncur[]<-0
+  nsus<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
   # set doit/prio vectors
   doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
   prio<-vector(length=ndata,mode="numeric"); prio[]<-NA
@@ -5164,9 +5189,8 @@ if (argv$buddy_eve) {
   print(paste0("priorities ",toString(argv$prio.buddy_eve)))
   for (i in 1:argv$i.buddy_eve) {
     priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
+    nsus[]<-0
     for (j in 1:length(argv$thr_eve.buddy_eve)) {
-      if ((ncur[j]-nprev[j])==0 & i>2) break
-      nprev[j]<-ncur[j]
       # use only (probably) good observations with doit!=0
       ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
                  doit!=0 )
@@ -5231,15 +5255,28 @@ if (argv$buddy_eve) {
       } else {
         print("no valid observations left, no buddy_eve check")
       }
-      ncur[j]<-length(which(dqcflag==argv$buddy_eve.code))
+      nsus[j]<-ifelse(exists("sus"),length(sus),0)
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
-        print(paste("buddy_eve-check, iteration=",i,
-                    "event is: less than",argv$thr_eve.buddy_eve[j],
-                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        print(paste("# suspect observations=",ncur[j]-nprev[j]))
+        str<-" (#TOT "
+        for (f in 1:nfin) {
+          if (f>1) str<-paste0(str,"; ") 
+          aux<-which(dqcflag==argv$buddy_eve.code & data$prid==argv$prid[f])
+          str<-paste0(str,"prid",argv$prid[f],"=",length(aux))
+          rm(aux)
+        }
+        str<-paste0(str,")")
+        prestr<-ifelse(j==1,"","  ")
+        print(paste0(prestr,"buddy_eve-check, iteration=",i,
+                     "/event def: value less than ",argv$thr_eve.buddy_eve[j],
+                     "/dqc param: thres=",argv$thr.buddy_eve[j],
+                     "rad=",argv$dr.buddy_eve[j],
+                     "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+        print(paste0(prestr,nsus[j]," new suspect observations",str))
+        rm(prestr,str)
       }
     } # end for j
+    if (sum(nsus)==0) break
   }  # end for i
   rm(doit)
   if (argv$debug) 
@@ -5324,7 +5361,7 @@ for (i in 1:argv$i.buddy) {
   ncur<-length(which(dqcflag==argv$buddy.code))
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
-    str<-"("
+    str<-"(#TOT "
     for (f in 1:nfin) {
       if (f>1) str<-paste0(str,"; ") 
       aux<-which(dqcflag==argv$buddy.code & data$prid==argv$prid[f])
@@ -5334,7 +5371,7 @@ for (i in 1:argv$i.buddy) {
     str<-paste0(str,")")
     print(paste("buddy-check, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-    print(paste("# suspect observations=",ncur-nprev,str))
+    print(paste("#new suspect observations=",ncur-nprev,str))
     rm(str)
   }
 #  if (argv$debug) {
@@ -6052,6 +6089,7 @@ if (argv$cool) {
                             mc.cores=argv$cores,
                             SIMPLIFY=T,
                             thres=argv$thres.cool[j],
+                            condition=argv$condition.cool[j],
                             dh_max=argv$dh_max.cool))
           # no-multicores
           } else {
@@ -6059,6 +6097,7 @@ if (argv$cool) {
                           1:ngrid_cool,
                           SIMPLIFY=T,
                           thres=argv$thres.cool[j],
+                          condition=argv$condition.cool[j],
                           dh_max=argv$dh_max.cool))
           }
           rgrid_cool[]<-arr
