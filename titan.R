@@ -1088,6 +1088,235 @@ nc4in<-function(nc.file,
   return(list(data=data.vec,stack=s,labels=labels))
 }
 
+#+ nearest-neighbour spatial interpolation
+spint_nn<-function(xy,rx,ry,rval,dh_max) {
+  deltax<-abs(xy[1]-rx); deltay<-abs(xy[2]-ry)
+  if (!any(deltax<dh_max & deltay<dh_max)) return(NA)
+  if (any(deltax<(dh_max/20) & deltay<(dh_max/20))) {
+    ixnear<-which(deltax<(dh_max/20) & deltay<(dh_max/20))
+  } else if (any(deltax<(dh_max/10) & deltay<(dh_max/10))) {
+    ixnear<-which(deltax<(dh_max/10) & deltay<(dh_max/10))
+  } else {
+    ixnear<-which(deltax<(dh_max) & deltay<(dh_max))
+  }
+  ixnearest<-which.min(deltax[ixnear]*deltax[ixnear]+
+                       deltay[ixnear]*deltay[ixnear])
+  return(rval[ixnear[ixnearest]])
+}
+
+#+ wraper, read data from nc-file and format it
+get_data_from_ncfile<-function(nc.file,
+                               nc.varname,
+                               nc.t=NA,
+                               nc.e=NA,
+                               topdown,
+                               var.dim,
+                               var.de_acc=F,
+                               var.de_acc_by="-1 hour",
+                               proj4,
+                               proj4_from_nc,
+                               xy_as_vars=F,
+                               x_as_var.varname=NA,
+                               y_as_var.varname=NA,
+                               xy_as_var.dim=NA,
+                               xy_as_var.dh_max=NA,
+                               return_raster=F,
+                               debug.file=NA,
+                               nc.dqc_mode="none") { #"radar_hourly"
+#------------------------------------------------------------------------------
+  if (is.null(var.dim$tpos)) {
+    nc.t<-NULL
+  } else {
+    if (is.na(var.dim$tpos)) {
+      nc.t<-NULL
+      var.dim$tpos<-NULL
+    } else {
+      ti<-nc4.getTime(nc.file)
+      if (is.na(nc.t)) nc.t<-ti[1]
+      if (!(nc.t %in% ti)) 
+        boom(paste("ERROR, file",nc.file,",timestamp",nc.t,"not present"))
+    }
+  }
+  if (is.null(var.dim$epos)) {
+    nc.e<-NULL
+  } else {
+    if (is.na(var.dim$epos)) {
+      nc.e<-NULL
+      var.dim$epos<-NULL
+    } else {
+      if (is.na(nc.e)) nc.e<-0
+    }
+  }
+  if (var.de_acc) {
+    tminus1h<-format(as.POSIXlt(
+                     seq(as.POSIXlt(strptime(nc.t,"%Y%m%d%H%M",tz="UTC")),
+                         length=2,by=var.de_acc_by),"UTC")[2],
+                     "%Y%m%d%H%M",tz="UTC")
+    if (!(tminus1h %in% ti)) 
+      boom(paste("ERROR, file",nc.file,",timestamp",tminus1h,"not present"))
+    raux<-try(nc4in(nc.file=nc.file,
+                    nc.varname=nc.varname,
+                    topdown=topdown,
+                    out.dim=var.dim,
+                    proj4=proj4,
+                    nc.proj4=proj4_from_nc,
+                    selection=list(t=c(tminus1h,nc.t),e=nc.e)))
+    if (is.null(raux)) boom(paste("ERROR while reading \"var\" from file:",argv$nc.file))
+    r<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
+  } else {
+    raux<-try(nc4in(nc.file=nc.file,
+                    nc.varname=nc.varname,
+                    topdown=topdown,
+                    out.dim=var.dim,
+                    proj4=proj4,
+                    nc.proj4=proj4_from_nc,
+                    selection=list(t=nc.t,e=nc.e)))
+    r<-raux$stack
+  }
+  rm(raux)
+  proj4_nc<-as.character(crs(r))
+  if (nc.dqc_mode=="radar_hourly") {
+    if (argv$verbose) print("Read radar and do the radar-DQC")
+    t0a<-Sys.time()
+    suppressPackageStartupMessages(library("igraph"))
+    rval<-getValues(r)
+    # a. remove not plausible values
+    if (argv$verbose) print(" remove not plausible values")
+    radardqc.min<-0
+    radardqc.max<-300
+    ix<-which( !is.na(rval) & (rval<radardqc.min | rval>radardqc.max) )
+    if (length(ix)>0) {
+      rval[ix]<-NA
+      r[]<-rval
+    }
+    rm(ix)
+    # b. remove patches of connected cells that are too small
+    #  check for small and isolated clumps (patches) of connected cells with 
+    #  precipitation greater than a predefined threshold
+    #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
+    #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
+    if (argv$verbose) print(" remove small clumps")
+    radardqc.clump.thr<-c(0,1)
+    radardqc.clump.n<-c(100,50)
+    for (i in 1:length(radardqc.clump.thr)) {
+      raux<-r
+      if (any(rval<=radardqc.clump.thr[i])) 
+        raux[which(rval<=radardqc.clump.thr[i])]<-NA
+      rclump<-clump(raux)
+      fr<-freq(rclump)
+      ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
+      if (length(ix)>0) {
+        rval[getValues(rclump) %in% fr[ix,1]]<-NA
+        r[]<-rval
+      }
+      rm(raux,fr,ix,rclump)
+    }
+    # c. remove outliers. Check for outliers in square boxes of 51km by 51km
+    raux<-r
+    daux<-boxcox(x=rval,lambda=0.5)
+    raux[]<-daux
+    # compute mean and sd
+    raux_agg<-aggregate(raux,fact=5,fun=mean,na.rm=T)
+    daux_agg<-getValues(raux_agg)
+    ix_aux<-which(!is.na(daux_agg))
+    xyaux<-xyFromCell(raux_agg,ix_aux)
+    xrad_aux<-xyaux[,1]
+    yrad_aux<-xyaux[,2]
+    vrad_aux<-daux_agg[ix_aux]
+    get_rad_stat<-function(i,dh_ref=25000) { 
+      deltax<-abs(xrad_aux[i]-xrad_aux)
+      deltay<-abs(yrad_aux[i]-yrad_aux)
+      ix<-which( deltax<dh_ref & deltay<dh_ref )
+      dist<-deltax; dist[]<-NA
+      dist[ix]<-sqrt(deltax[ix]*deltax[ix]+deltay[ix]*deltay[ix])
+      ix<-which( !is.na(dist) & dist<dh_ref )
+      return(c(mean(vrad_aux[ix]),sd(vrad_aux[ix])))
+    }
+    if (!is.na(argv$cores)) {
+      arr<-mcmapply(get_rad_stat,
+                    1:length(ix_aux),
+                    mc.cores=argv$cores,
+                    SIMPLIFY=T)
+    # no-multicores
+    } else {
+      arr<-mapply(get_rad_stat,
+                  1:length(ix_aux),
+                  SIMPLIFY=T)
+    }
+    raux_agg[]<-NA; raux_agg[ix_aux]<-arr[1,]
+    raux<-disaggregate(raux_agg,fact=5)
+    if (ncell(raux)>ncell(r)) {
+      raux<-crop(raux,r)
+    } else if (ncell(raux)<ncell(r)) {
+      raux<-extend(raux,r)
+    }
+    avg<-getValues(raux)
+    raux_agg[]<-NA; raux_agg[ix_aux]<-arr[2,]
+    raux<-disaggregate(raux_agg,fact=5,method="bilinear",na.rm=T)
+    if (ncell(raux)>ncell(r)) {
+      raux<-crop(raux,r)
+    } else if (ncell(raux)<ncell(r)) {
+      raux<-extend(raux,r)
+    }
+    stdev<-getValues(raux)
+    ix<-which(stdev>0 & !is.na(daux) & !is.na(avg) & !is.na(stdev))
+    rm(arr,raux_agg,ix_aux,xrad_aux,yrad_aux,vrad_aux,daux_agg,xyaux)
+    # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
+    suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
+    if (length(suspect)>0) rval[ix[suspect]]<-NA
+    r[]<-rval
+    rm(raux,daux,avg,stdev,ix,suspect,rval)
+    t1a<-Sys.time()
+    if (argv$verbose) print(paste(" remove outliers - time",round(t1a-t0a,1),
+                                                       attr(t1a-t0a,"unit")))
+  }
+  #
+  if (xy_as_vars) {
+    ix<-which(!is.na(getValues(r)))
+    if (length(ix)==0) {
+      val<-rep(NA,ndata)
+    } else {
+      rval<-getValues(r,ix)
+      raux<-try(nc4in(nc.file=nc.file,
+                      nc.varname=x_as_var.varname,
+                      topdown=topdown,
+                      out.dim=xy_as_var.dim,
+                      proj4=proj4,
+                      nc.proj4=proj4_from_nc,
+                      selection=list(t=NULL,e=NULL)))
+      if (is.null(raux)) boom(paste("ERROR while reading \"x_as_var\" from file:",argv$nc.file))
+      rx<-getValues(raux$stack,ix); rm(raux)
+      raux<-try(nc4in(nc.file=nc.file,
+                      nc.varname=y_as_var.varname,
+                      topdown=topdown,
+                      out.dim=xy_as_var.dim,
+                      proj4=proj4,
+                      nc.proj4=proj4_from_nc,
+                      selection=list(t=NULL,e=NULL)))
+      if (is.null(raux)) boom(paste("ERROR while reading \"y_as_var\" from file:",argv$nc.file))
+      ry<-getValues(raux$stack,ix); rm(raux)
+      if (is.na(xy_as_var.dh_max)) 
+      val<-apply(cbind(data$lon,data$lat),FUN=spint_nn,MARGIN=1,
+                 rx=rx,ry=ry,rval=rval,dh_max=xy_as_var.dh_max)
+    }
+  } else if (proj4_nc!=argv$proj4_where_dqc_is_done) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4_input_obsfiles))
+    coord.new<-spTransform(coord,CRS(proj4_nc))
+    xy.tmp<-coordinates(coord.new)
+    val<-extract(r,xy.tmp)
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    val<-extract(r,cbind(x,y))
+  }
+  if (!is.na(debug.file)) save(r,val,file=debug.file)
+  if (return_raster) {
+    return(list(raster=r,values=val))
+  } else {
+    return(val)
+  }
+}
+
 #+ plot (used for debugging)
 plotSCTgrid<-function() {
   r<-raster(e,ncol=argv$grid.sct[2],nrow=argv$grid.sct[1])
@@ -2154,6 +2383,27 @@ p <- add_argument(p, "--laf.proj4_att",
                   type="character",
                   default="proj4",
                   short="-lfp4a")
+p <- add_argument(p, "--laf.x_as_var.varname",
+                  help="easting coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--laf.y_as_var.varname",
+                  help="northing coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--laf.xy_as_var.ndim",
+                  help="easting/northing coordinates, number of dimensions",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--laf.xy_as_var.tpos",
+                  help="easting/northing coordinates, position of time dimension",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--laf.xy_as_var.dimnames",
+                  help="easting/northing coordinates, dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 #.............................................................................. 
 # check elevation against dem
 p <- add_argument(p, "--dem",
@@ -2214,6 +2464,27 @@ p <- add_argument(p, "--dem.proj4_att",
                   type="character",
                   default="proj4",
                   short="-dmp4a")
+p <- add_argument(p, "--dem.x_as_var.varname",
+                  help="easting coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--dem.y_as_var.varname",
+                  help="northing coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--dem.xy_as_var.ndim",
+                  help="easting/northing coordinates, number of dimensions",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--dem.xy_as_var.tpos",
+                  help="easting/northing coordinates, position of time dimension",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--dem.xy_as_var.dimnames",
+                  help="easting/northing coordinates, dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 #.............................................................................. 
 # precipitation and temperature cross-check
 p <- add_argument(p, "--ccrrt",
@@ -2497,6 +2768,27 @@ p <- add_argument(p, "--t2m.e",
                   type="numeric",
                   default=NA,
                   short="-rrwtee")
+p <- add_argument(p, "--t2m.x_as_var.varname",
+                  help="easting coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--t2m.y_as_var.varname",
+                  help="northing coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--t2m.xy_as_var.ndim",
+                  help="easting/northing coordinates, number of dimensions",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--t2m.xy_as_var.tpos",
+                  help="easting/northing coordinates, position of time dimension",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--t2m.xy_as_var.dimnames",
+                  help="easting/northing coordinates, dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 # dem for temperature adjustments
 p <- add_argument(p,"--t2m.demfile",
                   help="dem file associated to the first-guess or background file",
@@ -2634,6 +2926,27 @@ p <- add_argument(p, "--wind.e",
                   type="numeric",
                   default=NA,
                   short="-rrwwee")
+p <- add_argument(p, "--wind.x_as_var.varname",
+                  help="easting coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--wind.y_as_var.varname",
+                  help="northing coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--wind.xy_as_var.ndim",
+                  help="easting/northing coordinates, number of dimensions",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--wind.xy_as_var.tpos",
+                  help="easting/northing coordinates, position of time dimension",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--wind.xy_as_var.dimnames",
+                  help="easting/northing coordinates, dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 #.............................................................................. 
 # first-guess or background file / deterministic
 p <- add_argument(p, "--fg",
@@ -2773,6 +3086,27 @@ p <- add_argument(p, "--fg.acc",
                   help="first-guess field is accumulated",
                   flag=T,
                   short="-fgacc")
+p <- add_argument(p, "--fg.x_as_var.varname",
+                  help="easting coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--fg.y_as_var.varname",
+                  help="northing coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--fg.xy_as_var.ndim",
+                  help="easting/northing coordinates, number of dimensions",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--fg.xy_as_var.tpos",
+                  help="easting/northing coordinates, position of time dimension",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--fg.xy_as_var.dimnames",
+                  help="easting/northing coordinates, dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 p <- add_argument(p,"--fg.demfile",
                   help="dem file associated to the first-guess or background file",
                   type="character",
@@ -2990,6 +3324,27 @@ p <- add_argument(p, "--fge.e",
                   type="numeric",
                   default=NA,
                   short="-fgeee")
+p <- add_argument(p, "--fge.x_as_var.varname",
+                  help="easting coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--fge.y_as_var.varname",
+                  help="northing coordinate, variable name (used when proj4 is not specified)",
+                  type="character",
+                  default=NA)
+p <- add_argument(p, "--fge.xy_as_var.ndim",
+                  help="easting/northing coordinates, number of dimensions",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--fge.xy_as_var.tpos",
+                  help="easting/northing coordinates, position of time dimension",
+                  type="numeric",
+                  default=NA)
+p <- add_argument(p, "--fge.xy_as_var.dimnames",
+                  help="easting/northing coordinates, dimension names in the netCDF file",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
 p <- add_argument(p,"--fge.demfile",
                   help="dem file associated to the first-guess or background file",
                   type="character",
@@ -3137,6 +3492,7 @@ if (any(is.na(argv$prid))) {
     quit(status=1)
   }
 }
+#................................................................................
 # set input offsets and correction factors
 if (any(is.na(argv$input.offset))) {
   argv$input.offset<-rep(0,length=nfin)
@@ -3168,13 +3524,82 @@ if (any(is.na(argv$input.cfact))) {
     argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
   }
 }
-# set offsets and correction factors
-#if (any(is.na(argv$input.offset))) argv$input.offset<-rep(0,nfin)
-#if (any(is.na(argv$input.negoffset))) argv$input.negoffset<-rep(0,nfin)
-#if (any(is.na(argv$input.cfact))) argv$input.cfact<-rep(1,nfin)
-#if (any(is.na(argv$input.negcfact))) argv$input.negcfact<-rep(0,nfin)
-#argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
-#argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
+#t2m
+t2m.offset<-argv$t2m.offset
+t2m.negoffset<-argv$t2m.negoffset
+t2m.cfact<-argv$t2m.cfact
+t2m.negcfact<-argv$t2m.negcfact
+if (is.na(t2m.offset)) t2m.offset<-0
+if (is.na(t2m.negoffset)) t2m.negoffset<-0
+t2m.offset<-as.numeric(gsub("_","-",t2m.offset))
+t2m.offset<-t2m.offset*(-1)**(t2m.negoffset)
+if (is.na(t2m.cfact)) t2m.cfact<-0
+if (is.na(t2m.negcfact)) t2m.negcfact<-0
+t2m.cfact<-as.numeric(gsub("_","-",t2m.cfact))
+t2m.cfact<-t2m.cfact*(-1)**(t2m.negcfact)
+t2m.demoffset<-argv$t2m.demoffset
+t2m.demnegoffset<-argv$t2m.demnegoffset
+t2m.demcfact<-argv$t2m.demcfact
+t2m.demnegcfact<-argv$t2m.demnegcfact
+if (is.na(t2m.demoffset)) t2m.demoffset<-0
+if (is.na(t2m.demnegoffset)) t2m.demnegoffset<-0
+t2m.demoffset<-as.numeric(gsub("_","-",t2m.demoffset))
+t2m.demoffset<-t2m.demoffset*(-1)**(t2m.demnegoffset)
+if (is.na(t2m.demcfact)) t2m.demcfact<-0
+if (is.na(t2m.demnegcfact)) t2m.demnegcfact<-0
+t2m.demcfact<-as.numeric(gsub("_","-",t2m.demcfact))
+t2m.demcfact<-t2m.demcfact*(-1)**(t2m.demnegcfact)
+#fg
+fg.offset<-argv$fg.offset
+fg.negoffset<-argv$fg.negoffset
+fg.cfact<-argv$fg.cfact
+fg.negcfact<-argv$fg.negcfact
+if (is.na(fg.offset)) fg.offset<-0
+if (is.na(fg.negoffset)) fg.negoffset<-0
+fg.offset<-as.numeric(gsub("_","-",fg.offset))
+fg.offset<-fg.offset*(-1)**(fg.negoffset)
+if (is.na(fg.cfact)) fg.cfact<-0
+if (is.na(fg.negcfact)) fg.negcfact<-0
+fg.cfact<-as.numeric(gsub("_","-",fg.cfact))
+fg.cfact<-fg.cfact*(-1)**(fg.negcfact)
+fg.demoffset<-argv$fg.demoffset
+fg.demnegoffset<-argv$fg.demnegoffset
+fg.demcfact<-argv$fg.demcfact
+fg.demnegcfact<-argv$fg.demnegcfact
+if (is.na(fg.demoffset)) fg.demoffset<-0
+if (is.na(fg.demnegoffset)) fg.demnegoffset<-0
+fg.demoffset<-as.numeric(gsub("_","-",fg.demoffset))
+fg.demoffset<-fg.demoffset*(-1)**(fg.demnegoffset)
+if (is.na(fg.demcfact)) fg.demcfact<-0
+if (is.na(fg.demnegcfact)) fg.demnegcfact<-0
+fg.demcfact<-as.numeric(gsub("_","-",fg.demcfact))
+fg.demcfact<-fg.demcfact*(-1)**(fg.demnegcfact)
+# fge
+fge.offset<-argv$fge.offset
+fge.negoffset<-argv$fge.negoffset
+fge.cfact<-argv$fge.cfact
+fge.negcfact<-argv$fge.negcfact
+if (is.na(fge.offset)) fge.offset<-0
+if (is.na(fge.negoffset)) fge.negoffset<-0
+fge.offset<-as.numeric(gsub("_","-",fge.offset))
+fge.offset<-fge.offset*(-1)**(fge.negoffset)
+if (is.na(fge.cfact)) fge.cfact<-0
+if (is.na(fge.negcfact)) fge.negcfact<-0
+fge.cfact<-as.numeric(gsub("_","-",fge.cfact))
+fge.cfact<-fge.cfact*(-1)**(fge.negcfact)
+fge.demoffset<-argv$fge.demoffset
+fge.demnegoffset<-argv$fge.demnegoffset
+fge.demcfact<-argv$fge.demcfact
+fge.demnegcfact<-argv$fge.demnegcfact
+if (is.na(fge.demoffset)) fge.demoffset<-0
+if (is.na(fge.demnegoffset)) fge.demnegoffset<-0
+fge.demoffset<-as.numeric(gsub("_","-",fge.demoffset))
+fge.demoffset<-fge.demoffset*(-1)**(fge.demnegoffset)
+if (is.na(fge.demcfact)) fge.demcfact<-0
+if (is.na(fge.demnegcfact)) fge.demnegcfact<-0
+fge.demcfact<-as.numeric(gsub("_","-",fge.demcfact))
+fge.demcfact<-fge.demcfact*(-1)**(fge.demnegcfact)
+#................................................................................
 # check variable
 if (!(argv$variable %in% c("T","RH","RR","SD"))) {
   print("variable must be one of T, RH, RR, SD")
@@ -3884,6 +4309,50 @@ if (argv$dem | argv$dem.fill) {
     proj4dem_from_nc<-list(var=argv$dem.proj4_var, att=argv$dem.proj4_att)
   }
 }
+if (!is.na(argv$t2m.file)) {
+  if (argv$proj4t2m=="" & argv$t2m.proj4_var=="" & argv$t2m.proj4_att=="" ) {
+    t2m.xy_as_vars<-T
+    proj4t2m<-NULL
+    proj4t2m_from_nc<-NULL
+  } else {
+    t2m.xy_as_vars<-F
+    proj4t2m<-argv$proj4t2m
+    proj4t2m_from_nc<-list(var=argv$t2m.proj4_var, att=argv$t2m.proj4_att)
+  }
+}
+if (!is.na(argv$wind.file)) {
+  if (argv$proj4wind=="" & argv$wind.proj4_var=="" & argv$wind.proj4_att=="" ) {
+    wind.xy_as_vars<-T
+    proj4wind<-NULL
+    proj4wind_from_nc<-NULL
+  } else {
+    wind.xy_as_vars<-F
+    proj4wind<-argv$proj4wind
+    proj4wind_from_nc<-list(var=argv$wind.proj4_var, att=argv$wind.proj4_att)
+  }
+}
+if (!is.na(argv$fg.file)) {
+  if (argv$proj4fg=="" & argv$fg.proj4_var=="" & argv$fg.proj4_att=="" ) {
+    fg.xy_as_vars<-T
+    proj4fg<-NULL
+    proj4fg_from_nc<-NULL
+  } else {
+    fg.xy_as_vars<-F
+    proj4fg<-argv$proj4fg
+    proj4fg_from_nc<-list(var=argv$fg.proj4_var, att=argv$fg.proj4_att)
+  }
+}
+if (!is.na(argv$fge.file)) {
+  if (argv$proj4fge=="" & argv$fge.proj4_var=="" & argv$fge.proj4_att=="" ) {
+    fge.xy_as_vars<-T
+    proj4fge<-NULL
+    proj4fge_from_nc<-NULL
+  } else {
+    fge.xy_as_vars<-F
+    proj4fge<-argv$proj4fge
+    proj4fge_from_nc<-list(var=argv$fge.proj4_var, att=argv$fge.proj4_att)
+  }
+}
 # set the timestamp
 if (!is.na(argv$timestamp)) {
   if (is.na(argv$fg.t)) argv$fg.t<-argv$timestamp
@@ -4075,7 +4544,7 @@ if (length(ix)>0) {
 } else {
   print("no valid observations left, no metadata check")
 }
-if (argv$verbose | argv$debug) {
+if (argv$verbose) {
   flagaux<-dqcflag==argv$nometa.code & !is.na(dqcflag)
   print("test for no metdata, statistics over the whole dataset")
   print(paste("# observations lacking metadata and/or NAs=",
@@ -4130,107 +4599,34 @@ if (argv$spatconv) {
   yl<-c(argv$latmin,argv$latmax)
   e<-extent(c(xl,yl))
 }
-if (argv$debug) {
-  save.image(file.path(argv$debug.dir,"input_data.RData")) 
-  print("+---------------------------------+")
-}
+if (argv$debug) save.image(file.path(argv$debug.dir,"input_data.RData")) 
+if (argv$verbose) print("+---------------------------------+")
 #
 #-----------------------------------------------------------------------------
 # Read geographical information (optional) 
 if (argv$dem | argv$dem.fill) {
-  if (argv$verbose | argv$debug) print("read digital elevation model")
-
-#+
-get_data_from_ncfile<-function(nc.file,
-                               nc.varname,
-                               topdown,
-                               var.dim,
-                               proj4,
-                               proj4_from_nc,
-                               selection,
-                               return_just_raster=T) {
-#------------------------------------------------------------------------------
-  ti<-nc4.getTime(argv$dem.file)
-  raux<-try(nc4in(nc.file=nc.file,
-                  nc.varname=nc.varname,
-                  topdown=topdown,
-                  out.dim=var.dim,
-                  proj4=proj4,
-                  nc.proj4=proj4_from_nc,
-                  selection=selection))
-  if (is.null(raux)) boom(paste("ERROR while reading file:",argv$nc.file))
-  if (return_just_raster) {
-    return(raux$stack)
-  } else {
-    return(raux)
-  }
-  if (dem.xy_as_vars) {
-    raux<-try(nc4in(nc.file=argv$dem.file,
-                    nc.varname=argv$dem.x_as_var.varname,
-                    topdown=argv$dem.topdown,
-                    out.dim=list(ndim=argv$dem.xy_as_var.ndim,
-                                 tpos=argv$dem.xy_as_var.tpos,
-                                 epos=NULL,
-                                 names=argv$dem.xy_as_var.dimnames),
-                    proj4=proj4dem,
-                    nc.proj4=proj4dem_from_nc,
-                    selection=list(t=ti[1],e=NULL)))
-    if (is.null(raux)) boom(paste("ERROR while reading file:",argv$dem.file))
-    rx<-raux$stack
-    rm(raux)
-    
-  } else if (argv$proj4dem!=argv$proj4_where_dqc_is_done) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(argv$proj4dem))
-    xy.tmp<-coordinates(coord.new)
-    zdem<-extract(rdem,xy.tmp)
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    zdem<-extract(rdem,cbind(x,y))
-  }
-
-}
-
-  ti<-nc4.getTime(argv$dem.file)
-  raux<-try(nc4in(nc.file=argv$dem.file,
-                  nc.varname=argv$dem.varname,
-                  topdown=argv$dem.topdown,
-                  out.dim=list(ndim=argv$dem.ndim,
-                               tpos=argv$dem.tpos,
-                               epos=NULL,
-                               names=argv$dem.dimnames),
-                  proj4=proj4dem,
-                  nc.proj4=proj4dem_from_nc,
-                  selection=list(t=ti[1],e=NULL)))
-  if (is.null(raux)) boom(paste("ERROR while reading file:",argv$dem.file))
-  rdem<-raux$stack
-  rm(raux)
-  if (dem.xy_as_vars) {
-    raux<-try(nc4in(nc.file=argv$dem.file,
-                    nc.varname=argv$dem.x_as_var.varname,
-                    topdown=argv$dem.topdown,
-                    out.dim=list(ndim=argv$dem.xy_as_var.ndim,
-                                 tpos=argv$dem.xy_as_var.tpos,
-                                 epos=NULL,
-                                 names=argv$dem.xy_as_var.dimnames),
-                    proj4=proj4dem,
-                    nc.proj4=proj4dem_from_nc,
-                    selection=list(t=ti[1],e=NULL)))
-    if (is.null(raux)) boom(paste("ERROR while reading file:",argv$dem.file))
-    rx<-raux$stack
-    rm(raux)
-    
-  } else if (argv$proj4dem!=argv$proj4_where_dqc_is_done) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(argv$proj4dem))
-    xy.tmp<-coordinates(coord.new)
-    zdem<-extract(rdem,xy.tmp)
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    zdem<-extract(rdem,cbind(x,y))
-  }
+  if (argv$verbose) print("read digital elevation model")
+  debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"demnc.RData"), NA)
+  zdem<-get_data_from_ncfile(nc.file=argv$dem.file,
+                             nc.varname=argv$dem.varname,
+                             nc.t=NA,
+                             nc.e=NA,
+                             topdown=argv$dem.topdown,
+                             var.dim=list(ndim=argv$dem.ndim,
+                                          tpos=argv$dem.tpos,
+                                          epos=NULL,
+                                          names=argv$dem.dimnames),
+                             proj4=proj4dem,
+                             proj4_from_nc=proj4dem_from_nc,
+                             xy_as_vars=dem.xy_as_vars,
+                             x_as_var.varname=argv$dem.x_as_var.varname,
+                             y_as_var.varname=argv$dem.y_as_var.varname,
+                             xy_as_var.dim=list(ndim=argv$dem.xy_as_var.ndim,
+                                                tpos=argv$dem.xy_as_var.tpos,
+                                                epos=NULL,
+                                                names=argv$dem.xy_as_var.dimnames),
+                             xy_as_var.dh_max=NA,
+                             debug.file=debug.file)
   # fill missing elevation with dem
   if (argv$dem.fill) {
     iz<-which( !is.na(data$value) &
@@ -4238,173 +4634,108 @@ get_data_from_ncfile<-function(nc.file,
                !is.na(data$lon)   &
                !is.na(zdem) &
                !(zdem<argv$zmin | zdem>argv$zmax) &
-               (is.na(z) | is.nan(z) | (z<argv$zmin | z>argv$zmax)) )
+               (is.na(z) | is.nan(z) | z<argv$zmin | z>argv$zmax) )
     z[iz]<-zdem[iz]
     dqcflag[iz]<-dqcflag.bak[iz]
     rm(dqcflag.bak)
-    if (argv$verbose | argv$debug) {
+    if (argv$verbose) {
       print(paste("# stations with elevation derived from DEM=",length(iz)))
       print("+---------------------------------+")
     }
     rm(iz)
   }  
-  if (argv$debug) {
-    png(file=file.path(argv$debug.dir,"dem.png"),width=800,height=800)
-    image(rdem,
-          breaks=c(-1000,seq(0,1500,length=10),seq(1501,2500,length=5),8000),
-          col=c("azure",rev(gray.colors(15))))
-    plotSCTgrid()
-    dev.off()
-  }
-  rm(rdem)
   if (argv$debug) save.image(file.path(argv$debug.dir,"dem.RData")) 
 } # END read DEM
 if (argv$laf.sct) {
-  if (argv$verbose | argv$debug)
-    print("read land area fraction")
-  ti<-nc4.getTime(argv$laf.file)
-  raux<-try(nc4in(nc.file=argv$laf.file,
-                  nc.varname=argv$laf.varname,
-                  topdown=argv$laf.topdown,
-                  out.dim=list(ndim=argv$laf.ndim,
-                               tpos=argv$laf.tpos,
-                               epos=NULL,
-                               names=argv$laf.dimnames),
-                  proj4=argv$proj4laf,
-                  nc.proj4=list(var=argv$laf.proj4_var,
-                                att=argv$laf.proj4_att),
-                  selection=list(t=ti[1],e=NULL)))
-  if (is.null(raux)) {
-    print("ERROR while reading file:")
-    print(argv$laf.file)
-    quit(status=1)
-  }
-  rlaf<-raux$stack
-  rm(raux,ti)
-  if (argv$proj4laf!=argv$proj4_where_dqc_is_done) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(argv$proj4laf))
-    xy.tmp<-coordinates(coord.new)
-    laf<-extract(rlaf,xy.tmp)/100.
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    laf<-extract(rlaf,cbind(x,y))/100.
-  }
+  if (argv$verbose) print("read land area fraction")
+  debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"lafnc.RData"), NA)
+  laf<-get_data_from_ncfile(nc.file=argv$laf.file,
+                            nc.varname=argv$laf.varname,
+                            nc.t=NA,
+                            nc.e=NA,
+                            topdown=argv$laf.topdown,
+                            var.dim=list(ndim=argv$laf.ndim,
+                                         tpos=argv$laf.tpos,
+                                         epos=NULL,
+                                         names=argv$laf.dimnames),
+                            proj4=proj4laf,
+                            proj4_from_nc=proj4laf_from_nc,
+                            xy_as_vars=laf.xy_as_vars,
+                            x_as_var.varname=argv$laf.x_as_var.varname,
+                            y_as_var.varname=argv$laf.y_as_var.varname,
+                            xy_as_var.dim=list(ndim=argv$laf.xy_as_var.ndim,
+                                               tpos=argv$laf.xy_as_var.tpos,
+                                               epos=NULL,
+                                               names=argv$laf.xy_as_var.dimnames),
+                            xy_as_var.dh_max=NA,
+                            debug.file=debug.file)
+  laf<-laf/100
   if (any(is.na(laf))) laf[which(is.na(laf))]<-1
-  if (argv$debug) {
-    png(file=file.path(argv$debug.dir,"laf.png"),width=800,height=800)
-    image(rlaf,breaks=c(seq(0,1,length=20)),col=c(rev(rainbow(19))))
-    plotSCTgrid()
-    dev.off()
-  }
-  if (!argv$debug) rm(rlaf)
+  if (argv$debug) save.image(file.path(argv$debug.dir,"input_data_laf.RData")) 
+  if (argv$verbose) print("+---------------------------------+")
 } else {
   # use a fake laf
   laf<-rep(1,ndata)
 } # END read LAF
-if (argv$laf.sct & argv$debug) {
-  save.image(file.path(argv$debug.dir,"input_data_laf.RData")) 
-  print("+---------------------------------+")
-}
 #
 #-----------------------------------------------------------------------------
 # precipitation (in-situ) and temperature (field) cross-check (optional)
 if (argv$ccrrt) {
-  if (argv$debug | argv$verbose) 
-    print(paste0("precipitation (in-situ) and temperature (field) cross-check (",argv$ccrrt.code,")"))
+  if (argv$verbose) print(paste0("precipitation (in-situ) and temperature (field) cross-check (",argv$ccrrt.code,")"))
   # read temperature from gridded field
-  ti<-nc4.getTime(argv$t2m.file)
-  if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
-  if (!(argv$t2m.t %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$t2m.t)
-    print(ti)
-    quit(status=1)
-  }
-  t2m.epos<-argv$t2m.epos
-  if (is.na(argv$t2m.epos)) t2m.epos<-NULL
-  t2m.e<-argv$t2m.e
-  if (is.na(argv$t2m.e)) t2m.e<-NULL
-  raux<-try(nc4in(nc.file=argv$t2m.file,
-                  nc.varname=argv$t2m.varname,
-                  topdown=argv$t2m.topdown,
-                  out.dim=list(ndim=argv$t2m.ndim,
-                               tpos=argv$t2m.tpos,
-                               epos=t2m.epos,
-                               names=argv$t2m.dimnames),
-                  proj4=argv$proj4t2m,
-                  nc.proj4=list(var=argv$t2m.proj4_var,
-                                att=argv$t2m.proj4_att),
-                  selection=list(t=argv$t2m.t,e=t2m.e)))
-  rt2m<-raux$stack
-  rm(raux)
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_t2m.png"),
-               r=rt2m,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4t2m)
-  coord<-SpatialPoints(cbind(data$lon,data$lat),
-                       proj4string=CRS(argv$proj4_input_obsfiles))
-  coord.new<-spTransform(coord,CRS(argv$proj4t2m))
-  xy.tmp<-coordinates(coord.new)
-  t2m<-extract(rt2m,xy.tmp,method="bilinear")
-  t2m<-argv$t2m.offset*(-1)**(argv$t2m.negoffset)+
-       t2m*argv$t2m.cfact*(-1)**(argv$t2m.negcfact)
-  rm(coord,coord.new,xy.tmp)
+  debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_cc_t2m.RData"), NA)
+  res<-get_data_from_ncfile(nc.file=argv$t2m.file,
+                            nc.varname=argv$t2m.varname,
+                            nc.t=argv$t2m.t,
+                            nc.e=argv$t2m.e,
+                            topdown=argv$t2m.topdown,
+                            var.dim=list(ndim=argv$t2m.ndim,
+                                         tpos=argv$t2m.tpos,
+                                         epos=argv$t2m.epos,
+                                         names=argv$t2m.dimnames),
+                            var.de_acc=FALSE,
+                            var.de_acc_by="",
+                            proj4=proj4t2m,
+                            proj4_from_nc=proj4t2m_from_nc,
+                            xy_as_vars=t2m.xy_as_vars,
+                            x_as_var.varname=argv$t2m.x_as_var.varname,
+                            y_as_var.varname=argv$t2m.y_as_var.varname,
+                            xy_as_var.dim=list(ndim=argv$t2m.xy_as_var.ndim,
+                                               tpos=argv$t2m.xy_as_var.tpos,
+                                               epos=NULL,
+                                               names=argv$t2m.xy_as_var.dimnames),
+                            xy_as_var.dh_max=NA,
+                            return_raster=F,
+                            debug.file=debug.file,
+                            nc.dqc_mode="none") 
+  t2m<-t2m.offset+ res*t2m.cfact; rm(res)
   # read elevation from gridded field
-  if (!is.null(argv$t2m.demtpos)) {
-    t2m.demtpos<-argv$t2m.demtpos
-    ti<-nc4.getTime(argv$t2m.demfile)
-    if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
-    if (!(argv$t2m.demt %in% ti)) {
-      print("ERROR timestamp requested is not in the file:")
-      print(argv$t2m.demt)
-      print(ti)
-      quit(status=1)
-    }
-  } else {
-    t2m.demtpos<-argv$t2m.demtpos
-  }
-  if (!is.null(argv$t2m.demepos)) {
-    t2m.demepos<-argv$t2m.demepos
-    if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
-  } else {
-    t2m.demepos<-NULL
-  }
-  t2m.deme<-argv$t2m.deme
-  if (is.na(argv$t2m.deme)) t2m.deme<-NULL
-  raux<-try(nc4in(nc.file=argv$t2m.demfile,
-                  nc.varname=argv$t2m.demvarname,
-                  topdown=argv$t2m.demtopdown,
-                  out.dim=list(ndim=argv$t2m.demndim,
-                               tpos=t2m.demtpos,
-                               epos=t2m.demepos,
-                               names=argv$t2m.demdimnames),
-                  proj4=argv$proj4t2m,
-                  nc.proj4=list(var=argv$t2m.proj4_var,
-                                att=argv$t2m.proj4_att),
-                  selection=list(t=argv$t2m.demt,e=t2m.deme)))
-  if (is.null(raux)) {
-    print("ERROR while reading file:")
-    print(argv$t2m.demfile)
-    quit(status=1)
-  }
-  rt2mdem<-raux$stack
-  rm(raux,ti)
-  if (argv$proj4t2m!=argv$proj4_where_dqc_is_done) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(argv$proj4t2m))
-    xy.tmp<-coordinates(coord.new)
-    zt2mdem<-extract(rt2mdem,xy.tmp,method="bilinear")
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    zt2mdem<-extract(rt2mdem,cbind(x,y),method="bilinear")
-  }
-  zt2mdem<-argv$t2m.demoffset*(-1)**(argv$t2m.demnegoffset)+
-          zt2mdem*argv$t2m.demcfact*(-1)**(argv$t2m.demnegcfact)
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_dem.png"),
-               r=rt2mdem,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4t2m)
+  debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_cc_t2mdem.RData"), NA)
+  res<-get_data_from_ncfile(nc.file=argv$t2m.demfile,
+                            nc.varname=argv$t2m.demvarname,
+                            nc.t=argv$t2m.demt,
+                            nc.e=argv$t2m.deme,
+                            topdown=argv$t2m.demtopdown,
+                            var.dim=list(ndim=argv$t2m.demndim,
+                                         tpos=argv$t2m.demtpos,
+                                         epos=argv$t2m.demepos,
+                                         names=argv$t2m.demdimnames),
+                            var.de_acc=FALSE,
+                            var.de_acc_by="",
+                            proj4=proj4t2m,
+                            proj4_from_nc=proj4t2m_from_nc,
+                            xy_as_vars=t2m.xy_as_vars,
+                            x_as_var.varname=argv$t2m.x_as_var.varname,
+                            y_as_var.varname=argv$t2m.y_as_var.varname,
+                            xy_as_var.dim=list(ndim=argv$t2m.xy_as_var.ndim,
+                                               tpos=argv$t2m.xy_as_var.tpos,
+                                               epos=NULL,
+                                               names=argv$t2m.xy_as_var.dimnames),
+                            xy_as_var.dh_max=NA,
+                            return_raster=F,
+                            debug.file=debug.file,
+                            nc.dqc_mode="none") 
+  zt2mdem<-t2m.demoffset+ res*t2m.demcfact; rm(res)
   t2m<-t2m+argv$gamma.standard*(z-zt2mdem)
   # cross-check
   for (f in 1:nfin) 
@@ -4412,226 +4743,166 @@ if (argv$ccrrt) {
                   t2m<argv$ccrrt.tmin[f] &
                   is.na(dqcflag))]<-argv$ccrrt.code
   #
-  if (argv$verbose | argv$debug) {
+  if (argv$verbose) {
     print("precipitaton and temperature  crosscheck")
     print(paste("temp thresholds =",toString(argv$ccrrt.tmin)))
     print(paste("# suspect observations=",
           length(which(dqcflag==argv$ccrrt.code & !is.na(dqcflag)))))
     print("+---------------------------------+")
   }
-  if (argv$debug)
-    save.image(file.path(argv$debug.dir,"dqcres_ccrrt.RData")) 
-  rm(t2m,zt2mdem)
+  if (argv$debug) save.image(file.path(argv$debug.dir,"dqcres_ccrrt.RData")) 
+  if (argv$rr.wcor) { rm(zt2mdem) } else { rm(t2m,zt2mdem) }
 }
 #
 #-----------------------------------------------------------------------------
 # Correction for the wind-undercatch of precipitation (optional)
 if (argv$rr.wcor) {
-  if (argv$debug | argv$verbose)
-    print("Correction for the wind-undercatch of precipitation")
-  # read temperature from gridded field
-  ti<-nc4.getTime(argv$t2m.file)
-  if (is.na(argv$t2m.t)) argv$t2m.t<-ti[1]
-  if (!(argv$t2m.t %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$t2m.t)
-    print(ti)
-    quit(status=1)
+  if (argv$verbose) print("Correction for the wind-undercatch of precipitation")
+  if (!exists("t2m")) {
+    # read temperature from gridded field
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_rrwcor_t2m.RData"), NA)
+    res<-get_data_from_ncfile(nc.file=argv$t2m.file,
+                              nc.varname=argv$t2m.varname,
+                              nc.t=argv$t2m.t,
+                              nc.e=argv$t2m.e,
+                              topdown=argv$t2m.topdown,
+                              var.dim=list(ndim=argv$t2m.ndim,
+                                           tpos=argv$t2m.tpos,
+                                           epos=argv$t2m.epos,
+                                           names=argv$t2m.dimnames),
+                              var.de_acc=FALSE,
+                              var.de_acc_by="",
+                              proj4=proj4t2m,
+                              proj4_from_nc=proj4t2m_from_nc,
+                              xy_as_vars=t2m.xy_as_vars,
+                              x_as_var.varname=argv$t2m.x_as_var.varname,
+                              y_as_var.varname=argv$t2m.y_as_var.varname,
+                              xy_as_var.dim=list(ndim=argv$t2m.xy_as_var.ndim,
+                                                 tpos=argv$t2m.xy_as_var.tpos,
+                                                 epos=NULL,
+                                                 names=argv$t2m.xy_as_var.dimnames),
+                              xy_as_var.dh_max=NA,
+                              return_raster=F,
+                              debug.file=debug.file,
+                              nc.dqc_mode="none") 
+    t2m<-t2m.offset+ res*t2m.cfact; rm(res)
+    # read elevation from gridded field
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_rrwcor_t2mdem.RData"), NA)
+    res<-get_data_from_ncfile(nc.file=argv$t2m.demfile,
+                              nc.varname=argv$t2m.demvarname,
+                              nc.t=argv$t2m.demt,
+                              nc.e=argv$t2m.deme,
+                              topdown=argv$t2m.demtopdown,
+                              var.dim=list(ndim=argv$t2m.demndim,
+                                           tpos=argv$t2m.demtpos,
+                                           epos=argv$t2m.demepos,
+                                           names=argv$t2m.demdimnames),
+                              var.de_acc=FALSE,
+                              var.de_acc_by="",
+                              proj4=proj4t2m,
+                              proj4_from_nc=proj4t2m_from_nc,
+                              xy_as_vars=t2m.xy_as_vars,
+                              x_as_var.varname=argv$t2m.x_as_var.varname,
+                              y_as_var.varname=argv$t2m.y_as_var.varname,
+                              xy_as_var.dim=list(ndim=argv$t2m.xy_as_var.ndim,
+                                                 tpos=argv$t2m.xy_as_var.tpos,
+                                                 epos=NULL,
+                                                 names=argv$t2m.xy_as_var.dimnames),
+                              xy_as_var.dh_max=NA,
+                              return_raster=F,
+                              debug.file=debug.file,
+                              nc.dqc_mode="none") 
+    zt2mdem<-t2m.demoffset+ res*t2m.demcfact; rm(res)
+    t2m<-t2m+argv$gamma.standard*(z-zt2mdem)
   }
-  t2m.epos<-argv$t2m.epos
-  if (is.na(argv$t2m.epos)) t2m.epos<-NULL
-  t2m.e<-argv$t2m.e
-  if (is.na(argv$t2m.e)) t2m.e<-NULL
-  raux<-try(nc4in(nc.file=argv$t2m.file,
-                  nc.varname=argv$t2m.varname,
-                  topdown=argv$t2m.topdown,
-                  out.dim=list(ndim=argv$t2m.ndim,
-                               tpos=argv$t2m.tpos,
-                               epos=t2m.epos,
-                               names=argv$t2m.dimnames),
-                  proj4=argv$proj4t2m,
-                  nc.proj4=list(var=argv$t2m.proj4_var,
-                                att=argv$t2m.proj4_att),
-                  selection=list(t=argv$t2m.t,e=t2m.e)))
-  rt2m<-raux$stack
-  rm(raux)
-  coord<-SpatialPoints(cbind(data$lon,data$lat),
-                       proj4string=CRS(argv$proj4_input_obsfiles))
-  coord.new<-spTransform(coord,CRS(argv$proj4t2m))
-  xy.tmp<-coordinates(coord.new)
-  t2m<-extract(rt2m,xy.tmp,method="bilinear")
-  t2m<-argv$t2m.offset*(-1)**(argv$t2m.negoffset)+
-       t2m*argv$t2m.cfact*(-1)**(argv$t2m.negcfact)
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_t2m.png"),
-               r=rt2m,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4t2m)
-  rm(coord,coord.new,xy.tmp)
-  # read elevation from gridded field
-  if (!is.null(argv$t2m.demtpos)) {
-    t2m.demtpos<-argv$t2m.demtpos
-    ti<-nc4.getTime(argv$t2m.demfile)
-    if (is.na(argv$t2m.demt)) argv$t2m.demt<-ti[1]
-    if (!(argv$t2m.demt %in% ti)) {
-      print("ERROR timestamp requested is not in the file:")
-      print(argv$t2m.demt)
-      print(ti)
-      quit(status=1)
-    }
-  } else {
-    t2m.demtpos<-argv$t2m.demtpos
-  }
-  if (!is.null(argv$t2m.demepos)) {
-    t2m.demepos<-argv$t2m.demepos
-    if (is.na(argv$t2m.demepos)) t2m.demepos<-NULL
-  } else {
-    t2m.demepos<-NULL
-  }
-  t2m.deme<-argv$t2m.deme
-  if (is.na(argv$t2m.deme)) t2m.deme<-NULL
-  raux<-try(nc4in(nc.file=argv$t2m.demfile,
-                  nc.varname=argv$t2m.demvarname,
-                  topdown=argv$t2m.demtopdown,
-                  out.dim=list(ndim=argv$t2m.demndim,
-                               tpos=t2m.demtpos,
-                               epos=t2m.demepos,
-                               names=argv$t2m.demdimnames),
-                  proj4=argv$proj4t2m,
-                  nc.proj4=list(var=argv$t2m.proj4_var,
-                                att=argv$t2m.proj4_att),
-                  selection=list(t=argv$t2m.demt,e=t2m.deme)))
-  if (is.null(raux)) {
-    print("ERROR while reading file:")
-    print(argv$t2m.demfile)
-    quit(status=1)
-  }
-  rt2mdem<-raux$stack
-  rm(raux,ti)
-  if (argv$proj4t2m!=argv$proj4_where_dqc_is_done) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(argv$proj4t2m))
-    xy.tmp<-coordinates(coord.new)
-    zt2mdem<-extract(rt2mdem,xy.tmp,method="bilinear")
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    zt2mdem<-extract(rt2mdem,cbind(x,y),method="bilinear")
-  }
-  zt2mdem<-argv$t2m.demoffset*(-1)**(argv$t2m.demnegoffset)+
-          zt2mdem*argv$t2m.demcfact*(-1)**(argv$t2m.demnegcfact)
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_dem.png"),
-               r=rt2mdem,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4t2m)
-  t2m<-t2m+argv$gamma.standard*(z-zt2mdem)
   # read windspeed from gridded field
   #  case of windspeed in the file
   if (!is.na(argv$windspeed.varname)) {
-    ti<-nc4.getTime(argv$wind.file)
-    if (is.na(argv$wind.t)) argv$wind.t<-ti[1]
-    if (!(argv$wind.t %in% ti)) {
-      print("ERROR timestamp requested is not in the file:")
-      print(argv$wind.t)
-      print(ti)
-      quit(status=1)
-    }
-    wind.epos<-argv$wind.epos
-    if (is.na(argv$wind.epos)) wind.epos<-NULL
-    wind.e<-argv$wind.e
-    if (is.na(argv$wind.e)) wind.e<-NULL
-    raux<-try(nc4in(nc.file=argv$wind.file,
-                    nc.varname=argv$windspeed.varname,
-                    topdown=argv$wind.topdown,
-                    out.dim=list(ndim=argv$wind.ndim,
-                                 tpos=argv$wind.tpos,
-                                 epos=wind.epos,
-                                 names=argv$wind.dimnames),
-                    proj4=argv$proj4wind,
-                    nc.proj4=list(var=argv$wind.proj4_var,
-                                  att=argv$wind.proj4_att),
-                    selection=list(t=argv$wind.t,e=wind.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$wind.file)
-      quit(status=1)
-    }
-    rwind<-raux$stack
-    rm(raux,ti)
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_ws.RData"), NA)
+    ws10m<-get_data_from_ncfile(nc.file=argv$wind.file,
+                                nc.varname=argv$windspeed.varname,
+                                nc.t=argv$wind.t,
+                                nc.e=argv$wind.e,
+                                topdown=argv$wind.topdown,
+                                var.dim=list(ndim=argv$wind.ndim,
+                                             tpos=argv$wind.tpos,
+                                             epos=argv$wind.epos,
+                                             names=argv$wind.dimnames),
+                                var.de_acc=FALSE,
+                                var.de_acc_by="",
+                                proj4=proj4wind,
+                                proj4_from_nc=proj4wind_from_nc,
+                                xy_as_vars=wind.xy_as_vars,
+                                x_as_var.varname=argv$wind.x_as_var.varname,
+                                y_as_var.varname=argv$wind.y_as_var.varname,
+                                xy_as_var.dim=list(ndim=argv$wind.xy_as_var.ndim,
+                                                   tpos=argv$wind.xy_as_var.tpos,
+                                                   epos=NULL,
+                                                   names=argv$wind.xy_as_var.dimnames),
+                                xy_as_var.dh_max=NA,
+                                return_raster=F,
+                                debug.file=debug.file,
+                                nc.dqc_mode="none") 
   #  case of u,v in the file
   } else if (!is.na(argv$u.varname) & !is.na(argv$v.varname)) {
-    ti<-nc4.getTime(argv$wind.file)
-    if (is.na(argv$wind.t)) argv$wind.t<-ti[1]
-    if (!(argv$wind.t %in% ti)) {
-      print("ERROR timestamp requested is not in the file:")
-      print(argv$wind.t)
-      print(ti)
-      quit(status=1)
-    }
-    wind.epos<-argv$wind.epos
-    if (is.na(argv$wind.epos)) wind.epos<-NULL
-    wind.e<-argv$wind.e
-    if (is.na(argv$wind.e)) wind.e<-NULL
-    raux<-try(nc4in(nc.file=argv$wind.file,
-                    nc.varname=argv$u.varname,
-                    topdown=argv$wind.topdown,
-                    out.dim=list(ndim=argv$wind.ndim,
-                                 tpos=argv$wind.tpos,
-                                 epos=wind.epos,
-                                 names=argv$wind.dimnames),
-                    proj4=argv$proj4wind,
-                    nc.proj4=list(var=argv$wind.proj4_var,
-                                  att=argv$wind.proj4_att),
-                    selection=list(t=argv$wind.t,e=wind.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$wind.file)
-      quit(status=1)
-    }
-    ru<-raux$stack
-    rm(raux,ti)
-    if (argv$debug)
-      plot_debug(ff=file.path(argv$debug.dir,"rrwcor_u.png"),
-                 r=ru,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4wind)
-    raux<-try(nc4in(nc.file=argv$wind.file,
-                    nc.varname=argv$v.varname,
-                    topdown=argv$wind.topdown,
-                    out.dim=list(ndim=argv$wind.ndim,
-                                 tpos=argv$wind.tpos,
-                                 epos=wind.epos,
-                                 names=argv$wind.dimnames),
-                    proj4=argv$proj4wind,
-                    nc.proj4=list(var=argv$wind.proj4_var,
-                                  att=argv$wind.proj4_att),
-                    selection=list(t=argv$wind.t,e=wind.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$wind.file)
-      quit(status=1)
-    }
-    rv<-raux$stack
-    rm(raux)
-    if (argv$debug)
-      plot_debug(ff=file.path(argv$debug.dir,"rrwcor_v.png"),
-                 r=rv,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4wind)
-    rwind<-rv
-    rwind[]<-sqrt(getValues(ru)**2+getValues(rv)**2)
-    rm(ru,rv)
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_u10m.RData"), NA)
+    u10m<-get_data_from_ncfile(nc.file=argv$wind.file,
+                               nc.varname=argv$u.varname,
+                               nc.t=argv$wind.t,
+                               nc.e=argv$wind.e,
+                               topdown=argv$wind.topdown,
+                               var.dim=list(ndim=argv$wind.ndim,
+                                            tpos=argv$wind.tpos,
+                                            epos=argv$wind.epos,
+                                            names=argv$wind.dimnames),
+                               var.de_acc=FALSE,
+                               var.de_acc_by="",
+                               proj4=proj4wind,
+                               proj4_from_nc=proj4wind_from_nc,
+                               xy_as_vars=wind.xy_as_vars,
+                               x_as_var.varname=argv$wind.x_as_var.varname,
+                               y_as_var.varname=argv$wind.y_as_var.varname,
+                               xy_as_var.dim=list(ndim=argv$wind.xy_as_var.ndim,
+                                                  tpos=argv$wind.xy_as_var.tpos,
+                                                  epos=NULL,
+                                                  names=argv$wind.xy_as_var.dimnames),
+                               xy_as_var.dh_max=NA,
+                               return_raster=F,
+                               debug.file=debug.file,
+                               nc.dqc_mode="none") 
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_v10m.RData"), NA)
+    v10m<-get_data_from_ncfile(nc.file=argv$wind.file,
+                               nc.varname=argv$v.varname,
+                               nc.t=argv$wind.t,
+                               nc.e=argv$wind.e,
+                               topdown=argv$wind.topdown,
+                               var.dim=list(ndim=argv$wind.ndim,
+                                            tpos=argv$wind.tpos,
+                                            epos=argv$wind.epos,
+                                            names=argv$wind.dimnames),
+                               var.de_acc=FALSE,
+                               var.de_acc_by="",
+                               proj4=proj4wind,
+                               proj4_from_nc=proj4wind_from_nc,
+                               xy_as_vars=wind.xy_as_vars,
+                               x_as_var.varname=argv$wind.x_as_var.varname,
+                               y_as_var.varname=argv$wind.y_as_var.varname,
+                               xy_as_var.dim=list(ndim=argv$wind.xy_as_var.ndim,
+                                                  tpos=argv$wind.xy_as_var.tpos,
+                                                  epos=NULL,
+                                                  names=argv$wind.xy_as_var.dimnames),
+                               xy_as_var.dh_max=NA,
+                               return_raster=F,
+                               debug.file=debug.file,
+                               nc.dqc_mode="none") 
+
+    ws10m<-sqrt(u10m*u10m+v10m*v10m)
+    rm(u10m,v10m)
   #  case of wrong/no wind varname in the file
   } else {
-    print(paste("ERROR precipitation correction for the wind undercatch:",
-                " wind varname has not been specified"))
-    quit(status=1)
+    boom("ERROR precipitation correction for the wind undercatch: wind varname has not been specified")
   }
-  if (argv$proj4wind!=argv$proj4_where_dqc_is_done) {
-    ws10m<-extract(rwind, 
-           coordinates( spTransform( SpatialPoints(cbind(data$lon,data$lat), 
-                                           proj4string=CRS(argv$proj4_input_obsfiles)),
-                                    CRS(argv$proj4wind)) ), method="bilinear")
-  } else {
-    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
-  }
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_ws.png"),
-               r=rwind,x=x,y=y,proj4=argv$proj4_where_dqc_is_done,proj4plot=argv$proj4wind)
-  rm(rwind) 
+  if (argv$debug) save.image(file.path(argv$debug.dir,"rrcor_before.RData"))
   # precipitation data adjustment
   data$rawvalue<-data$value
   res<-wolff_correction(par=argv$rr.wcor.par,
@@ -4641,7 +4912,7 @@ if (argv$rr.wcor) {
   data$value<-res$rr.cor
   data$vsigma<-res$sigma
   rm(res)
-  if (argv$debug | argv$verbose) {
+  if (argv$verbose) {
     print(paste0("# observations (ok-so-far) = ",
           length(which(!is.na(data$value) & is.na(dqcflag)))))
     print(paste0("# observations (>=0 & ok-so-far) = ",
@@ -4656,202 +4927,48 @@ if (argv$rr.wcor) {
     }
     print("+---------------------------------+")
   }
-  if (argv$debug) {
-    save.image(file.path(argv$debug.dir,"rrcor.RData")) 
-  }
+  if (argv$debug) save.image(file.path(argv$debug.dir,"rrcor.RData")) 
 }
 #
 #-----------------------------------------------------------------------------
 # Read deterministic first guess (optional)
 if (!is.na(argv$fg.file)) {
-  if (argv$verbose | argv$debug)
-    print("Read deterministic first-guess")
-  ti<-nc4.getTime(argv$fg.file)
-  if (is.na(argv$fg.t)) argv$fg.t<-ti[1]
-  if (!(argv$fg.t %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$fg.t)
-    print(ti)
-    quit(status=1)
-  }
-  fg.epos<-argv$fg.epos
-  if (is.na(argv$fg.epos)) fg.epos<-NULL
-  fg.e<-argv$fg.e
-  if (is.na(argv$fg.e)) fg.e<-NULL
-  if (argv$fg.acc) {
-    tminus1h<-format(as.POSIXlt(
-      seq(as.POSIXlt(strptime(argv$fg.t,"%Y%m%d%H%M",tz="UTC")),
-          length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
-    raux<-try(nc4in(nc.file=argv$fg.file,
-                    nc.varname=argv$fg.varname,
-                    topdown=argv$fg.topdown,
-                    out.dim=list(ndim=argv$fg.ndim,
-                                 tpos=argv$fg.tpos,
-                                 epos=fg.epos,
-                                 names=argv$fg.dimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=c(tminus1h,argv$fg.t),e=fg.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$fg.file)
-      quit(status=1)
-    }
-    rfg<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
-  } else {
-    raux<-try(nc4in(nc.file=argv$fg.file,
-                    nc.varname=argv$fg.varname,
-                    topdown=argv$fg.topdown,
-                    out.dim=list(ndim=argv$fg.ndim,
-                                 tpos=argv$fg.tpos,
-                                 epos=fg.epos,
-                                 names=argv$fg.dimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=argv$fg.t,e=fg.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file (var):")
-      print(argv$fg.file)
-      quit(status=1)
-    }
-    rfg<-raux$stack
-  }
-  rm(raux,ti,fg.e,fg.epos)
-  # radar fg, data quality control 
-  if (!is.na(argv$fg.type)) {
-    if (argv$fg.type=="radar" & argv$fg.dodqc) {
-      if (argv$verbose | argv$debug)
-        print("Read radar and do the radar-DQC")
-      t0a<-Sys.time()
-      suppressPackageStartupMessages(library("igraph"))
-      dfg<-getValues(rfg)
-      # a. remove not plausible values
-      if (argv$verbose | argv$debug) print(" remove not plausible values")
-      radardqc.min<-0
-      radardqc.max<-300
-      ix<-which( !is.na(dfg) & (dfg<radardqc.min | dfg>radardqc.max) )
-      if (length(ix)>0) {
-        dfg[ix]<-NA
-        rfg[]<-dfg
-      }
-      # b. remove patches of connected cells that are too small
-      #  check for small and isolated clumps (patches) of connected cells with 
-      #  precipitation greater than a predefined threshold
-      #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
-      #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
-      if (argv$verbose | argv$debug) print(" remove small clumps")
-      radardqc.clump.thr<-c(0,1)
-      radardqc.clump.n<-c(100,50)
-      for (i in 1:length(radardqc.clump.thr)) {
-        raux<-rfg
-        if (any(dfg<=radardqc.clump.thr[i])) 
-          raux[which(dfg<=radardqc.clump.thr[i])]<-NA
-        rclump<-clump(raux)
-        fr<-freq(rclump)
-        ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
-        dfg[getValues(rclump) %in% fr[ix,1]]<-NA
-        rfg[]<-dfg
-        rm(raux,fr,ix,rclump)
-      }
-      # c. remove outliers. Check for outliers in square boxes of 51km by 51km
-#      if (argv$verbose | argv$debug) print(" remove outliers")
-      raux<-rfg
-      daux<-boxcox(x=dfg,lambda=0.5)
-      raux[]<-daux
-#      radardqc.outl.fact<-ceiling(51000/xres(rfg))
-#      if ((radardqc.outl.fact%%2)==0) radardqc.outl.fact<-radardqc.outl.fact+1
-#      if (argv$verbose | argv$debug) print(" remove outliers -mean")
-      # aggregate over boxes of fact x fact cells, take the mean
-#      avg<-getValues(
-#            crop(
-#             focal(
-#              extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-#              w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=mean,na.rm=T),
-#            raux) )
-#      if (argv$verbose | argv$debug) print(" remove outliers -sd")
-#      stdev<-getValues(
-#              crop(
-#               focal(
-#                extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-#                w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
-#              raux) )
-#      ix<-which(stdev>0)
-      # compute mean and sd
-      raux_agg<-aggregate(raux,fact=5,fun=mean,na.rm=T)
-      daux_agg<-getValues(raux_agg)
-      ix_aux<-which(!is.na(daux_agg))
-      xyaux<-xyFromCell(raux_agg,ix_aux)
-      xrad_aux<-xyaux[,1]
-      yrad_aux<-xyaux[,2]
-      vrad_aux<-daux_agg[ix_aux]
-      get_rad_stat<-function(i,dh_ref=25000) { 
-        deltax<-abs(xrad_aux[i]-xrad_aux)
-        deltay<-abs(yrad_aux[i]-yrad_aux)
-        ix<-which( deltax<dh_ref & deltay<dh_ref )
-        dist<-deltax; dist[]<-NA
-        dist[ix]<-sqrt(deltax[ix]*deltax[ix]+deltay[ix]*deltay[ix])
-        ix<-which( !is.na(dist) & dist<dh_ref )
-        return(c(mean(vrad_aux[ix]),sd(vrad_aux[ix])))
-      }
-      if (!is.na(argv$cores)) {
-        arr<-mcmapply(get_rad_stat,
-                      1:length(ix_aux),
-                      mc.cores=argv$cores,
-                      SIMPLIFY=T)
-      # no-multicores
-      } else {
-        arr<-mapply(get_rad_stat,
-                    1:length(ix_aux),
-                    SIMPLIFY=T)
-      }
-      raux_agg[]<-NA; raux_agg[ix_aux]<-arr[1,]
-      raux<-disaggregate(raux_agg,fact=5)
-      if (ncell(raux)>ncell(rfg)) {
-        raux<-crop(raux,rfg)
-      } else if (ncell(raux)<ncell(rfg)) {
-        raux<-extend(raux,rfg)
-      }
-      avg<-getValues(raux)
-      raux_agg[]<-NA; raux_agg[ix_aux]<-arr[2,]
-      raux<-disaggregate(raux_agg,fact=5,method="bilinear",na.rm=T)
-      if (ncell(raux)>ncell(rfg)) {
-        raux<-crop(raux,rfg)
-      } else if (ncell(raux)<ncell(rfg)) {
-        raux<-extend(raux,rfg)
-      }
-      stdev<-getValues(raux)
-      ix<-which(stdev>0 & !is.na(daux) & !is.na(avg) & !is.na(stdev))
-      rm(arr,raux_agg,ix_aux,xrad_aux,yrad_aux,vrad_aux,daux_agg,xyaux)
-      # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
-      suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
-      if (length(suspect)>0) dfg[ix[suspect]]<-NA
-      rfg[]<-dfg
-      rm(raux,daux,avg,stdev,ix,suspect,dfg)
-      if (argv$radarout) rrad<-rfg
-      t1a<-Sys.time()
-      if (argv$verbose | argv$debug) {
-        print(paste(" remove outliers - time",round(t1a-t0a,1),
-                                              attr(t1a-t0a,"unit")))
-      }
-    }
-  }
-  if (argv$proj4fg!=argv$proj4_where_dqc_is_done) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(argv$proj4fg))
-    xy.tmp<-coordinates(coord.new)
-    fg<-extract(rfg,xy.tmp,method="bilinear")
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    fg<-extract(rfg,cbind(x,y),method="bilinear")
-  }
-  fg<-argv$fg.offset*(-1)**(argv$fg.negoffset)+
-      fg*argv$fg.cfact*(-1)**(argv$fg.negcfact)
+  if (argv$verbose) print("Read deterministic first-guess")
+  nc.dqc_mode<-"none"
+  if (!is.na(argv$fg.type) & argv$fg.type=="radar" & argv$fg.dodqc) 
+    nc.dqc_mode<-"radar_hourly"
+  debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"input_data_fg0.RData"), NA)
+  res<-get_data_from_ncfile(nc.file=argv$fg.file,
+                            nc.varname=argv$fg.varname,
+                            nc.t=argv$fg.t,
+                            nc.e=argv$fg.e,
+                            topdown=argv$fg.topdown,
+                            var.dim=list(ndim=argv$fg.ndim,
+                                         tpos=argv$fg.tpos,
+                                         epos=argv$fg.epos,
+                                         names=argv$fg.dimnames),
+                            var.de_acc=argv$fg.acc,
+                            var.de_acc_by="-1 hour",
+                            proj4=proj4fg,
+                            proj4_from_nc=proj4fg_from_nc,
+                            xy_as_vars=fg.xy_as_vars,
+                            x_as_var.varname=argv$fg.x_as_var.varname,
+                            y_as_var.varname=argv$fg.y_as_var.varname,
+                            xy_as_var.dim=list(ndim=argv$fg.xy_as_var.ndim,
+                                               tpos=argv$fg.xy_as_var.tpos,
+                                               epos=NULL,
+                                               names=argv$fg.xy_as_var.dimnames),
+                            xy_as_var.dh_max=NA,
+                            return_raster=T,
+                            debug.file=debug.file,
+                            nc.dqc_mode=nc.dqc_mode) 
+  rfg<-res$raster
+  fg<-res$values
+  if (argv$radarout) rrad<-rfg
+  rm(res)
+  fg<-fg.offset+ fg * fg.cfact
   if (argv$cool & argv$usefg.cool) {
-    aux<-argv$fg.offset*(-1)**(argv$fg.negoffset)+
-         getValues(rfg)*argv$fg.cfact*(-1)**(argv$fg.negcfact)
+    aux<-fg.offset+ getValues(rfg) * fg.cfact
     ix_aux<-which(!is.na(aux)& !is.nan(aux) & is.finite(aux) & is.numeric(aux))
     if (!exists("xobs_cool_aux")) xobs_cool_aux<-integer(0)
     if (!exists("yobs_cool_aux")) yobs_cool_aux<-integer(0)
@@ -4867,231 +4984,109 @@ if (!is.na(argv$fg.file)) {
     }
     rm(aux,ix_aux)
   }
-  if (!argv$debug) rm(rfg)
+  if (argv$debug) save.image(file.path(argv$debug.dir,"input_data_fg1.RData")) 
   # temperature: adjust for elevation differences
   if (argv$variable=="T") {
-    ti<-nc4.getTime(argv$fg.demfile)
-    if (is.na(argv$fg.demt)) argv$fg.demt<-ti[1]
-    if (!(argv$fg.demt %in% ti)) {
-      print("ERROR timestamp requested is not in the file:")
-      print(argv$fg.demt)
-      print(ti)
-      quit(status=1)
-    }
-    fg.demepos<-argv$fg.demepos
-    if (is.na(argv$fg.demepos)) fg.demepos<-NULL
-    fg.deme<-argv$fg.deme
-    if (is.na(argv$fg.deme)) fg.deme<-NULL
-    raux<-try(nc4in(nc.file=argv$fg.demfile,
-                    nc.varname=argv$fg.demvarname,
-                    topdown=argv$fg.demtopdown,
-                    out.dim=list(ndim=argv$fg.demndim,
-                                 tpos=argv$fg.demtpos,
-                                 epos=fg.demepos,
-                                 names=argv$fg.demdimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=argv$fg.demt,e=fg.deme)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$fg.demfile)
-      quit(status=1)
-    }
-    rfgdem<-raux$stack
-    rm(raux,ti)
-    if (argv$proj4fg!=argv$proj4_where_dqc_is_done) {
-      coord<-SpatialPoints(cbind(data$lon,data$lat),
-                           proj4string=CRS(argv$proj4_input_obsfiles))
-      coord.new<-spTransform(coord,CRS(argv$proj4fg))
-      xy.tmp<-coordinates(coord.new)
-      zfgdem<-extract(rfgdem,xy.tmp,method="bilinear")
-      rm(coord,coord.new,xy.tmp)
-    } else {
-      zfgdem<-extract(rfgdem,cbind(x,y),method="bilinear")
-    }
-    zfgdem<-argv$fg.demoffset*(-1)**(argv$fg.demnegoffset)+
-            zfgdem*argv$fg.demcfact*(-1)**(argv$fg.demnegcfact)
-    if (!argv$debug) rm(rfgdem)
-    fg<-fg+argv$gamma.standard*(z-zfgdem)
-    if (!argv$debug) rm(zfgdem)
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"fgdemnc.RData"), NA)
+    zfgdem<-get_data_from_ncfile(nc.file=argv$fg.demfile,
+                                 nc.varname=argv$fg.demvarname,
+                                 nc.t=argv$fg.demt,
+                                 nc.e=argv$fg.deme,
+                                 topdown=argv$fg.demtopdown,
+                                 var.dim=list(ndim=argv$fg.demndim,
+                                              tpos=argv$fg.demtpos,
+                                              epos=argv$fg.demepos,
+                                              names=argv$fg.demdimnames),
+                                 proj4=proj4fg,
+                                 proj4_from_nc=proj4fg_from_nc,
+                                 xy_as_vars=fg.xy_as_vars,
+                                 x_as_var.varname=argv$fg.x_as_var.varname,
+                                 y_as_var.varname=argv$fg.y_as_var.varname,
+                                 xy_as_var.dim=list(ndim=argv$fg.xy_as_var.ndim,
+                                                    tpos=argv$fg.xy_as_var.tpos,
+                                                    epos=NULL,
+                                                    names=argv$fg.xy_as_var.dimnames),
+                                 xy_as_var.dh_max=NA,
+                                 return_raster=F,
+                                 debug.file=debug.file,
+                                 nc.dqc_mode="none")
+    zfgdem<-fg.demoffset+ zfgdem * fg.demcfact
+    fg<-fg+argv$gamma.standard*(z-zfgdem); rm(zfgdem)
   }
-  if (argv$debug) {
-    png(file=file.path(argv$debug.dir,"fg.png"),width=800,height=800)
-    image(rfg,
-          breaks=seq(range(getValues(rfg),na.rm=T)[1],
-                     range(getValues(rfg),na.rm=T)[2],length=20),
-          col=c(rev(rainbow(19))))
-    if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
-    xy.tmp<-as.data.frame(cbind(x,y))
-    coordinates(xy.tmp)<-c("x","y")
-    proj4string(xy.tmp)<-CRS(argv$proj4_where_dqc_is_done)
-    xy.tmp.fg<-spTransform(xy.tmp,CRS(argv$proj4fg))
-    points(xy.tmp.fg,cex=0.8,pch=19)
-    dev.off()
-    rm(rfg,xy.tmp,xy.tmp.fg)
-    if (argv$variable=="T") {
-      png(file=file.path(argv$debug.dir,"fgdem.png"),width=800,height=800)
-      image(rfgdem,
-            breaks=seq(range(getValues(rfgdem),na.rm=T)[1],
-                       range(getValues(rfgdem),na.rm=T)[2],length=20),
-            col=c(rev(rainbow(19))))
-      if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
-      points(x,y,cex=0.8,pch=19)
-      dev.off()
-    }
-    save.image(file.path(argv$debug.dir,"input_data_fg.RData")) 
-    if (exists("rfgdem")) rm(rfgdem)
-  }
-  if (argv$verbose | argv$debug)
-    print("+---------------------------------+")
-}
+  if (argv$debug) save.image(file.path(argv$debug.dir,"input_data_fg.RData"))
+  if (argv$verbose) print("+---------------------------------+")
+} # END Read deterministic first guess
 #
 #-----------------------------------------------------------------------------
 # Read first guess ensemble (optional)
 if (!is.na(argv$fge.file)) {
-  if (argv$verbose | argv$debug)
-    print("Read ensemble first-guess")
+  if (argv$verbose) print("Read ensemble first-guess")
   t0a<-Sys.time()
-  ti<-nc4.getTime(argv$fge.file)
-  if (is.na(argv$fge.t)) argv$fge.t<-ti[1]
-  if (!(argv$fge.t %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$fge.t)
-    print(ti)
-    quit(status=1)
-  }
   # temperature: adjust for elevation differences
   if (argv$variable=="T") {
-    ti<-nc4.getTime(argv$fge.demfile)
-    if (is.na(argv$fge.demt)) argv$fge.demt<-ti[1]
-    if (!(argv$fge.demt %in% ti)) {
-      print("ERROR timestamp requested is not in the file:")
-      print(argv$fge.demt)
-      print(ti)
-      quit(status=1)
-    }
-    fge.demepos<-argv$fge.demepos
-    if (is.na(argv$fge.demepos)) fge.demepos<-NULL
-    fge.deme<-argv$fge.deme
-    if (is.na(argv$fge.deme)) fge.deme<-NULL
-    raux<-nc4in(nc.file=argv$fge.demfile,
-                nc.varname=argv$fge.demvarname,
-                topdown=argv$fge.demtopdown,
-                out.dim=list(ndim=argv$fge.demndim,
-                             tpos=argv$fge.demtpos,
-                             epos=fge.demepos,
-                             names=argv$fge.demdimnames),
-                proj4=argv$proj4fge,
-                nc.proj4=list(var=argv$fge.proj4_var,
-                              att=argv$fge.proj4_att),
-                selection=list(t=argv$fge.demt,e=fge.deme))
-    rfgedem<-raux$stack
-    if (argv$debug) {
-      png(file=file.path(argv$debug.dir,"fgedem.png"),width=800,height=800)
-      image(rfgedem,
-            breaks=seq(range(getValues(rfgedem),na.rm=T)[1],
-                       range(getValues(rfgedem),na.rm=T)[2],length=20),
-            col=c(rev(rainbow(19))))
-      if (exists("rlaf")) contour(rlaf,levels=c(0,1),add=T)
-      points(x,y,cex=0.8,pch=19)
-      dev.off()
-    }
-    rm(raux,ti)
-    if (argv$proj4fge!=argv$proj4_where_dqc_is_done) {
-      coord<-SpatialPoints(cbind(data$lon,data$lat),
-                           proj4string=CRS(argv$proj4_input_obsfiles))
-      coord.new<-spTransform(coord,CRS(argv$proj4fge))
-      xy.tmp<-coordinates(coord.new)
-      zfgedem<-extract(rfgedem,xy.tmp,method="bilinear")
-      rm(coord,coord.new,xy.tmp)
-    } else {
-      zfgedem<-extract(rfgedem,cbind(x,y),method="bilinear")
-    }
-    zfgedem<-argv$fg.demoffset*(-1)**(argv$fg.demnegoffset)+
-             zfgedem*argv$fg.demcfact*(-1)**(argv$fg.demnegcfact)
-    rm(rfgedem)
+    debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"fgedemnc.RData"), NA)
+    zfgdem<-get_data_from_ncfile(nc.file=argv$fge.demfile,
+                                 nc.varname=argv$fge.demvarname,
+                                 nc.t=argv$fge.demt,
+                                 nc.e=argv$fge.deme,
+                                 topdown=argv$fge.demtopdown,
+                                 var.dim=list(ndim=argv$fge.demndim,
+                                              tpos=argv$fge.demtpos,
+                                              epos=argv$fge.demepos,
+                                              names=argv$fge.demdimnames),
+                                 proj4=proj4fge,
+                                 proj4_from_nc=proj4fge_from_nc,
+                                 xy_as_vars=fge.xy_as_vars,
+                                 x_as_var.varname=argv$fge.x_as_var.varname,
+                                 y_as_var.varname=argv$fge.y_as_var.varname,
+                                 xy_as_var.dim=list(ndim=argv$fge.xy_as_var.ndim,
+                                                    tpos=argv$fge.xy_as_var.tpos,
+                                                    epos=NULL,
+                                                    names=argv$fge.xy_as_var.dimnames),
+                                 xy_as_var.dh_max=NA,
+                                 return_raster=F,
+                                 debug.file=debug.file,
+                                 nc.dqc_mode="none")
+    zfgedem<-fge.demoffset+ zfgedem * fge.demcfact
   }
   #
-  if (is.na(argv$fge.epos)) {
-    print("ERROR fge.epos must have a valid value")
-    quit(status=1)
-  }
-  ei<-nc4.getDim(argv$fge.file,
-                 varid=argv$fge.dimnames[argv$fge.epos])
+  if (is.na(argv$fge.epos)) boom("ERROR fge.epos must have a valid value")
+  ei<-nc4.getDim(argv$fge.file, varid=argv$fge.dimnames[argv$fge.epos])
   edata<-array(data=NA,dim=c(ndata,length(ei)))
   first<-T
   for (ens in 1:length(ei)) {
-    if (argv$fge.acc) {
-      tminus1h<-format(as.POSIXlt(
-        seq(as.POSIXlt(strptime(argv$fge.t,"%Y%m%d%H%M",tz="UTC")),
-            length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
-      raux<-try(nc4in(nc.file=argv$fge.file,
-                      nc.varname=argv$fge.varname,
-                      topdown=argv$fge.topdown,
-                      out.dim=list(ndim=argv$fge.ndim,
-                                   tpos=argv$fge.tpos,
-                                   epos=argv$fge.epos,
-                                   names=argv$fge.dimnames),
-                      proj4=argv$proj4fge,
-                      nc.proj4=list(var=argv$fge.proj4_var,
-                                    att=argv$fge.proj4_att),
-                      selection=list(t=c(tminus1h,argv$fge.t),
-                                     e=ei[ens])))
-      if (is.null(raux)) {
-        print("ERROR while reading file:")
-        print(argv$fge.file)
-        quit(status=1)
-      }
-      rfge<-raster(raux$stack,"layer.2")-
-            raster(raux$stack,"layer.1")
-    } else {
-      raux<-nc4in(nc.file=argv$fge.file,
-                  nc.varname=argv$fge.varname,
-                  topdown=argv$fge.topdown,
-                  out.dim=list(ndim=argv$fge.ndim,
-                               tpos=argv$fge.tpos,
-                               epos=argv$fge.epos,
-                               names=argv$fge.dimnames),
-                  proj4=argv$proj4fge,
-                  nc.proj4=list(var=argv$fge.proj4_var,
-                                att=argv$fge.proj4_att),
-#                  selection=list(t=argv$fge.t,e=ei[ens],z=4))
-                  selection=list(t=argv$fge.t,e=ei[ens]))
-      rfge<-raux$stack
-    }
-    # debug
-    if (argv$debug) {
-      png(file=file.path(argv$debug.dir,
-                         paste("fge_",formatC(ens,width=2,flag="0"),".png",sep="")),
-          width=800,height=800)
-      image(rfge,
-            breaks=seq(range(getValues(rfge),na.rm=T)[1],
-                       range(getValues(rfge),na.rm=T)[2],length=20),
-            col=c(rev(rainbow(19))))
-      if (exists("rlaf")) contour(rlaf,levels=1,add=T)
-      if (exists("rlaf")) rm(rlaf)
-      points(x,y,cex=0.8,pch=19)
-      dev.off()
-    }
-    rm(raux)
-    # extract data at observation locations (coord conversion)
-    if (argv$proj4fge!=argv$proj4_where_dqc_is_done) {
-      coord<-SpatialPoints(cbind(data$lon,data$lat),
-                           proj4string=CRS(argv$proj4_input_obsfiles))
-      coord.new<-spTransform(coord,CRS(argv$proj4fge))
-      xy.tmp<-coordinates(coord.new)
-      edata[,ens]<-extract(rfge,xy.tmp,method="bilinear")
-      rm(coord,coord.new,xy.tmp)
-    } else {
-      edata[,ens]<-extract(rfge,cbind(x,y),method="bilinear")
-    }
-    edata[,ens]<-argv$fge.offset*(-1)**(argv$fge.negoffset)+
-               edata[,ens]*argv$fge.cfact*(-1)**(argv$fge.negcfact)
-    if (argv$variable=="T") { 
-      edata[,ens]<-edata[,ens]+argv$gamma.standard*(z-zfgedem)
-    }
-    rm(rfge)
+    debug.file<-ifelse(argv$debug, 
+                       file.path(argv$debug.dir,
+                        paste0("input_data_fge_member",
+                               formatC(ei[ens],width=2,flag="0"),".RData")), NA)
+    res<-get_data_from_ncfile(nc.file=argv$fge.file,
+                              nc.varname=argv$fge.varname,
+                              nc.t=argv$fge.t,
+                              nc.e=ei[ens],
+                              topdown=argv$fge.topdown,
+                              var.dim=list(ndim=argv$fge.ndim,
+                                           tpos=argv$fge.tpos,
+                                           epos=argv$fge.epos,
+                                           names=argv$fge.dimnames),
+                              var.de_acc=argv$fge.acc,
+                              var.de_acc_by="-1 hour",
+                              proj4=proj4fge,
+                              proj4_from_nc=proj4fge_from_nc,
+                              xy_as_vars=fge.xy_as_vars,
+                              x_as_var.varname=argv$fge.x_as_var.varname,
+                              y_as_var.varname=argv$fge.y_as_var.varname,
+                              xy_as_var.dim=list(ndim=argv$fge.xy_as_var.ndim,
+                                                 tpos=argv$fge.xy_as_var.tpos,
+                                                 epos=NULL,
+                                                 names=argv$fge.xy_as_var.dimnames),
+                              xy_as_var.dh_max=NA,
+                              return_raster=F,
+                              debug.file=debug.file,
+                              nc.dqc_mode="none")
+    edata[,ens]<-fge.offset+ res* fge.cfact
+    if (argv$variable=="T") 
+      edata[,ens]<-edata[,ens]+ argv$gamma.standard * (z-zfgedem)
+    rm(res)
   } # end of cycle over ensemble members
   # compute mean and sd 
   fge.mu<-rowMeans(edata,na.rm=T)
@@ -5108,11 +5103,9 @@ if (!is.na(argv$fge.file)) {
                    SIMPLIFY=T)
   }
   fge.sd<-pmax(fge.sd,argv$sdmin.fge,na.rm=T)
-  if (argv$debug)
-    save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
   rm(edata)
-  # debug
-  if (argv$verbose | argv$debug) {
+  if (argv$debug) save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
+  if (argv$verbose) {
     t1a<-Sys.time()
     print(paste("fge sd(5,25,50,75,95-th)=",
           toString(round(as.vector(quantile(fge.sd,
