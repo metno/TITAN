@@ -29,6 +29,13 @@ options(warn = 2, scipen = 999)
 #------------------------------------------------------------------------------
 # FUNCTIONS
 
+# + manage fatal error
+boom<-function(str=NULL) {
+  print("Fatal Error:")
+  if (!is.null(str)) print(str)
+  quit(status=1)
+}
+
 # auxiliary function to keep/blacklist observations
 setCode_lonlat<-function(lonlat,code) {
 # lonlat. vector. 1=lon; 2=lat
@@ -809,7 +816,9 @@ nc4in<-function(nc.file,
   if (any(is.na(out.dimids4nc))) return(NULL)
   if (!(nc.varname%in%nc.varnames)) return(NULL)
   # proj4 string is needed either (1) set by the user or (2) read from nc
-  if (is.null(proj4)) {
+  if (is.null(proj4) & is.null(nc.proj4)) {
+    proj4<-NA
+  } else if (is.null(proj4)) {
     aux<-ncatt_get(nc,nc.proj4$var,nc.proj4$att)
     if (!aux$hasatt) return(NULL)
     proj4<-aux$value
@@ -3863,6 +3872,18 @@ if (argv$rr.wcor & argv$variable!="RR") {
               "for precipitation only"))
   quit(status=1)
 }
+# proj4s
+if (argv$dem | argv$dem.fill) {
+  if (argv$proj4dem=="" & argv$dem.proj4_var=="" & argv$dem.proj4_att=="" ) {
+    dem.xy_as_vars<-T
+    proj4dem<-NULL
+    proj4dem_from_nc<-NULL
+  } else {
+    dem.xy_as_vars<-F
+    proj4dem<-argv$proj4dem
+    proj4dem_from_nc<-list(var=argv$dem.proj4_var, att=argv$dem.proj4_att)
+  }
+}
 # set the timestamp
 if (!is.na(argv$timestamp)) {
   if (is.na(argv$fg.t)) argv$fg.t<-argv$timestamp
@@ -4117,8 +4138,60 @@ if (argv$debug) {
 #-----------------------------------------------------------------------------
 # Read geographical information (optional) 
 if (argv$dem | argv$dem.fill) {
-  if (argv$verbose | argv$debug)
-    print("read digital elevation model")
+  if (argv$verbose | argv$debug) print("read digital elevation model")
+
+#+
+get_data_from_ncfile<-function(nc.file,
+                               nc.varname,
+                               topdown,
+                               var.dim,
+                               proj4,
+                               proj4_from_nc,
+                               selection,
+                               return_just_raster=T) {
+#------------------------------------------------------------------------------
+  ti<-nc4.getTime(argv$dem.file)
+  raux<-try(nc4in(nc.file=nc.file,
+                  nc.varname=nc.varname,
+                  topdown=topdown,
+                  out.dim=var.dim,
+                  proj4=proj4,
+                  nc.proj4=proj4_from_nc,
+                  selection=selection))
+  if (is.null(raux)) boom(paste("ERROR while reading file:",argv$nc.file))
+  if (return_just_raster) {
+    return(raux$stack)
+  } else {
+    return(raux)
+  }
+  if (dem.xy_as_vars) {
+    raux<-try(nc4in(nc.file=argv$dem.file,
+                    nc.varname=argv$dem.x_as_var.varname,
+                    topdown=argv$dem.topdown,
+                    out.dim=list(ndim=argv$dem.xy_as_var.ndim,
+                                 tpos=argv$dem.xy_as_var.tpos,
+                                 epos=NULL,
+                                 names=argv$dem.xy_as_var.dimnames),
+                    proj4=proj4dem,
+                    nc.proj4=proj4dem_from_nc,
+                    selection=list(t=ti[1],e=NULL)))
+    if (is.null(raux)) boom(paste("ERROR while reading file:",argv$dem.file))
+    rx<-raux$stack
+    rm(raux)
+    
+  } else if (argv$proj4dem!=argv$proj4_where_dqc_is_done) {
+    coord<-SpatialPoints(cbind(data$lon,data$lat),
+                         proj4string=CRS(argv$proj4_input_obsfiles))
+    coord.new<-spTransform(coord,CRS(argv$proj4dem))
+    xy.tmp<-coordinates(coord.new)
+    zdem<-extract(rdem,xy.tmp)
+    rm(coord,coord.new,xy.tmp)
+  } else {
+    zdem<-extract(rdem,cbind(x,y))
+  }
+
+}
+
   ti<-nc4.getTime(argv$dem.file)
   raux<-try(nc4in(nc.file=argv$dem.file,
                   nc.varname=argv$dem.varname,
@@ -4127,18 +4200,28 @@ if (argv$dem | argv$dem.fill) {
                                tpos=argv$dem.tpos,
                                epos=NULL,
                                names=argv$dem.dimnames),
-                  proj4=argv$proj4dem,
-                  nc.proj4=list(var=argv$dem.proj4_var,
-                                att=argv$dem.proj4_att),
+                  proj4=proj4dem,
+                  nc.proj4=proj4dem_from_nc,
                   selection=list(t=ti[1],e=NULL)))
-  if (is.null(raux)) {
-    print("ERROR while reading file:")
-    print(argv$dem.file)
-    quit(status=1)
-  }
+  if (is.null(raux)) boom(paste("ERROR while reading file:",argv$dem.file))
   rdem<-raux$stack
-  rm(raux,ti)
-  if (argv$proj4dem!=argv$proj4_where_dqc_is_done) {
+  rm(raux)
+  if (dem.xy_as_vars) {
+    raux<-try(nc4in(nc.file=argv$dem.file,
+                    nc.varname=argv$dem.x_as_var.varname,
+                    topdown=argv$dem.topdown,
+                    out.dim=list(ndim=argv$dem.xy_as_var.ndim,
+                                 tpos=argv$dem.xy_as_var.tpos,
+                                 epos=NULL,
+                                 names=argv$dem.xy_as_var.dimnames),
+                    proj4=proj4dem,
+                    nc.proj4=proj4dem_from_nc,
+                    selection=list(t=ti[1],e=NULL)))
+    if (is.null(raux)) boom(paste("ERROR while reading file:",argv$dem.file))
+    rx<-raux$stack
+    rm(raux)
+    
+  } else if (argv$proj4dem!=argv$proj4_where_dqc_is_done) {
     coord<-SpatialPoints(cbind(data$lon,data$lat),
                          proj4string=CRS(argv$proj4_input_obsfiles))
     coord.new<-spTransform(coord,CRS(argv$proj4dem))
