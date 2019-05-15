@@ -1,12 +1,7 @@
 #!/usr/bin/env Rscript
 # + TITAN - spatial data quality control for in-situ observations
 # mailto: cristianl@met.no
-# # https://github.com/metno/TITAN
-#
-# command line:
-#  >titan.R input_file output_file [options]
-# to list available options:
-#  >titan.R --help 
+# https://github.com/metno/TITAN
 #-----------------------------------------------------------------------------
 #  This file is free software: you may copy, redistribute and/or modify it  
 #  under the terms of the GNU General Public License as published by the  
@@ -1276,7 +1271,27 @@ get_data_from_ncfile<-function(nc.file,
     if (length(ix)==0) {
       val<-rep(NA,ndata)
     } else {
-      rval<-getValues(r,ix)
+      if (!is.null(xy_as_var.dim$tpos)) {
+        if (is.na(xy_as_var.dim$tpos)) {
+          nc.t<-NULL
+          xy_as_var.dim$tpos<-NULL
+        } else {
+          ti<-nc4.getTime(nc.file)
+          if (is.na(nc.t)) nc.t<-ti[1]
+          if (!(nc.t %in% ti)) 
+            boom(paste("ERROR, file",nc.file,",timestamp",nc.t,"not present"))
+        }
+      }
+      if (!is.null(xy_as_var.dim$epos)) {
+        if (is.na(xy_as_var.dim$epos)) {
+          nc.e<-NULL
+          xy_as_var.dim$epos<-NULL
+        } else {
+          if (is.na(nc.e)) nc.e<-0
+        }
+      }
+#      rval<-getValues(r)[ix]
+      rval<-getValues(r)
       raux<-try(nc4in(nc.file=nc.file,
                       nc.varname=x_as_var.varname,
                       topdown=topdown,
@@ -1285,7 +1300,8 @@ get_data_from_ncfile<-function(nc.file,
                       nc.proj4=proj4_from_nc,
                       selection=list(t=NULL,e=NULL)))
       if (is.null(raux)) boom(paste("ERROR while reading \"x_as_var\" from file:",argv$nc.file))
-      rx<-getValues(raux$stack,ix); rm(raux)
+#      rx<-getValues(raux$stack)[ix]; rm(raux)
+      rx<-getValues(raux$stack); rm(raux)
       raux<-try(nc4in(nc.file=nc.file,
                       nc.varname=y_as_var.varname,
                       topdown=topdown,
@@ -1294,8 +1310,11 @@ get_data_from_ncfile<-function(nc.file,
                       nc.proj4=proj4_from_nc,
                       selection=list(t=NULL,e=NULL)))
       if (is.null(raux)) boom(paste("ERROR while reading \"y_as_var\" from file:",argv$nc.file))
-      ry<-getValues(raux$stack,ix); rm(raux)
+#      ry<-getValues(raux$stack)[ix]; rm(raux)
+      ry<-getValues(raux$stack); rm(raux)
       if (is.na(xy_as_var.dh_max)) 
+        xy_as_var.dh_max<-10*mean( median(abs(diff(rx)),na.rm=T), 
+                                   median(abs(diff(ry)),na.rm=T) )  
       val<-apply(cbind(data$lon,data$lat),FUN=spint_nn,MARGIN=1,
                  rx=rx,ry=ry,rval=rval,dh_max=xy_as_var.dh_max)
     }
@@ -2310,6 +2329,9 @@ p <- add_argument(p, "--fg_gamma.sct",
                   help="lapse rate value",
                   type="numeric",
                   default=-0.0065)
+p <- add_argument(p, "--transf.sct",
+                  help="apply Box-Cox transformation before SCT (\"stn_by_stn.sct\")",
+                  flag=T)
 #.............................................................................. 
 # observation representativeness
 p <- add_argument(p, "--mean.corep",
@@ -3456,6 +3478,7 @@ if (!is.na(argv$config.file)) {
 }
 #
 #-----------------------------------------------------------------------------
+# Multi-cores run
 if (!is.na(argv$cores)) {
   suppressPackageStartupMessages(library("parallel"))
   if (argv$cores==0) argv$cores <- detectCores()
@@ -3464,19 +3487,13 @@ if (!is.na(argv$cores)) {
 #
 #-----------------------------------------------------------------------------
 # CHECKS on input arguments
-if (!file.exists(argv$input)) {
-  print("ERROR: input file not found")
-  print(argv$input)
-  quit(status=1)
-}
+if (!file.exists(argv$input)) 
+  boom(paste("ERROR: input file not found",argv$input))
 # more than one input file
 if (any(!is.na(argv$input.files))) {
   for (j in 1:length(argv$input.files)) {
-    if (!file.exists(argv$input.files[j])) {
-      print("ERROR: input file not found")
-      print(argv$input.files[j])
-      quit(status=1)
-    }
+    if (!file.exists(argv$input.files[j])) 
+      boom(paste("ERROR: input file not found",argv$input.files[j]))
   }
   argv$input.files<-c(argv$input,argv$input.files)
 } else {
@@ -3487,10 +3504,8 @@ nfin<-length(argv$input.files)
 if (any(is.na(argv$prid))) {
   argv$prid<-1:nfin
 } else {
-  if (length(argv$prid)!=nfin) {
-    print("ERROR: number of provider identifier is different from the number of input files")
-    quit(status=1)
-  }
+  if (length(argv$prid)!=nfin) 
+    boom("ERROR: number of provider identifier is different from the number of input files")
 }
 #................................................................................
 # set input offsets and correction factors
@@ -3601,10 +3616,8 @@ fge.demcfact<-as.numeric(gsub("_","-",fge.demcfact))
 fge.demcfact<-fge.demcfact*(-1)**(fge.demnegcfact)
 #................................................................................
 # check variable
-if (!(argv$variable %in% c("T","RH","RR","SD"))) {
-  print("variable must be one of T, RH, RR, SD")
-  quit(status=1)
-}
+if (!(argv$variable %in% c("T","RH","RR","SD"))) 
+  boom("variable must be one of T, RH, RR, SD")
 # set proj4 variables (proj4from and proj4to are obsolete)
 if (argv$proj4from!=argv$proj4_input_obsfiles) {
   if (argv$proj4_input_obsfiles==proj4_input_obsfiles_default & 
@@ -3616,6 +3629,7 @@ if (argv$proj4to!=argv$proj4_where_dqc_is_done) {
       argv$proj4to!=proj4_where_dqc_is_done_default)
     argv$proj4_where_dqc_is_done<-argv$proj4to
 }
+#................................................................................
 # set variables to customize output
 if (argv$varname.lat.out!=argv$varname.y.out) {
   if (argv$varname.y.out==varname.y.out_default & 
@@ -3632,6 +3646,7 @@ if (argv$latlon.dig.out!=argv$xy.dig.out) {
       argv$latlon.dig.out!=xy.dig.out_default)
     argv$xy.dig.out<-argv$latlon.dig.out
 }
+#................................................................................
 # set the input arguments according to user specification
 if (!is.na(argv$fg.type)) {
   if (argv$fg.type=="meps") {
@@ -3688,8 +3703,7 @@ if (!is.na(argv$fg.type)) {
       argv$fg.cfact<-100.
       argv$fg.topdown<-TRUE
     } else {
-      print("ERROR in --fg.type, combination of type/variable not available")
-      quit(status=1)
+      boom("ERROR in --fg.type, combination of type/variable not available")
     } 
   } else if (argv$fg.type=="radar") {
     if (argv$variable=="RR") {
@@ -3706,8 +3720,7 @@ if (!is.na(argv$fg.type)) {
       argv$proj4fg<-"+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
       argv$fg.topdown<-FALSE
     } else {
-      print("ERROR in --fg.type, combination of type/variable not available")
-      quit(status=1)
+      boom("ERROR in --fg.type, combination of type/variable not available")
     }
   } else if (argv$fg.type=="surfex_T") {
     if (argv$variable=="RH") {
@@ -3738,12 +3751,10 @@ if (!is.na(argv$fg.type)) {
       argv$proj4fg<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
       argv$fg.topdown<-TRUE
     } else {
-      print("ERROR in --fg.type, combination of type/variable not available")
-      quit(status=1)
+      boom("ERROR in --fg.type, combination of type/variable not available")
     }
   } else {
-    print("ERROR in --fg.type, type not recognized")
-    quit(status=1)
+    boom("ERROR in --fg.type, type not recognized")
   }
 }
 if (!is.na(argv$fge.type)) {
@@ -3802,12 +3813,10 @@ if (!is.na(argv$fge.type)) {
       argv$fge.cfact<-100.
       argv$fge.topdown<-TRUE
     } else {
-      print("ERROR in --fge.type, combination of type/variable not available")
-      quit(status=1)
+      boom("ERROR in --fge.type, combination of type/variable not available")
     } 
   } else {
-    print("ERROR in --fge.type, type not recognized")
-    quit(status=1)
+    boom("ERROR in --fge.type, type not recognized")
   }
 }
 # shortcut for meps file in the precip correction for wind undercatch
@@ -3845,8 +3854,7 @@ if (!is.na(argv$rr.wcor.filesetup)) {
     argv$proj4wind<-"+proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +no_defs +R=6.371e+06"
     argv$wind.topdown<-TRUE
   } else {
-    print("ERROR --rr.wcor.filesetup argument not recognized")
-    quit(status=1)
+    boom("ERROR --rr.wcor.filesetup argument not recognized")
   }
 }
 # shortcut for meps file in the precip-temp cross-check
@@ -3874,31 +3882,21 @@ if (!is.na(argv$ccrrt.filesetup)) {
     argv$t2m.topdown<-TRUE
     argv$t2m.demtopdown<-TRUE
   } else {
-    print("ERROR --ccrrt.filesetup argument not recognized")
-    quit(status=1)
+    boom("ERROR --ccrrt.filesetup argument not recognized")
   }
 }
 # check external files
 if (argv$dem | argv$dem.fill) {
-  if (!file.exists(argv$dem.file)) {
-    print("ERROR: dem file not found")
-    print(argv$dem.file)
-    quit(status=1)
-  }
+  if (!file.exists(argv$dem.file)) 
+    boom(paste("ERROR: dem file not found",argv$dem.file))
 }
 if (argv$laf.sct) {
-  if (!file.exists(argv$laf.file)) {
-    print("ERROR: laf file not found")
-    print(argv$laf.file)
-    quit(status=1)
-  }
+  if (!file.exists(argv$laf.file)) 
+    boom(paste("ERROR: laf file not found",argv$laf.file))
 }
 if (!is.na(argv$fg.file)) {
-  if (!file.exists(argv$fg.file)) {
-    print("ERROR: first-guess file not found")
-    print(argv$fg.file)
-    quit(status=1)
-  }
+  if (!file.exists(argv$fg.file)) 
+    boom(paste("ERROR: first-guess file not found",argv$fg.file))
 }
 # input column names
 if (any(is.na(argv$separator))) 
@@ -3932,48 +3930,31 @@ if (length(argv$varname.value)==0)
   argv$varname.value<-rep("value",nfin)
 if (length(argv$varname.value)!=nfin) 
   argv$varname.value<-rep(argv$varname.value[1],nfin)
-# TODO: adapt the procedure for input data others than lat-lon
-if (!argv$spatconv) {
-  print("ERROR: \"--spatconv\" (-c) option must be used on the command line")
-  print("input metadata are expected to be lat-lon coordinates")
-  print(" some DQC tests takes place in kilometric coordinates specified by the user")
-  print("output is in lat-lon coordinates")
-  quit(status=1)
-}
+# check for spatial conversion flag
+if (!argv$spatconv) 
+  boom(paste("ERROR: \"--spatconv\" (-c) option must be used on the command line. Default is: input is in lat-lon coordinates; some DQC tests takes place in kilometric coordinates specified by the user; output is in lat-lon coordinates"))
+# load netcdf library, if needed
 if (argv$laf.sct | argv$dem | argv$dem.fill |
     !is.na(argv$fg.file) | !is.na(argv$fge.file) |
     !is.na(argv$t2m.file))
   suppressPackageStartupMessages(library("ncdf4")) 
 # first-guess file
 if (!is.na(argv$fg.file)) {
-  if (!file.exists(argv$fg.file)) {
-    print("ERROR file not found")
-    print(argv$fg.file)
-    quit(status=1)
-  }
   if ( argv$variable=="T" &
-       !file.exists(argv$fg.demfile)) {
-    print("ERROR: for temperature, a digital elevation model must be specified together with a first-guess file (det)")
-    quit(status=1)
-  }
-  suppressPackageStartupMessages(library("ncdf4")) 
+       !file.exists(argv$fg.demfile)) 
+    boom("ERROR: for temperature, a digital elevation model must be specified together with a first-guess file (det)")
 } else if (argv$fg) {
-  print("ERROR no first-guess file provided for the first-guess test")
-  quit(status=1)
+  boom("ERROR no first-guess file provided for the first-guess test")
 } else if (argv$usefg.sct) {
-  print("ERROR: SCT requested with the background derived from a first-guess field that is not being provided as input")
-  quit(status=1)
+  boom("ERROR: SCT requested with the background derived from a first-guess field that is not being provided as input")
 }
 #
 if (!is.na(argv$month.clim) & (argv$month.clim<1 | argv$month.clim>12)) {
-  print("ERROR: month number is wrong:")
-  print(paste("month number=",argv$month.clim))
-  quit(status=1)
+  boom(paste("ERROR: month number is wrong. month number=",argv$month.clim))
 } else if (!is.na(argv$month.clim) & 
            (length(which(!is.na(argv$vmin.clim)))!=12 | 
             length(which(!is.na(argv$vmax.clim)))!=12) ) {
-  print("ERROR: climatological check, vmin.clim and/or vmax.clim vectors must have 12 arguments")
-  quit(status=1)
+  boom("ERROR: climatological check, vmin.clim and/or vmax.clim vectors must have 12 arguments")
 }
 # blacklist
 if (any(!is.na(argv$blacklist.lat)) | 
@@ -3984,11 +3965,7 @@ if (any(!is.na(argv$blacklist.lat)) |
        (any(is.na(argv$blacklist.fll))) | 
        (any(is.na(argv$blacklist.lat))) | 
        (any(is.na(argv$blacklist.lon))) ) {
-    print("ERROR in the blacklist definition, must have same number of lat,lon,IDprovider points")
-    print(paste("lat number=",argv$blacklist.lat))
-    print(paste("lon number=",argv$blacklist.lon))
-    print(paste("ID provider number=",argv$blacklist.fll))
-    quit(status=1)
+    boom(paste("ERROR in the blacklist definition, must have same number of lat,lon,IDprovider points. lat number=",argv$blacklist.lat,". lon number=",argv$blacklist.lon,". ID provider number=",argv$blacklist.fll))
   }
 }
 if (any(!is.na(argv$blacklist.idx)) | 
@@ -3999,7 +3976,7 @@ if (any(!is.na(argv$blacklist.idx)) |
     print("ERROR in the blacklist definition, must have same number of index and IDprovider points")
     print(paste("index number=",argv$blacklist.idx))
     print(paste("ID provider number=",argv$blacklist.fidx))
-    quit(status=1)
+    boom()
   }
 }
 # keeplist
@@ -4015,7 +3992,7 @@ if (any(!is.na(argv$keeplist.lat)) |
     print(paste("lat number=",argv$keeplist.lat))
     print(paste("lon number=",argv$keeplist.lon))
     print(paste("ID provider number=",argv$keeplist.fll))
-    quit(status=1)
+    boom()
   }
 }
 if (any(!is.na(argv$keeplist.idx)) | 
@@ -4026,7 +4003,7 @@ if (any(!is.na(argv$keeplist.idx)) |
     print("ERROR in the keeplist definition, must have same number of index and IDprovider points")
     print(paste("index number=",argv$keeplist.idx))
     print(paste("ID provider number=",argv$keeplist.fidx))
-    quit(status=1)
+    boom()
   }
 }
 #
@@ -4083,8 +4060,7 @@ if (argv$fg) {
        !any(!is.na(argv$thrnegperc.fg)) &
        !any(!is.na(argv$thrperc.fg)) &
        !any(!is.na(argv$perc.fg_minval)) ) {
-    print("Error in specification of fg-thresholds")
-    quit(status=1)
+    boom("Error in specification of fg-thresholds")
   }
 }
 #
@@ -4120,8 +4096,7 @@ if (argv$fge) {
        !any(!is.na(argv$thrposout.fge)) &
        !any(!is.na(argv$thrnegout.fge)) &
        !any(!is.na(argv$throut.fge)) ) {
-    print("Error in specification of fge-thresholds")
-    quit(status=1)
+    boom("Error in specification of fge-thresholds")
   }
 }
 #
@@ -4132,7 +4107,7 @@ if ( (any(is.na(argv$thrpos.sct)) & any(!is.na(argv$thrpos.sct))) |
   print("SCT thresholds for positive and negative deviations are not properly specified")
   print(paste("threshold(s) when (Obs-CVpred) <0 (thrneg.sct)",argv$thrneg.sct))
   print(paste("threshold(s) when (Obs-CVpred)>=0 (thrpos.sct)",argv$thrpos.sct))
-  quit(status=1)
+  boom()
 }
 if (length(argv$thrpos.sct)!=nfin) {
   argv$thrpos.sct<-rep(argv$thrpos.sct[1],length=nfin)
@@ -4194,7 +4169,7 @@ if (argv$cool) {
     print("++ ERROR")
     print("COOL test. something wrong in the specification of the n.cool argument")
     print(n.cool)
-    quit(status=1)
+    boom()
   }
 }
 #
@@ -4208,38 +4183,22 @@ if (any(is.na(argv$doit.isol))) argv$doit.isol<-rep(1,length=nfin)
 if (any(is.na(argv$doit.fg))) argv$doit.fg<-rep(1,length=nfin)
 if (any(is.na(argv$doit.fge))) argv$doit.fge<-rep(1,length=nfin)
 if (any(is.na(argv$doit.cool))) argv$doit.cool<-rep(1,length=nfin)
-if (any(!(argv$doit.buddy %in% c(0,1,2)))) {
-  print("doit.buddy must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.buddy_eve %in% c(0,1,2)))) {
-  print("doit.buddy_eve must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.sct %in% c(0,1,2)))) {
-  print("doit.sct must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.clim %in% c(0,1,2)))) {
-  print("doit.clim must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.dem %in% c(0,1,2)))) {
-  print("doit.dem must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.isol %in% c(0,1,2)))) {
-  print("doit.isol must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.fg %in% c(0,1,2)))) {
-  print("doit.fg must contain only 0,1,2")
-  quit(status=1)
-}
-if (any(!(argv$doit.cool %in% c(0,1,2)))) {
-  print("doit.cool must contain only 0,1,2")
-  quit(status=1)
-}
+if (any(!(argv$doit.buddy %in% c(0,1,2)))) 
+  boom("doit.buddy must contain only 0,1,2")
+if (any(!(argv$doit.buddy_eve %in% c(0,1,2))))
+  boom("doit.buddy_eve must contain only 0,1,2")
+if (any(!(argv$doit.sct %in% c(0,1,2))))
+  boom("doit.sct must contain only 0,1,2")
+if (any(!(argv$doit.clim %in% c(0,1,2))))
+  boom("doit.clim must contain only 0,1,2")
+if (any(!(argv$doit.dem %in% c(0,1,2))))
+  boom("doit.dem must contain only 0,1,2")
+if (any(!(argv$doit.isol %in% c(0,1,2))))
+  boom("doit.isol must contain only 0,1,2")
+if (any(!(argv$doit.fg %in% c(0,1,2))))
+  boom("doit.fg must contain only 0,1,2")
+if (any(!(argv$doit.cool %in% c(0,1,2))))
+  boom("doit.cool must contain only 0,1,2")
 #
 # set the thresholds for the plausibility check
 if (!is.na(argv$tmin) & is.na(argv$vmin)) argv$vmin<-argv$tmin
@@ -4265,11 +4224,8 @@ if (any(is.na(argv$prio.buddy_eve))) argv$prio.buddy_eve<-rep(-1,length=nfin)
 if (length(argv$prio.buddy_eve)!=nfin) argv$prio.buddy_eve<-rep(-1,length=nfin)
 # SCT with smart boxes
 if (argv$smartbox.sct & argv$variable == "T") {
-  if (!file.exists(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))) {
-    print("ERROR: file not found")
-    print(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))
-    quit(status=1)
-  }
+  if (!file.exists(file.path(argv$titan_path,"sct","sct_smart_boxes.so")))
+    boom(paste("ERROR: file not found.",argv$titan_path,"sct","sct_smart_boxes.so"))
   dyn.load(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))
 }
 # buddy_eve checks
@@ -4292,11 +4248,8 @@ if (any(is.na(argv$dz.buddy_eve)))
 if (length(argv$dz.buddy_eve)!=length(argv$n_eve.buddy_eve))
   argv$dz.buddy_eve<-c(1500,1500,1500)
 # wind-induced undercatch of precipitation, check consistency of inputs
-if (argv$rr.wcor & argv$variable!="RR") {
-  print(paste("ERROR: wind-induced correction for undercatch is implemented",
-              "for precipitation only"))
-  quit(status=1)
-}
+if (argv$rr.wcor & argv$variable!="RR") 
+  boom("ERROR: wind-induced correction for undercatch is implemented for precipitation only")
 # proj4s
 if (argv$dem | argv$dem.fill) {
   if (argv$proj4dem=="" & argv$dem.proj4_var=="" & argv$dem.proj4_att=="" ) {
@@ -4394,14 +4347,14 @@ for (f in 1:nfin) {
                    names(datain))
   if (any(is.na(varidxtmp))) {
     print("ERROR in the specification of the variable names")
-    print(paste("latitutde=",argv$varname.lat[f]))
+    print(paste(" latitude=",argv$varname.lat[f]))
     print(paste("longitude=",argv$varname.lon[f]))
     print(paste("elevation=",argv$varname.elev[f]))
     print(paste("    value=",argv$varname.value[f]))
     print("header of input file:")
     print(argv$input.files[f])
     print(names(datain))
-    quit(status=1)
+    boom()
   }
   datatmp<-data.frame(datain[,varidxtmp])
   names(datatmp)<-c("lat","lon","elev","value")
@@ -5450,27 +5403,11 @@ for (i in 1:argv$i.buddy) {
     print(paste("#new suspect observations=",ncur-nprev,str))
     rm(str)
   }
-#  if (argv$debug) {
-#    auxok<-which(is.na(dqcflag))
-#    aux<-which(dqcflag==argv$buddy.code & !is.na(dqcflag))
-#    aux9<-which(data$prid==9 & is.na(dqcflag))
-#    for (ii in aux) {
-#      png(file=paste0(argv$debug.dir,"/buddy_",i,"_",ii,".png"),width=800,height=800)
-#      plot(1,1,xlim=c(x[ii]-argv$dr.buddy,x[ii]+argv$dr.buddy),
-#           ylim=c(y[ii]-argv$dr.buddy,y[ii]+argv$dr.buddy))
-#      text(x[auxok],y[auxok],data$value[auxok])
-#      text(x[aux9],y[aux9],data$value[aux9],col="gray")
-#      text(x[aux],y[aux],data$value[aux],col="red")
-#      dev.off()
-#    }
-#    rm(aux)
-#  }
   if ((ncur-nprev)==0 & i>2) break
   nprev<-ncur
 }
 rm(doit,prio)
-if (argv$debug) 
-  save.image(file.path(argv$debug.dir,"dqcres_buddy.RData")) 
+if (argv$debug) save.image(file.path(argv$debug.dir,"dqcres_buddy.RData")) 
 if (argv$verbose | argv$debug) 
   print("+---------------------------------+")
 if (exists("stSp_buddy")) rm(stSp_buddy)
@@ -6125,7 +6062,7 @@ if (argv$cool) {
   ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
   ptmp<-length(ix)
   if (ptmp<1) {
-    print("cool test  no valid observations left, no test")
+    print("cool test no valid observations left, no test")
   } else {
     rgrid_cool<-raster(ext=e,resolution=argv$grid_res.cool)
     rgrid_cool[]<-NA
@@ -6356,10 +6293,10 @@ for (s in 1:length(ord.varidx.out)) {
     dataout[,s]<-dataopt[,posopt.nona.s]
   } else if (pos.s==1) {
     str[s]<-argv$varname.x.out
-    dataout[,s]<-round(yout,argv$xy.dig.out)
+    dataout[,s]<-round(xout,argv$xy.dig.out)
   } else if (pos.s==2) {
     str[s]<-argv$varname.y.out
-    dataout[,s]<-round(xout,argv$xy.dig.out)
+    dataout[,s]<-round(yout,argv$xy.dig.out)
   } else if (pos.s==3) {
     str[s]<-argv$varname.elev.out
     dataout[,s]<-round(z,argv$elev.dig.out)
@@ -6404,4 +6341,4 @@ if (argv$verbose | argv$debug)
 t1<-Sys.time()
 if (argv$verbose | argv$debug) 
  print(paste("normal exit /time",round(t1-t0,1),attr(t1-t0,"unit")))
-q(status=0)
+quit(status=0)
