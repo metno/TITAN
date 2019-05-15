@@ -1119,6 +1119,7 @@ get_data_from_ncfile<-function(nc.file,
                                debug.file=NA,
                                nc.dqc_mode="none") { #"radar_hourly"
 #------------------------------------------------------------------------------
+  if (var.dim$ndim==2) { var.dim$tpos<-NULL; var.dim$epos<-NULL }
   if (is.null(var.dim$tpos)) {
     nc.t<-NULL
   } else {
