@@ -2630,6 +2630,10 @@ p <- add_argument(p, "--radarout.aggfact",
                   type="numeric",
                   default=3,
                   short="-radop")
+p <- add_argument(p, "--radarout.aggfun",
+                  help="aggregation function for the radar-derived precipitation",
+                  type="character",
+                  default="mean")
 #.............................................................................. 
 # doit flags
 comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
@@ -6232,11 +6236,27 @@ if (argv$radarout) {
     print("include radar-derived precipitation in the output file")
   # (optional) aggregate radar data onto a coarser grid
   if (!is.na(argv$radarout.aggfact) & argv$radarout.aggfact>1) {
-    raux<-aggregate(rrad,
-                    fact=argv$radarout.aggfact,
-                    na.rm=T,
-                    expand=T, 
-                    fun=mean)
+    if (argv$radarout.aggfun=="ngb") {
+      raux<-resample(rrad,
+                     aggregate(rrad,
+                               fact=argv$radarout.aggfact,
+                               na.rm=T,
+                               expand=T),
+                     method="ngb")
+    } else if (argv$radarout.aggfun=="modal") {
+      raux<-aggregate(rrad,
+                      fun=argv$radarout.aggfun,
+                      ties='highest',
+                      na.rm=T,
+                      expand=T, 
+                      fact=argv$radarout.aggfact)
+    } else {
+      raux<-aggregate(rrad,
+                      fun=argv$radarout.aggfun,
+                      na.rm=T,
+                      expand=T, 
+                      fact=argv$radarout.aggfact)
+    }
     rrad<-raux
     rm(raux)
   }
