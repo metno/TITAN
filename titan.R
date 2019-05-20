@@ -6337,8 +6337,8 @@ dataout[,(s+4)]<-round(corep,5)
 if (argv$radarout) {
   if (length(radrr)>0) {
     datarad<-array(data=NA,dim=c(length(radrr),(length(varidx.out)+4)))
-    datarad[,which(str==argv$varname.x.out)]<-round(rady.from,argv$xy.dig.out)
-    datarad[,which(str==argv$varname.y.out)]<-round(radx.from,argv$xy.dig.out)
+    datarad[,which(str==argv$varname.x.out)]<-round(radx.from,argv$xy.dig.out)
+    datarad[,which(str==argv$varname.y.out)]<-round(rady.from,argv$xy.dig.out)
     datarad[,which(str==argv$varname.value.out)]<-round(radrr,argv$value.dig.out)
     datarad[,which(str==argv$varname.prid)]<-rep(argv$radarout.prid,length(radrr))
     datarad[,which(str==argv$varname.dqc)]<-rep(0,length(radrr))
