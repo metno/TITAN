@@ -2547,7 +2547,7 @@ p <- add_argument(p, "--thres.cool",
                   nargs=Inf)
 p <- add_argument(p, "--condition.cool",
                   help="character vector specifying the conditions to apply at each of the thresholds (\"lt\"=less than; \"le\"=less or equal than; \"gt\"=greater than; \"ge\"=greater or equal than).",
-                  type="numeric",
+                  type="character",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--n.cool",
