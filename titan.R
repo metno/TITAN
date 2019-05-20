@@ -2646,6 +2646,10 @@ p <- add_argument(p, "--radarout.aggfun",
                   help="aggregation function for the radar-derived precipitation",
                   type="character",
                   default="mean")
+p <- add_argument(p, "--radarout.corep",
+                  help="coefficient for the representativeness of radar-derived precipitation",
+                  type="numeric",
+                  default=1)
 #.............................................................................. 
 # doit flags
 comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
@@ -6429,6 +6433,7 @@ if (argv$radarout) {
     datarad[,which(str==argv$varname.value.out)]<-round(radrr,argv$value.dig.out)
     datarad[,which(str==argv$varname.prid)]<-rep(argv$radarout.prid,length(radrr))
     datarad[,which(str==argv$varname.dqc)]<-rep(0,length(radrr))
+    datarad[,which(str==argv$varname.rep)]<-rep(argv$radarout.corep,length(radrr))
     dataout<-rbind(dataout,datarad)
   }
 }
