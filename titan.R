@@ -55,84 +55,85 @@ nstat<-function(xy,drmin) {
   return(length(i))
 }
 
-#+ summary statistics in a box of /pm "drmin" centered on location "ixyz" 
-statSpat_mapply<-function(i,
-                          drmin,
-                          gamma=-0.0065,
+#+ summary statistics centered on a point 
+statSpat_mapply<-function(i,                           # index over tot-vectors
+                          dr,                          # m
+                          gamma=-0.0065,               # degC/m
+                          adjust_for_elev_diff=F,
+                          pmax=200,                    # max number of stations
                           priority=F,
-                          statistics="buddy_standard", #buddy_event
+                          statistics="buddy_standard", # OR buddy_event
                           event_threshold=NULL,
                           event_def=NULL) {
+#------------------------------------------------------------------------------
+# The point has coordinates (xtot[i],ytot[i],ztot[i]). 
+# The neighbourhood considered includes the (max pmax) closest observations 
+# within a radius dr. The so-called buddies.
+# The i-th point itself is excluded from the statistics.
+#
 # input
 # 6 vectors. itot=index; xtot=x; ytot=y; ztot=z; ttot=variable; priotot=priority
-# output
-# "buddy_standard"
-# 1=nobs;2=maxVertDist[m];3=mean(temp);4=sd(temp)
-# "buddy_event"
-# 1=nobs;2=maxVertDist[m];
-# 3=event occurrence (1=yes,0=no);
-# 4=frequency of event=yes in the surroundings
-# NOTE: temperature is adjusted for elevation differences (gamma=-0.0065 K/m)
+#
+# -- output "buddy_standard"
+# 1 = nobs 
+# 2 = maxVertDist[m]
+# 3 = mean(buddies)
+# 4 = standard_dev(buddies)
+#
+# -- output "buddy_event"
+# 1 = nobs
+# 2 = maxVertDist[m]
+# 3 = event occurrence at the i-th point (1=yes,0=no)
+# 4 = percentage of event=yes among the buddies
 #------------------------------------------------------------------------------
-#    ixyztp_tot<-cbind(itot,xtot,ytot,ztot,ttot,priotot)
-  if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
-       any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
-    return(c(NA,NA,NA,NA))
-  }
   deltax<-abs(xtot[i]-xtot)
   deltay<-abs(ytot[i]-ytot)
   if (priority) {
-    ixx0<-which(deltax<=drmin & 
-                deltay<=drmin &
-                itot!=itot[i]            &
-                (priotot<priotot[i] | priotot<0) )
+    jx<-which(deltax<=dr & 
+              deltay<=dr &
+              itot!=itot[i]            &
+              (priotot<priotot[i] | priotot<0) )
   } else {
-    ixx0<-which(deltax<=drmin & 
-                deltay<=drmin &
-                itot!=itot[i])
+    jx<-which(deltax<=dr & 
+              deltay<=dr &
+              itot!=itot[i])
   }
-  if (length(ixx0)==0) return(c(0,NA,NA,NA))
-  ixx<-ixx0[which(sqrt(deltax[ixx0]*deltax[ixx0]+
-                       deltay[ixx0]*deltay[ixx0])<=drmin)]
-  rm(ixx0)
-  if (length(ixx)==0) return(c(0,NA,NA,NA))
-  dz<-ztot[ixx]-ztot[i]
-  if (argv$variable=="T") {
-    t2use<-ttot[ixx]+gamma*dz
+  njx<-length(jx)
+  if (njx==0) return(c(0,NA,NA,NA))
+  if (njx>pmax) {
+    disth2<-deltax[jx]*deltax[jx]+deltay[jx]*deltay[jx]
+    jx<-jx[order(disth2, decreasing=F)[1:pmax]]
+    njx<-length(jx)
+  }
+  if (njx==0) return(c(0,NA,NA,NA))
+  dz<-ztot[jx]-ztot[i]
+  dz_mx<-max(abs(dz))
+  if (adjust_for_elev_diff) {
+    buddies_val<-ttot[jx]+gamma*dz
   } else {
-    t2use<-ttot[ixx]
-  }
-  if (length(ixx)==1) {
-    if (statistics=="buddy_standard") {
-      return(c(1,dz,t2use,NA))
-    } else {
-      return(c(1,NA,NA,NA))
-    }
+    buddies_val<-ttot[jx]
   }
   if (statistics=="buddy_standard") {
-    tmean<-mean(t2use) 
-    tsd<-sd(t2use) 
-    dz_mx<-max(abs(dz))
-    return(c(length(ixx),round(dz_mx,0),round(tmean,1),round(tsd,3)))
+    if (njx==1) return(c(1,dz,buddies_val,NA))
+    return(c(njx,dz_mx,mean(buddies_val),sd(buddies_val)))
   } else if (statistics=="buddy_event") {
     if (event_def=="gt") {
-      eve<-as.integer(ifelse(ttot[i]>event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use>event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]>event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val>event_threshold))/njx
     } else if (event_def=="ge") {
-      eve<-as.integer(ifelse(ttot[i]>=event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use>=event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]>=event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val>=event_threshold))/njx
     } else if (event_def=="lt") {
-      eve<-as.integer(ifelse(ttot[i]<event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use<event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]<event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val<event_threshold))/njx
     } else if (event_def=="le") {
-      eve<-as.integer(ifelse(ttot[i]<=event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use<=event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]<=event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val<=event_threshold))/njx
     } else {
-      eve<-NA
-      eve_yes.prob<-NA
+      i_eve<-NA
+      buddies_eve_yes.prob<-NA
     }
-    dz_mx<-max(abs(dz))
-    return(c(length(ixx),round(dz_mx,0),eve,eve_yes.prob))
+    return(c(njx,dz_mx,i_eve,buddies_eve_yes.prob))
   } else {
     return(c(NA,NA,NA,NA))
   }
@@ -5237,55 +5238,60 @@ if (argv$buddy_eve) {
         ztot<-as.numeric(z[ix])
         priotot<-as.numeric(prio[ix])
         ttot<-data$value[ix]
-        if (!is.na(argv$cores)) {
-          stSp_buddy_eve<-mcmapply(statSpat_mapply,
+        if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
+             any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
+          if (!is.na(argv$cores)) {
+            stSp_buddy_eve<-mcmapply(statSpat_mapply,
+                                     1:length(itot),
+                                     mc.cores=argv$cores,
+                                     SIMPLIFY=T,
+                                     adjust_for_elev_diff=(argv$variable=="T"),
+                                     dr=argv$dr.buddy_eve[j],
+                                     priority=priority,
+                                     statistics="buddy_event", #buddy_event
+                                     event_threshold=argv$thr_eve.buddy_eve[j],
+                                     event_def="lt")
+          # no-multicores
+          } else {
+            stSp_buddy_eve<-mapply(statSpat_mapply,
                                    1:length(itot),
-                                   mc.cores=argv$cores,
                                    SIMPLIFY=T,
-                                   drmin=argv$dr.buddy_eve[j],
+                                   adjust_for_elev_diff=(argv$variable=="T"),
+                                   dr=argv$dr.buddy,
                                    priority=priority,
                                    statistics="buddy_event", #buddy_event
                                    event_threshold=argv$thr_eve.buddy_eve[j],
                                    event_def="lt")
-        # no-multicores
-        } else {
-          stSp_buddy_eve<-mapply(statSpat_mapply,
-                                 1:length(itot),
-                                 SIMPLIFY=T,
-                                 drmin=argv$dr.buddy,
-                                 priority=priority,
-                                 statistics="buddy_event", #buddy_event
-                                 event_threshold=argv$thr_eve.buddy_eve[j],
-                                 event_def="lt")
+          }
+          n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve)
+          # suspect if:
+          if (argv$thr.buddy_eve[j]<1) { 
+            sus<-which( 
+              (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
+               stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+               is.na(dqcflag[ix])) &
+               doit[ix]==1 & 
+              ( ( stSp_buddy_eve[3,]==0 & 
+                 ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
+                ( stSp_buddy_eve[3,]==1 & 
+                 (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
+          } else if (argv$thr.buddy_eve[j]>=1) {
+            nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
+            nno<-stSp_buddy_eve[1,]-nyes
+            sus<-which( 
+              (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
+              stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+              is.na(dqcflag[ix])) &
+              doit[ix]==1 & 
+              ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
+              (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
+            rm(nyes,nno)
+          } else {
+            sus<-integer(0)
+          }
+          # set dqcflag
+          if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
         }
-        n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve)
-        # suspect if:
-        if (argv$thr.buddy_eve[j]<1) { 
-          sus<-which( 
-            (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
-             stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-             is.na(dqcflag[ix])) &
-             doit[ix]==1 & 
-            ( ( stSp_buddy_eve[3,]==0 & 
-               ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
-              ( stSp_buddy_eve[3,]==1 & 
-               (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
-        } else if (argv$thr.buddy_eve[j]>=1) {
-          nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
-          nno<-stSp_buddy_eve[1,]-nyes
-          sus<-which( 
-            (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
-            stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-            is.na(dqcflag[ix])) &
-            doit[ix]==1 & 
-            ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
-            (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
-          rm(nyes,nno)
-        } else {
-          sus<-integer(0)
-        }
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
       } else {
         print("no valid observations left, no buddy_eve check")
       }
@@ -5361,34 +5367,39 @@ for (i in 1:argv$i.buddy) {
     } else {
       ttot<-as.numeric(data$value[ix])
     }
-    if (!is.na(argv$cores)) {
-      stSp_buddy<-mcmapply(statSpat_mapply,
+    if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
+         any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
+      if (!is.na(argv$cores)) {
+        stSp_buddy<-mcmapply(statSpat_mapply,
+                             1:length(itot),
+                             mc.cores=argv$cores,
+                             SIMPLIFY=T,
+                             adjust_for_elev_diff=(argv$variable=="T"),
+                             dr=argv$dr.buddy,
+                             priority=priority)
+      # no-multicores
+      } else {
+        stSp_buddy<-mapply(statSpat_mapply,
                            1:length(itot),
-                           mc.cores=argv$cores,
                            SIMPLIFY=T,
-                           drmin=argv$dr.buddy,
+                           adjust_for_elev_diff=(argv$variable=="T"),
+                           dr=argv$dr.buddy,
                            priority=priority)
-    # no-multicores
-    } else {
-      stSp_buddy<-mapply(statSpat_mapply,
-                         1:length(itot),
-                         SIMPLIFY=T,
-                         drmin=argv$dr.buddy,
-                         priority=priority)
+      }
+      # probability of gross error
+      stSp_buddy[4,]<-pmax(argv$sdmin.buddy,stSp_buddy[4,])
+      stSp_buddy[4,which(stSp_buddy[1,]==1)]<-argv$sdmin.buddy
+      pog<-abs(ttot-stSp_buddy[3,])/stSp_buddy[4,]
+      n.buddy<-ifelse(priority,0,argv$n.buddy) 
+      # suspect if: 
+      sus<-which( (pog>argv$thr.buddy & 
+                   stSp_buddy[1,]>n.buddy & 
+                   stSp_buddy[2,]<argv$dz.buddy &
+                   is.na(dqcflag[ix])) &
+                   doit[ix]==1 )
+      # set dqcflag
+      if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
     }
-    # probability of gross error
-    stSp_buddy[4,]<-pmax(argv$sdmin.buddy,stSp_buddy[4,])
-    stSp_buddy[4,which(stSp_buddy[1,]==1)]<-argv$sdmin.buddy
-    pog<-abs(ttot-stSp_buddy[3,])/stSp_buddy[4,]
-    n.buddy<-ifelse(priority,0,argv$n.buddy) 
-    # suspect if: 
-    sus<-which( (pog>argv$thr.buddy & 
-                 stSp_buddy[1,]>n.buddy & 
-                 stSp_buddy[2,]<argv$dz.buddy &
-                 is.na(dqcflag[ix])) &
-                 doit[ix]==1 )
-    # set dqcflag
-    if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
   } else {
     print("no valid observations left, no buddy check")
   }
