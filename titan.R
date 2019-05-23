@@ -2323,7 +2323,7 @@ p <- add_argument(p, "--xa_errvar_max.sct",
                   help="maximum allowed value for the analysis error variance",
                   type="numeric",
                   default=4)
-p <- add_argument(p, "--fg_lab.sct",
+p <- add_argument(p, "--fglab.sct",
                   help="method used to create the first-guess (\"linear\",\"Frei\",NA used together with usefg(e).sct )",
                   type="character",
                   default="Frei")
@@ -2517,7 +2517,6 @@ p <- add_argument(p, "--ccrrt",
                   short="-ccrrtf")
 p <- add_argument(p, "--ccrrt.tmin",
                   help="temperature thresholds (vector, negative values start with \"_\" (e.g. _2=-2)",
-#                  type="numeric",
                   type="character",
                   default=NA,
                   nargs=Inf,
@@ -2553,7 +2552,7 @@ p <- add_argument(p, "--condition.cool",
                   nargs=Inf)
 p <- add_argument(p, "--n.cool",
                   help="minimum acceptable number of observations producing a ''hole'' in the field (specified as a function of the provider and the threshold). If a clump of connected cells originates from a small number of observations, then it cannot be properly resolved by the observational network. As a result, the observations causing those small-scale events are assumed to be affected by large representativeness errors and flagged as ''suspect''. Format: array (ntot[thres1],nprid1[thres1],nprid2[thres1],...,ntot[thres2],nprid1[thres2],nprid2[thres2],...)",
-                  type="integer",
+                  type="numeric",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--grid_res.cool",
@@ -4984,7 +4983,7 @@ if (!is.na(argv$fge.file)) {
   # temperature: adjust for elevation differences
   if (argv$variable=="T") {
     debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"fgedemnc.RData"), NA)
-    zfgdem<-get_data_from_ncfile(nc.file=argv$fge.demfile,
+    zfgedem<-get_data_from_ncfile(nc.file=argv$fge.demfile,
                                  nc.varname=argv$fge.demvarname,
                                  nc.t=argv$fge.demt,
                                  nc.e=argv$fge.deme,
@@ -5534,6 +5533,7 @@ if (argv$fge) {
   thrposvec<-vector(length=ndata,mode="numeric"); thrposvec[]<-NA
   thrnegvec<-vector(length=ndata,mode="numeric"); thrnegvec[]<-NA
   thrpercvec<-vector(length=ndata,mode="numeric"); thrpercvec[]<-NA
+  perc_minvalvec<-vector(length=ndata,mode="numeric"); perc_minvalvec[]<-NA
   thrpospercvec<-vector(length=ndata,mode="numeric"); thrpospercvec[]<-NA
   thrnegpercvec<-vector(length=ndata,mode="numeric"); thrnegpercvec[]<-NA
   throutvec<-vector(length=ndata,mode="numeric"); throutvec[]<-NA
@@ -5616,7 +5616,6 @@ if (argv$fge) {
                 length(which(dqcflag==argv$fge.code))))
     print("+---------------------------------+")
   }
-  rm(doit)
   if (argv$debug) 
     save.image(file.path(argv$debug.dir,"dqcres_fge.RData")) 
 }
