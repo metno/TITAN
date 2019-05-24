@@ -2016,9 +2016,21 @@ p <- add_argument(p, "--varname.value",
                   nargs=Inf,
                   short="-vval")
 p <- add_argument(p, "--varname.value.out",
-                  help="name for the variable values (in/out)",
+                  help="name for the variable values (out)",
                   type="character",
                   default="value")
+p <- add_argument(p, "--varname.fg.out",
+                  help="name for the first guess (out)",
+                  type="character",
+                  default="fg")
+p <- add_argument(p, "--varname.fge_mean.out",
+                  help="name for the first guess ensemble mean (out)",
+                  type="character",
+                  default="fge_mean")
+p <- add_argument(p, "--varname.fge_sd.out",
+                  help="name for the first guess standard deviation (out)",
+                  type="character",
+                  default="fge_sd")
 # output file
 p <- add_argument(p, "--varname.opt",
      help="additional optional variables to be written on the output (out)",
@@ -4345,11 +4357,11 @@ for (f in 1:nfin) {
   }
   rm(varidxtmp)
   # varidx is used also in the output session
-  varidxtmp<-match(c(argv$varname.lat[f],
-                     argv$varname.lon[f],
-                     argv$varname.elev[f],
-                     argv$varname.value[f]),
-                   names(datain))
+  varidxtmp<-match( c(argv$varname.lat[f],
+                      argv$varname.lon[f],
+                      argv$varname.elev[f],
+                      argv$varname.value[f]),
+                    names(datain) )
   if (any(is.na(varidxtmp))) {
     print("ERROR in the specification of the variable names")
     print(paste(" latitude=",argv$varname.lat[f]))
@@ -6309,9 +6321,11 @@ if (argv$proj4_output_files!=argv$proj4_input_obsfiles) {
 }
 varidx.out<-varidx
 if (any(!is.na(argv$varname.opt))) 
-  varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))]) 
-dataout<-array(data=NA,
-               dim=c(length(yout),(length(varidx.out)+4)))
+  varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))])
+dataout_ncol<-length(varidx.out)+4
+if (file.exists(argv$fg.file)) dataout_ncol<-dataout_ncol+1
+if (file.exists(argv$fge.file)) dataout_ncol<-dataout_ncol+2
+dataout<-array( data=NA, dim=c(length(yout), dataout_ncol) )
 ord.varidx.out<-order(varidx.out)
 str<-vector()
 for (s in 1:length(ord.varidx.out)) {
@@ -6344,9 +6358,23 @@ str[s+3]<-argv$varname.sct
 dataout[,(s+3)]<-round(sctpog,2)
 str[s+4]<-argv$varname.rep
 dataout[,(s+4)]<-round(corep,5)
+s<-s+4
+if (file.exists(argv$fg.file)) {
+  s<-s+1
+  str[s]<-argv$varname.fg.out
+  dataout[,s]<-round(fg,argv$value.dig.out)
+}
+if (file.exists(argv$fge.file)) {
+  s<-s+1
+  str[s]<-argv$varname.fge_mean.out
+  dataout[,s]<-round(fge.mu,argv$value.dig.out)
+  s<-s+1
+  str[s]<-argv$varname.fge_sd.out
+  dataout[,s]<-round(fge.sd,(argv$value.dig.out+3))
+}
 if (argv$radarout) {
   if (length(radrr)>0) {
-    datarad<-array(data=NA,dim=c(length(radrr),(length(varidx.out)+4)))
+    datarad<-array(data=NA,dim=c(length(radrr),dataout_ncol))
     datarad[,which(str==argv$varname.x.out)]<-round(radx.from,argv$xy.dig.out)
     datarad[,which(str==argv$varname.y.out)]<-round(rady.from,argv$xy.dig.out)
     datarad[,which(str==argv$varname.value.out)]<-round(radrr,argv$value.dig.out)
