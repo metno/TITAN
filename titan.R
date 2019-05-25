@@ -2295,7 +2295,7 @@ p <- add_argument(p, "--lafmin.sct",
                   default=0.5,
                   short="-lmS")
 p <- add_argument(p, "--fast.sct",
-                  help="faster spatial consistency test. Allow for flagging more than one observation simulataneously",
+                  help="faster spatial consistency test. Allow for flagging more than one observation simulataneously. Station by station mode, some more shortcuts are taken to speed up the elaboration",
                   flag=T,
                   short="-fS")
 p <- add_argument(p, "--smartbox.sct",
@@ -5660,13 +5660,17 @@ for (i in 1:argv$i.sct) {
   ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 )
   if (length(ix)>0) {
     t0a<-Sys.time()
+    #--------------------------------------------------------------------------
     # SCT station-by-station
     if (argv$stn_by_stn.sct) {
-      if (i>1) break
+      if (i>1) break # the real SCT loop follows and it needs to be done just once
       sct_loop<-T
       cont_sct_loop<-0
+      # obs_to_check[i] = should we check the i-th observation?
       obs_to_check<-rep(T,length(dqcflag))
       obs_to_check[!is.na(doit) & doit!=1]<-F
+      # obs_to_use[i] = should we use the i-th observation for SCT?
+      #  note that obs_to_use is not updated within the sct_loop
       obs_to_use<-rep(T,length(dqcflag))
       if (argv$transf.sct) {
         yo_sct<-boxcox(x=data$value,lambda=argv$boxcox.lambda)
@@ -5696,10 +5700,10 @@ for (i in 1:argv$i.sct) {
         argv$fglab.sct<-NA
         obs_to_use<-!is.na(b_sct) & !is.nan(b_sct) & is.finite(b_sct)
       }
-      while (sct_loop) {
+      while (sct_loop & cont_sct_loop<(length(ix)/2)) {
         cont_sct_loop<-cont_sct_loop+1
         t00a<-Sys.time()
-        if (cont_sct_loop>(length(ix)/2)) break
+        # ixg= index to observations to check for the current iteration
         ixg<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
                     obs_to_check & obs_to_use )
         nobs_to_check<-length(ixg)
@@ -5708,6 +5712,7 @@ for (i in 1:argv$i.sct) {
         zgrid_spint<-z[ixg]
         lafgrid_spint<-laf[ixg]
         yo_to_check<-yo_sct[ixg]
+        # ixg= index to observations to use in SCT for the current iteration
         if (argv$usefge.sct | argv$usefg.sct) xb_spint<-b_sct[ixg]
         ixo<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 &
                     obs_to_use )
@@ -5772,8 +5777,11 @@ for (i in 1:argv$i.sct) {
         yo_errvar<-arr[,3]
         dh_ref<-arr[,7]
         rm(arr)
+        # probability of gross error
         pog<-(yav-yo_to_check)**2/(yav_errvar+yo_errvar)
+        # ''presumption of innocence'' apply here
         flag_sus<-rep(F,nobs_to_check)
+        # compare pog with defined thresholds
         if (any(!is.na(T2posvec[ixg]))) 
           flag_sus<-flag_sus | 
                     (!is.na(T2posvec[ixg]) & !is.na(pog) & 
@@ -5789,18 +5797,31 @@ for (i in 1:argv$i.sct) {
         ix_sus<-which(flag_sus)
         rm(flag_sus)
         t01a<-Sys.time()
-        print(paste(" stn-by-stn iteration=",cont_sct_loop,
-                    "/#obs to check=",length(ixg),
-                    "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
+        # case of no suspect observations
         if (length(ix_sus)==0) {
+          print(paste(" stn-by-stn iteration=",cont_sct_loop,
+                      "/#obs checked=",length(ixg),
+                      "/no suspects",
+                      "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
           sct_loop<-F
+        # case of just one suspect observation
+        } else if (length(ix_sus)==1) {
+          print(paste(" stn-by-stn iteration=",cont_sct_loop,
+                      "/#obs checked=",length(ixg),
+                      "/#sus=1",
+                      "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
+          dqcflag[ixg[ix_sus]]<-argv$sct.code
+          sct_loop<-F
+        # case of more than one suspect observation
         } else {
+          #+ is the suspect observation the one with the largest pog in the neighbourhood? 
           find_the_largeErr<-function(i,dist_max){
             dist<-sqrt((xgrid_largeErr[i]-xgrid_largeErr)**2+
                        (ygrid_largeErr[i]-ygrid_largeErr)**2)
             ix_near<-which(dist<dist_max)
             ifelse(any(pog_largeErr[ix_near]>pog_largeErr[i]),F,T)
           }
+          #
           xgrid_largeErr<-xgrid_spint[ix_sus]
           ygrid_largeErr<-ygrid_spint[ix_sus]
           pog_largeErr<-pog[ix_sus]
@@ -5808,54 +5829,80 @@ for (i in 1:argv$i.sct) {
                            1:length(pog_largeErr),
                            SIMPLIFY=T,
                            dist_max=dh_ref[ix_sus])
+          # largeErr[i]=F, for all i
+          # largeErr is unable to find local maxima... should not happen
+          if (!any(largeErr)) {
+            if (argv$verbose) print("warning: SCT anomalous behaviour in largeErr")
+            sct_loop<-F
+          }
+          # observations that are locally the more suspicious ones are flagged
           dqcflag[ixg[ix_sus[which(largeErr)]]]<-argv$sct.code
-          if (!any(largeErr)) sct_loop<-F 
-          if (any(!is.na(T2vec[ixg]))) { 
-            ix_not_to_check<-which(pog<(T2vec[ixg]/4) & 
-                                   !is.na(T2vec[ixg]))
-            if (length(ix_not_to_check)>0) 
-              obs_to_check[ixg[ix_not_to_check]]<-F
-            ix_superBad<-which(pog>(4*T2vec[ixg]) & 
-                               !is.na(T2vec[ixg]))
-            if (length(ix_superBad)>0) 
-              dqcflag[ixg[ix_superBad]]<-argv$sct.code
-            rm(ix_not_to_check,ix_superBad)
-          }
-          if (any(!is.na(T2posvec[ixg]))) {
-            ix_not_to_check<-which(pog<(T2posvec[ixg]/4) & 
-                                   !is.na(T2posvec[ixg]) & 
-                                   (yo_to_check-yav)>0)
-            if (length(ix_not_to_check)>0) 
-              obs_to_check[ixg[ix_not_to_check]]<-F
-            ix_superBad<-which(pog>(4*T2posvec[ixg]) & 
-                               !is.na(T2posvec[ixg]) &
-                               (yo_to_check-yav)>0)
-            if (length(ix_superBad)>0) 
-              dqcflag[ixg[ix_superBad]]<-argv$sct.code
-            rm(ix_not_to_check,ix_superBad)
-          } 
-          if (any(!is.na(T2negvec[ixg]))) {
-            ix_not_to_check<-which(pog<(T2negvec[ixg]/4) & 
-                                   !is.na(T2negvec[ixg]) & 
-                                   (yo_to_check-yav)<0)
-            if (length(ix_not_to_check)>0) 
-              obs_to_check[ixg[ix_not_to_check]]<-F
-            ix_superBad<-which(pog>(4*T2negvec[ixg]) & 
-                               !is.na(T2negvec[ixg]) &
-                               (yo_to_check-yav)<0)
-            if (length(ix_superBad)>0) 
-              dqcflag[ixg[ix_superBad]]<-argv$sct.code
-            rm(ix_not_to_check,ix_superBad)
-          }
-          if (!exists("yav_prev")) {
-            yav_prev<-dqcflag; yav_prev[]<-NA
-            yav_prev[ixg]<-yav 
-          } else {
-            if (any(yav_prev[ixg]==yav)) 
-              obs_to_check[ixg[which(yav_prev[ixg]==yav)]]<-F
-            yav_prev[ixg]<-yav 
-          }
-        }
+          nsct_sus<-length(which(largeErr))
+          # 
+          # largeErr[i]=T, for all i. 
+          # All the suspicious observations have been flagged simultaneously
+          if (!any(!largeErr)) sct_loop<-F 
+          # prepare for the next sct loop
+          if (sct_loop & argv$fast.sct) {
+            # optimization:
+            #  observations having small pog are not be checked again
+            #  observations having large pog are flagged as suspect (even if not local max)
+            #  observations checked twice against the same CV-analysis are not checked again
+            if (any(!is.na(T2vec[ixg]))) { 
+              ix_not_to_check<-which(pog<(T2vec[ixg]/4) & 
+                                     !is.na(T2vec[ixg]))
+              if (length(ix_not_to_check)>0) 
+                obs_to_check[ixg[ix_not_to_check]]<-F
+              ix_superBad<-which(pog>(4*T2vec[ixg]) & 
+                                 !is.na(T2vec[ixg]))
+              if (length(ix_superBad)>0) 
+                dqcflag[ixg[ix_superBad]]<-argv$sct.code
+              nsct_sus<-nsct_sus+length(ix_superBad)
+              rm(ix_not_to_check,ix_superBad)
+            }
+            if (any(!is.na(T2posvec[ixg]))) {
+              ix_not_to_check<-which(pog<(T2posvec[ixg]/4) & 
+                                     !is.na(T2posvec[ixg]) & 
+                                     (yo_to_check-yav)>0)
+              if (length(ix_not_to_check)>0) 
+                obs_to_check[ixg[ix_not_to_check]]<-F
+              ix_superBad<-which(pog>(4*T2posvec[ixg]) & 
+                                 !is.na(T2posvec[ixg]) &
+                                 (yo_to_check-yav)>0)
+              if (length(ix_superBad)>0) 
+                dqcflag[ixg[ix_superBad]]<-argv$sct.code
+              nsct_sus<-nsct_sus+length(ix_superBad)
+              rm(ix_not_to_check,ix_superBad)
+            } 
+            if (any(!is.na(T2negvec[ixg]))) {
+              ix_not_to_check<-which(pog<(T2negvec[ixg]/4) & 
+                                     !is.na(T2negvec[ixg]) & 
+                                     (yo_to_check-yav)<0)
+              if (length(ix_not_to_check)>0) 
+                obs_to_check[ixg[ix_not_to_check]]<-F
+              ix_superBad<-which(pog>(4*T2negvec[ixg]) & 
+                                 !is.na(T2negvec[ixg]) &
+                                 (yo_to_check-yav)<0)
+              if (length(ix_superBad)>0) 
+                dqcflag[ixg[ix_superBad]]<-argv$sct.code
+              nsct_sus<-nsct_sus+length(ix_superBad)
+              rm(ix_not_to_check,ix_superBad)
+            }
+            if (!exists("yav_prev")) {
+              yav_prev<-dqcflag; yav_prev[]<-NA
+              yav_prev[ixg]<-yav 
+            } else {
+              if (any(yav_prev[ixg]==yav)) 
+                obs_to_check[ixg[which(yav_prev[ixg]==yav)]]<-F
+              yav_prev[ixg]<-yav 
+            }
+          } # prepare for the next sct loop 
+          print(paste(" stn-by-stn iteration=",cont_sct_loop,
+                      "/#obs checked=",length(ixg),
+                      "/#possibly sus=",length(ix_sus),
+                      "/#sus=",nsct_sus,
+                      "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
+        } # end case of suspect observations =0 or =1 or >1
       } # end sct_loop
       if (cont_sct_loop>(length(ix)/2)) {
         print("Warning: SCT loop stopped. Too many iterations. Better check this out.")
@@ -5951,6 +5998,8 @@ for (i in 1:argv$i.sct) {
       if (exists("yo_errvar")) rm(yo_errvar)
       if (exists("dh_ref")) rm(dh_ref)
       # 
+    # END SCT stn-by-stn
+    #--------------------------------------------------------------------------
     # SCT split grid into boxes
     } else {
       # set min and max for the background values
