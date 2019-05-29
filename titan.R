@@ -5368,7 +5368,12 @@ print(paste0("priorities ",toString(argv$prio.buddy)))
 for (i in 1:argv$i.buddy) {
   priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
   # use only (probably) good observations with doit!=0
-  ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 )
+  flag_aux<-( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
+              !is.na(x) & !is.na(y) & !is.na(data$value) &
+              doit!=0)
+  if (priority) flag_aux<-flag_aux & !is.na(prio)
+  if (argv$variable=="T") flag_aux<-flag_aux & !is.na(z)
+  ix<-which(flag_aux)
   t0a<-Sys.time()
   if (length(ix)>0) {
     # define global 1D vector used in statSpat (1D for fast access)
@@ -5382,39 +5387,36 @@ for (i in 1:argv$i.buddy) {
     } else {
       ttot<-as.numeric(data$value[ix])
     }
-    if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
-         any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
-      if (!is.na(argv$cores)) {
-        stSp_buddy<-mcmapply(statSpat_mapply,
-                             1:length(itot),
-                             mc.cores=argv$cores,
-                             SIMPLIFY=T,
-                             adjust_for_elev_diff=(argv$variable=="T"),
-                             dr=argv$dr.buddy,
-                             priority=priority)
-      # no-multicores
-      } else {
-        stSp_buddy<-mapply(statSpat_mapply,
+    if (!is.na(argv$cores)) {
+      stSp_buddy<-mcmapply(statSpat_mapply,
                            1:length(itot),
+                           mc.cores=argv$cores,
                            SIMPLIFY=T,
                            adjust_for_elev_diff=(argv$variable=="T"),
                            dr=argv$dr.buddy,
                            priority=priority)
-      }
-      # probability of gross error
-      stSp_buddy[4,]<-pmax(argv$sdmin.buddy,stSp_buddy[4,])
-      stSp_buddy[4,which(stSp_buddy[1,]==1)]<-argv$sdmin.buddy
-      pog<-abs(ttot-stSp_buddy[3,])/stSp_buddy[4,]
-      n.buddy<-ifelse(priority,0,argv$n.buddy) 
-      # suspect if: 
-      sus<-which( (pog>argv$thr.buddy & 
-                   stSp_buddy[1,]>n.buddy & 
-                   stSp_buddy[2,]<argv$dz.buddy &
-                   is.na(dqcflag[ix])) &
-                   doit[ix]==1 )
-      # set dqcflag
-      if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
+    # no-multicores
+    } else {
+      stSp_buddy<-mapply(statSpat_mapply,
+                         1:length(itot),
+                         SIMPLIFY=T,
+                         adjust_for_elev_diff=(argv$variable=="T"),
+                         dr=argv$dr.buddy,
+                         priority=priority)
     }
+    # probability of gross error
+    stSp_buddy[4,]<-pmax(argv$sdmin.buddy,stSp_buddy[4,])
+    stSp_buddy[4,which(stSp_buddy[1,]==1)]<-argv$sdmin.buddy
+    pog<-abs(ttot-stSp_buddy[3,])/stSp_buddy[4,]
+    n.buddy<-ifelse(priority,0,argv$n.buddy) 
+    # suspect if: 
+    sus<-which( (pog>argv$thr.buddy & 
+                 stSp_buddy[1,]>n.buddy & 
+                 stSp_buddy[2,]<argv$dz.buddy &
+                 is.na(dqcflag[ix])) &
+                 doit[ix]==1 )
+    # set dqcflag
+    if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
   } else {
     print("no valid observations left, no buddy check")
   }
