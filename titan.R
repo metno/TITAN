@@ -4379,7 +4379,11 @@ for (f in 1:nfin) {
   names(datatmp)<-c("lat","lon","elev","value")
   datatmp$lat<-suppressWarnings(as.numeric(datatmp$lat))
   datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
-  datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
+  if (argv$elev_not_used) {
+    datatmp$elev<-rep(0,length(datatmp$lon))
+  } else {
+    datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
+  }
   auxz<-datatmp$elev
   datatmp$value<-suppressWarnings(
     argv$input.offset[f]+
