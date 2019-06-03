@@ -1891,28 +1891,27 @@ p <- add_argument(p, "--gamma.standard",
 # NOTE: lat-lon setup to have Oslo in a single box
 p <- add_argument(p, "--lonmin",
                   help="longitude of south-eastern domain corner",
-                  type="numeric",
-                  default=5,
+                  type="character",
+                  default="5",
                   short="-lon")
 p <- add_argument(p, "--lonmax",
                   help="longitude of south-western domain corner",
-                  type="numeric",
-                  default=28,
+                  type="character",
+                  default="28",
                   short="-lox")
 p <- add_argument(p, "--latmin",
                   help="latitude of south-eastern domain corner",
-                  type="numeric",
-                  default=53.25,
+                  type="character",
+                  default="53.25",
                   short="-lan")
 p <- add_argument(p, "--latmax",
                   help="latitude of north-western domain corner",
-                  type="numeric",
-                  default=71.8,
+                  type="character",
+                  default="71.8",
                   short="-lax")
 p <- add_argument(p, "--dqc_inbox_only",
                   help="perform dqc only in the defined box (lonmin,lonmax,latmin,latmax)",
-                  type="logical",
-                  default=F)
+                  flag=T)
 
 # transformation between coordinate reference systems
 p <- add_argument(p, "--spatconv",
@@ -2008,8 +2007,7 @@ p <- add_argument(p, "--varname.elev.out",
                   default="elev")
 p <- add_argument(p, "--elev_not_used",
                   help="elevation is not used (will be set to zero)",
-                  type="logical",
-                  default=F)
+                  flag=T)
 p <- add_argument(p, "--varname.value",
                   help="character vector, variable name(s) in the input file (default ''value'')",
                   type="character",
@@ -4470,6 +4468,23 @@ if (ndata==0) {
   print("input file is empty")
   quit(status=0)
 }
+#
+# set domain extent for SCT and metadata tests
+argv$lonmin<-as.numeric(gsub("_","-",argv$lonmin))
+argv$lonmax<-as.numeric(gsub("_","-",argv$lonmax))
+argv$latmin<-as.numeric(gsub("_","-",argv$latmin))
+argv$latmax<-as.numeric(gsub("_","-",argv$latmax))
+if (argv$dqc_inbox_only) {
+  extent_lonmin<-argv$lonmin
+  extent_lonmax<-argv$lonmax
+  extent_latmin<-argv$latmin
+  extent_latmax<-argv$latmax
+} else {
+  extent_lonmin<-min(data$lon,na.rm=T)
+  extent_lonmax<-max(data$lon,na.rm=T)
+  extent_latmin<-min(data$lat,na.rm=T)
+  extent_latmax<-max(data$lat,na.rm=T)
+}
 if (argv$verbose | argv$debug) {
   print(paste("number of observations=",ndata))
   if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
@@ -4492,6 +4507,9 @@ if (argv$verbose | argv$debug) {
               length(which(data$prid==argv$prid[f] & dqcflag==argv$keep.code))) )
     }
   }
+  print(paste("extension of the domain considered (xmin,xmax,ymin,ymax)=",
+               round(extent_lonmin,6),",",round(extent_lonmax,6),",",
+               round(extent_latmin,6),",",round(extent_latmax,6)))
   print("+---------------------------------+")
 }
 #
@@ -4510,10 +4528,10 @@ if (length(ix)>0) {
         z[ix]>argv$zmax |
         is.na(data$value[ix]) 
   if (argv$dqc_inbox_only) 
-    meta<- meta | ( data$lat[ix] < argv$latmin | 
-                    data$lat[ix] > argv$latmax |
-                    data$lon[ix] < argv$lonmin | 
-                    data$lon[ix] > argv$lonmax )
+    meta<- meta | ( data$lat[ix] < extent_latmin | 
+                    data$lat[ix] > extent_latmax |
+                    data$lon[ix] < extent_lonmin | 
+                    data$lon[ix] > extent_lonmax )
   if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
@@ -4525,16 +4543,26 @@ if (argv$verbose) {
         length(which(flagaux))))
   print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-  print(paste("  # lon-lat missing (*) =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
-                     data$lat < argv$latmin | data$lat > argv$latmax | 
-                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
+  if (argv$dqc_inbox_only) {
+    print(paste("  # lon-lat missing (*) =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) | 
+                                  data$lat < extent_latmin | 
+                                  data$lat > extent_latmax | 
+                                  data$lon < extent_lonmin | 
+                                  data$lon > extent_lonmax ) ))))
+  } else {
+    print(paste("  # lon-lat missing =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) ))))) 
+  }
   print(paste("  # z missing           =",
         length(which(flagaux & is.na(z)))))
   print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
-  print("(*) or outside the specified box")
+  if (argv$dqc_inbox_only) 
+    print("(*) or outside the specified box")
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -4557,7 +4585,8 @@ if (argv$spatconv) {
   xy.new<-coordinates(coord.new)
   x<-round(xy.new[,1],0)
   y<-round(xy.new[,2],0)
-  xp<-expand.grid(c(argv$lonmin,argv$lonmax),c(argv$latmin,argv$latmax))
+  xp<-expand.grid(c(extent_lonmin,extent_lonmax),
+                  c(extent_latmin,extent_latmax))
   coord<-SpatialPoints(xp,
                        proj4string=CRS(argv$proj4_input_obsfiles))
   coord.new<-spTransform(coord,CRS(argv$proj4_where_dqc_is_done))
@@ -4569,8 +4598,8 @@ if (argv$spatconv) {
 } else {
   x<-data$lon
   y<-data$lat
-  xl<-c(argv$lonmin,argv$lonmax)
-  yl<-c(argv$latmin,argv$latmax)
+  xl<-c(extent_lonmin,extent_lonmax)
+  yl<-c(extent_latmin,extent_latmax)
   e<-extent(c(xl,yl))
 }
 if (argv$debug) save.image(file.path(argv$debug.dir,"input_data.RData")) 
@@ -5098,14 +5127,15 @@ ix<-which(is.na(dqcflag) | dqcflag==argv$keep.code)
 if (length(ix)>0) {
   meta<-is.na(data$lat[ix]) | 
         is.na(data$lon[ix]) |
-        data$lat[ix] < argv$latmin | 
-        data$lat[ix] > argv$latmax | 
-        data$lon[ix] < argv$lonmin | 
-        data$lon[ix] > argv$lonmax |
         is.na(z[ix]) | 
         z[ix]<argv$zmin | 
         z[ix]>argv$zmax |
         is.na(data$value[ix]) 
+  if (argv$dqc_inbox_only) 
+    meta<- meta | ( data$lat[ix] < extent_latmin | 
+                    data$lat[ix] > extent_latmax |
+                    data$lon[ix] < extent_lonmin | 
+                    data$lon[ix] > extent_lonmax )
   if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
@@ -5117,16 +5147,26 @@ if (argv$verbose | argv$debug) {
         length(which(flagaux))))
   print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-  print(paste("  # lon-lat missing (*) =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
-                     data$lat < argv$latmin | data$lat > argv$latmax | 
-                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
+  if (argv$dqc_inbox_only) {
+    print(paste("  # lon-lat missing (*) =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) | 
+                                  data$lat < extent_latmin | 
+                                  data$lat > extent_latmax | 
+                                  data$lon < extent_lonmin | 
+                                  data$lon > extent_lonmax ) ))))
+  } else {
+    print(paste("  # lon-lat missing =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) ))))) 
+  }
   print(paste("  # z missing           =",
         length(which(flagaux & is.na(z)))))
   print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
-  print("(*) or outside the specified box")
+  if (argv$dqc_inbox_only) 
+    print("(*) or outside the specified box")
   rm(flagaux)
   print("+---------------------------------+")
 }
