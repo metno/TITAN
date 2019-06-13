@@ -1618,8 +1618,8 @@ oi_var_gridpoint_by_gridpoint<-function(i,
   # adjust gaussian correlations by taking into account more geo-parameters
   if (corr=="gaussian") {
     if (!is.na(dz)) {
-      S<-S*exp(-0.5*abs(outer(zobs_spint[ixa],zobs_spint[ixa],FUN="-"))/dz2) 
-      rloc<-rloc*exp(-0.5*deltaz[ixa]/dz2)
+      S<-S*exp(-0.5*outer(zobs_spint[ixa],zobs_spint[ixa],FUN="-")**2/dz2) 
+      rloc<-rloc*exp(-0.5*deltaz[ixa]**2/dz2)
     }
     if (!is.na(lafmin)) {
       S<-S*(1-(1-lafmin)*
