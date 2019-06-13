@@ -55,84 +55,85 @@ nstat<-function(xy,drmin) {
   return(length(i))
 }
 
-#+ summary statistics in a box of /pm "drmin" centered on location "ixyz" 
-statSpat_mapply<-function(i,
-                          drmin,
-                          gamma=-0.0065,
+#+ summary statistics centered on a point 
+statSpat_mapply<-function(i,                           # index over tot-vectors
+                          dr,                          # m
+                          gamma=-0.0065,               # degC/m
+                          adjust_for_elev_diff=F,
+                          pmax=200,                    # max number of stations
                           priority=F,
-                          statistics="buddy_standard", #buddy_event
+                          statistics="buddy_standard", # OR buddy_event
                           event_threshold=NULL,
                           event_def=NULL) {
+#------------------------------------------------------------------------------
+# The point has coordinates (xtot[i],ytot[i],ztot[i]). 
+# The neighbourhood considered includes the (max pmax) closest observations 
+# within a radius dr. The so-called buddies.
+# The i-th point itself is excluded from the statistics.
+#
 # input
 # 6 vectors. itot=index; xtot=x; ytot=y; ztot=z; ttot=variable; priotot=priority
-# output
-# "buddy_standard"
-# 1=nobs;2=maxVertDist[m];3=mean(temp);4=sd(temp)
-# "buddy_event"
-# 1=nobs;2=maxVertDist[m];
-# 3=event occurrence (1=yes,0=no);
-# 4=frequency of event=yes in the surroundings
-# NOTE: temperature is adjusted for elevation differences (gamma=-0.0065 K/m)
+#
+# -- output "buddy_standard"
+# 1 = nobs 
+# 2 = maxVertDist[m]
+# 3 = mean(buddies)
+# 4 = standard_dev(buddies)
+#
+# -- output "buddy_event"
+# 1 = nobs
+# 2 = maxVertDist[m]
+# 3 = event occurrence at the i-th point (1=yes,0=no)
+# 4 = percentage of event=yes among the buddies
 #------------------------------------------------------------------------------
-#    ixyztp_tot<-cbind(itot,xtot,ytot,ztot,ttot,priotot)
-  if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
-       any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
-    return(c(NA,NA,NA,NA))
-  }
   deltax<-abs(xtot[i]-xtot)
   deltay<-abs(ytot[i]-ytot)
   if (priority) {
-    ixx0<-which(deltax<=drmin & 
-                deltay<=drmin &
-                itot!=itot[i]            &
-                (priotot<priotot[i] | priotot<0) )
+    jx<-which(deltax<=dr & 
+              deltay<=dr &
+              itot!=itot[i]            &
+              (priotot<priotot[i] | priotot<0) )
   } else {
-    ixx0<-which(deltax<=drmin & 
-                deltay<=drmin &
-                itot!=itot[i])
+    jx<-which(deltax<=dr & 
+              deltay<=dr &
+              itot!=itot[i])
   }
-  if (length(ixx0)==0) return(c(0,NA,NA,NA))
-  ixx<-ixx0[which(sqrt(deltax[ixx0]*deltax[ixx0]+
-                       deltay[ixx0]*deltay[ixx0])<=drmin)]
-  rm(ixx0)
-  if (length(ixx)==0) return(c(0,NA,NA,NA))
-  dz<-ztot[ixx]-ztot[i]
-  if (argv$variable=="T") {
-    t2use<-ttot[ixx]+gamma*dz
+  njx<-length(jx)
+  if (njx==0) return(c(0,NA,NA,NA))
+  if (njx>pmax) {
+    disth2<-deltax[jx]*deltax[jx]+deltay[jx]*deltay[jx]
+    jx<-jx[order(disth2, decreasing=F)[1:pmax]]
+    njx<-length(jx)
+  }
+  if (njx==0) return(c(0,NA,NA,NA))
+  dz<-ztot[jx]-ztot[i]
+  dz_mx<-max(abs(dz))
+  if (adjust_for_elev_diff) {
+    buddies_val<-ttot[jx]+gamma*dz
   } else {
-    t2use<-ttot[ixx]
-  }
-  if (length(ixx)==1) {
-    if (statistics=="buddy_standard") {
-      return(c(1,dz,t2use,NA))
-    } else {
-      return(c(1,NA,NA,NA))
-    }
+    buddies_val<-ttot[jx]
   }
   if (statistics=="buddy_standard") {
-    tmean<-mean(t2use) 
-    tsd<-sd(t2use) 
-    dz_mx<-max(abs(dz))
-    return(c(length(ixx),round(dz_mx,0),round(tmean,1),round(tsd,3)))
+    if (njx==1) return(c(1,dz,buddies_val,NA))
+    return(c(njx,dz_mx,mean(buddies_val),sd(buddies_val)))
   } else if (statistics=="buddy_event") {
     if (event_def=="gt") {
-      eve<-as.integer(ifelse(ttot[i]>event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use>event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]>event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val>event_threshold))/njx
     } else if (event_def=="ge") {
-      eve<-as.integer(ifelse(ttot[i]>=event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use>=event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]>=event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val>=event_threshold))/njx
     } else if (event_def=="lt") {
-      eve<-as.integer(ifelse(ttot[i]<event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use<event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]<event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val<event_threshold))/njx
     } else if (event_def=="le") {
-      eve<-as.integer(ifelse(ttot[i]<=event_threshold,1,0))
-      eve_yes.prob<-length(which(t2use<=event_threshold))/length(ixx)
+      i_eve<-as.integer(ttot[i]<=event_threshold)
+      buddies_eve_yes.prob<-length(which(buddies_val<=event_threshold))/njx
     } else {
-      eve<-NA
-      eve_yes.prob<-NA
+      i_eve<-NA
+      buddies_eve_yes.prob<-NA
     }
-    dz_mx<-max(abs(dz))
-    return(c(length(ixx),round(dz_mx,0),eve,eve_yes.prob))
+    return(c(njx,dz_mx,i_eve,buddies_eve_yes.prob))
   } else {
     return(c(NA,NA,NA,NA))
   }
@@ -1890,28 +1891,27 @@ p <- add_argument(p, "--gamma.standard",
 # NOTE: lat-lon setup to have Oslo in a single box
 p <- add_argument(p, "--lonmin",
                   help="longitude of south-eastern domain corner",
-                  type="numeric",
-                  default=5,
+                  type="character",
+                  default="3",
                   short="-lon")
 p <- add_argument(p, "--lonmax",
                   help="longitude of south-western domain corner",
-                  type="numeric",
-                  default=28,
+                  type="character",
+                  default="33",
                   short="-lox")
 p <- add_argument(p, "--latmin",
                   help="latitude of south-eastern domain corner",
-                  type="numeric",
-                  default=53.25,
+                  type="character",
+                  default="53.25",
                   short="-lan")
 p <- add_argument(p, "--latmax",
                   help="latitude of north-western domain corner",
-                  type="numeric",
-                  default=71.8,
+                  type="character",
+                  default="71.8",
                   short="-lax")
 p <- add_argument(p, "--dqc_inbox_only",
                   help="perform dqc only in the defined box (lonmin,lonmax,latmin,latmax)",
-                  type="logical",
-                  default=F)
+                  flag=T)
 
 # transformation between coordinate reference systems
 p <- add_argument(p, "--spatconv",
@@ -2007,17 +2007,28 @@ p <- add_argument(p, "--varname.elev.out",
                   default="elev")
 p <- add_argument(p, "--elev_not_used",
                   help="elevation is not used (will be set to zero)",
-                  type="logical",
-                  default=F)
+                  flag=T)
 p <- add_argument(p, "--varname.value",
                   help="character vector, variable name(s) in the input file (default ''value'')",
                   type="character",
                   nargs=Inf,
                   short="-vval")
 p <- add_argument(p, "--varname.value.out",
-                  help="name for the variable values (in/out)",
+                  help="name for the variable values (out)",
                   type="character",
                   default="value")
+p <- add_argument(p, "--varname.fg.out",
+                  help="name for the first guess (out)",
+                  type="character",
+                  default="fg")
+p <- add_argument(p, "--varname.fge_mean.out",
+                  help="name for the first guess ensemble mean (out)",
+                  type="character",
+                  default="fge_mean")
+p <- add_argument(p, "--varname.fge_sd.out",
+                  help="name for the first guess standard deviation (out)",
+                  type="character",
+                  default="fge_sd")
 # output file
 p <- add_argument(p, "--varname.opt",
      help="additional optional variables to be written on the output (out)",
@@ -2282,7 +2293,7 @@ p <- add_argument(p, "--lafmin.sct",
                   default=0.5,
                   short="-lmS")
 p <- add_argument(p, "--fast.sct",
-                  help="faster spatial consistency test. Allow for flagging more than one observation simulataneously",
+                  help="faster spatial consistency test. Allow for flagging more than one observation simulataneously. Station by station mode, some more shortcuts are taken to speed up the elaboration",
                   flag=T,
                   short="-fS")
 p <- add_argument(p, "--smartbox.sct",
@@ -2322,7 +2333,7 @@ p <- add_argument(p, "--xa_errvar_max.sct",
                   help="maximum allowed value for the analysis error variance",
                   type="numeric",
                   default=4)
-p <- add_argument(p, "--fg_lab.sct",
+p <- add_argument(p, "--fglab.sct",
                   help="method used to create the first-guess (\"linear\",\"Frei\",NA used together with usefg(e).sct )",
                   type="character",
                   default="Frei")
@@ -2516,7 +2527,6 @@ p <- add_argument(p, "--ccrrt",
                   short="-ccrrtf")
 p <- add_argument(p, "--ccrrt.tmin",
                   help="temperature thresholds (vector, negative values start with \"_\" (e.g. _2=-2)",
-#                  type="numeric",
                   type="character",
                   default=NA,
                   nargs=Inf,
@@ -2547,12 +2557,12 @@ p <- add_argument(p, "--thres.cool",
                   nargs=Inf)
 p <- add_argument(p, "--condition.cool",
                   help="character vector specifying the conditions to apply at each of the thresholds (\"lt\"=less than; \"le\"=less or equal than; \"gt\"=greater than; \"ge\"=greater or equal than).",
-                  type="numeric",
+                  type="character",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--n.cool",
                   help="minimum acceptable number of observations producing a ''hole'' in the field (specified as a function of the provider and the threshold). If a clump of connected cells originates from a small number of observations, then it cannot be properly resolved by the observational network. As a result, the observations causing those small-scale events are assumed to be affected by large representativeness errors and flagged as ''suspect''. Format: array (ntot[thres1],nprid1[thres1],nprid2[thres1],...,ntot[thres2],nprid1[thres2],nprid2[thres2],...)",
-                  type="integer",
+                  type="numeric",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--grid_res.cool",
@@ -2634,6 +2644,10 @@ p <- add_argument(p, "--radarout.aggfun",
                   help="aggregation function for the radar-derived precipitation",
                   type="character",
                   default="mean")
+p <- add_argument(p, "--radarout.corep",
+                  help="coefficient for the representativeness of radar-derived precipitation",
+                  type="numeric",
+                  default=1)
 #.............................................................................. 
 # doit flags
 comstr<-" Decide if the test should be applied to all, none or only to a selection of observations based on the provider. Possible values are 0, 1, 2. It is possible to specify either one global value or one value for each provider. Legend: 1 => the observations will be used in the elaboration and they will be tested; 0 => the observations will not be used and they will not be tested; 2 => the observations will be used but they will not be tested."
@@ -3244,12 +3258,12 @@ p <- add_argument(p, "--throut.fge",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
-p <- add_argument(p, "--throutpos.fge",
+p <- add_argument(p, "--thrposout.fge",
      help="same as throut.fge, used only if obs>fg (provider dependent)",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
-p <- add_argument(p, "--throutneg.fge",
+p <- add_argument(p, "--thrnegout.fge",
      help="same as throut.fge, used only if obs<fg (provider dependent)",
                   type="numeric",
                   default=NA,
@@ -4345,11 +4359,11 @@ for (f in 1:nfin) {
   }
   rm(varidxtmp)
   # varidx is used also in the output session
-  varidxtmp<-match(c(argv$varname.lat[f],
-                     argv$varname.lon[f],
-                     argv$varname.elev[f],
-                     argv$varname.value[f]),
-                   names(datain))
+  varidxtmp<-match( c(argv$varname.lat[f],
+                      argv$varname.lon[f],
+                      argv$varname.elev[f],
+                      argv$varname.value[f]),
+                    names(datain) )
   if (any(is.na(varidxtmp))) {
     print("ERROR in the specification of the variable names")
     print(paste(" latitude=",argv$varname.lat[f]))
@@ -4365,7 +4379,11 @@ for (f in 1:nfin) {
   names(datatmp)<-c("lat","lon","elev","value")
   datatmp$lat<-suppressWarnings(as.numeric(datatmp$lat))
   datatmp$lon<-suppressWarnings(as.numeric(datatmp$lon))
-  datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
+  if (argv$elev_not_used) {
+    datatmp$elev<-rep(0,length(datatmp$lon))
+  } else {
+    datatmp$elev<-suppressWarnings(as.numeric(datatmp$elev))
+  }
   auxz<-datatmp$elev
   datatmp$value<-suppressWarnings(
     argv$input.offset[f]+
@@ -4454,6 +4472,23 @@ if (ndata==0) {
   print("input file is empty")
   quit(status=0)
 }
+#
+# set domain extent for SCT and metadata tests
+argv$lonmin<-as.numeric(gsub("_","-",argv$lonmin))
+argv$lonmax<-as.numeric(gsub("_","-",argv$lonmax))
+argv$latmin<-as.numeric(gsub("_","-",argv$latmin))
+argv$latmax<-as.numeric(gsub("_","-",argv$latmax))
+if (argv$dqc_inbox_only) {
+  extent_lonmin<-argv$lonmin
+  extent_lonmax<-argv$lonmax
+  extent_latmin<-argv$latmin
+  extent_latmax<-argv$latmax
+} else {
+  extent_lonmin<-min(data$lon,na.rm=T)
+  extent_lonmax<-max(data$lon,na.rm=T)
+  extent_latmin<-min(data$lat,na.rm=T)
+  extent_latmax<-max(data$lat,na.rm=T)
+}
 if (argv$verbose | argv$debug) {
   print(paste("number of observations=",ndata))
   if (any(!is.na(argv$blacklist.idx)) | any(!is.na(argv$blacklist.lat)))
@@ -4476,6 +4511,9 @@ if (argv$verbose | argv$debug) {
               length(which(data$prid==argv$prid[f] & dqcflag==argv$keep.code))) )
     }
   }
+  print(paste("extension of the domain considered (xmin,xmax,ymin,ymax)=",
+               round(extent_lonmin,6),",",round(extent_lonmax,6),",",
+               round(extent_latmin,6),",",round(extent_latmax,6)))
   print("+---------------------------------+")
 }
 #
@@ -4494,10 +4532,10 @@ if (length(ix)>0) {
         z[ix]>argv$zmax |
         is.na(data$value[ix]) 
   if (argv$dqc_inbox_only) 
-    meta<- meta | ( data$lat[ix] < argv$latmin | 
-                    data$lat[ix] > argv$latmax |
-                    data$lon[ix] < argv$lonmin | 
-                    data$lon[ix] > argv$lonmax )
+    meta<- meta | ( data$lat[ix] < extent_latmin | 
+                    data$lat[ix] > extent_latmax |
+                    data$lon[ix] < extent_lonmin | 
+                    data$lon[ix] > extent_lonmax )
   if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
@@ -4509,16 +4547,26 @@ if (argv$verbose) {
         length(which(flagaux))))
   print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-  print(paste("  # lon-lat missing (*) =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
-                     data$lat < argv$latmin | data$lat > argv$latmax | 
-                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
+  if (argv$dqc_inbox_only) {
+    print(paste("  # lon-lat missing (*) =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) | 
+                                  data$lat < extent_latmin | 
+                                  data$lat > extent_latmax | 
+                                  data$lon < extent_lonmin | 
+                                  data$lon > extent_lonmax ) ))))
+  } else {
+    print(paste("  # lon-lat missing =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) ))))) 
+  }
   print(paste("  # z missing           =",
         length(which(flagaux & is.na(z)))))
   print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
-  print("(*) or outside the specified box")
+  if (argv$dqc_inbox_only) 
+    print("(*) or outside the specified box")
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -4541,7 +4589,8 @@ if (argv$spatconv) {
   xy.new<-coordinates(coord.new)
   x<-round(xy.new[,1],0)
   y<-round(xy.new[,2],0)
-  xp<-expand.grid(c(argv$lonmin,argv$lonmax),c(argv$latmin,argv$latmax))
+  xp<-expand.grid(c(extent_lonmin,extent_lonmax),
+                  c(extent_latmin,extent_latmax))
   coord<-SpatialPoints(xp,
                        proj4string=CRS(argv$proj4_input_obsfiles))
   coord.new<-spTransform(coord,CRS(argv$proj4_where_dqc_is_done))
@@ -4553,8 +4602,8 @@ if (argv$spatconv) {
 } else {
   x<-data$lon
   y<-data$lat
-  xl<-c(argv$lonmin,argv$lonmax)
-  yl<-c(argv$latmin,argv$latmax)
+  xl<-c(extent_lonmin,extent_lonmax)
+  yl<-c(extent_latmin,extent_latmax)
   e<-extent(c(xl,yl))
 }
 if (argv$debug) save.image(file.path(argv$debug.dir,"input_data.RData")) 
@@ -4983,7 +5032,7 @@ if (!is.na(argv$fge.file)) {
   # temperature: adjust for elevation differences
   if (argv$variable=="T") {
     debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"fgedemnc.RData"), NA)
-    zfgdem<-get_data_from_ncfile(nc.file=argv$fge.demfile,
+    zfgedem<-get_data_from_ncfile(nc.file=argv$fge.demfile,
                                  nc.varname=argv$fge.demvarname,
                                  nc.t=argv$fge.demt,
                                  nc.e=argv$fge.deme,
@@ -5082,14 +5131,15 @@ ix<-which(is.na(dqcflag) | dqcflag==argv$keep.code)
 if (length(ix)>0) {
   meta<-is.na(data$lat[ix]) | 
         is.na(data$lon[ix]) |
-        data$lat[ix] < argv$latmin | 
-        data$lat[ix] > argv$latmax | 
-        data$lon[ix] < argv$lonmin | 
-        data$lon[ix] > argv$lonmax |
         is.na(z[ix]) | 
         z[ix]<argv$zmin | 
         z[ix]>argv$zmax |
         is.na(data$value[ix]) 
+  if (argv$dqc_inbox_only) 
+    meta<- meta | ( data$lat[ix] < extent_latmin | 
+                    data$lat[ix] > extent_latmax |
+                    data$lon[ix] < extent_lonmin | 
+                    data$lon[ix] > extent_lonmax )
   if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
@@ -5101,16 +5151,26 @@ if (argv$verbose | argv$debug) {
         length(which(flagaux))))
   print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-  print(paste("  # lon-lat missing (*) =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
-                     data$lat < argv$latmin | data$lat > argv$latmax | 
-                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
+  if (argv$dqc_inbox_only) {
+    print(paste("  # lon-lat missing (*) =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) | 
+                                  data$lat < extent_latmin | 
+                                  data$lat > extent_latmax | 
+                                  data$lon < extent_lonmin | 
+                                  data$lon > extent_lonmax ) ))))
+  } else {
+    print(paste("  # lon-lat missing =",
+          length(which(flagaux & (is.na(data$lat) | 
+                                  is.na(data$lon) ))))) 
+  }
   print(paste("  # z missing           =",
         length(which(flagaux & is.na(z)))))
   print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
-  print("(*) or outside the specified box")
+  if (argv$dqc_inbox_only) 
+    print("(*) or outside the specified box")
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -5237,55 +5297,60 @@ if (argv$buddy_eve) {
         ztot<-as.numeric(z[ix])
         priotot<-as.numeric(prio[ix])
         ttot<-data$value[ix]
-        if (!is.na(argv$cores)) {
-          stSp_buddy_eve<-mcmapply(statSpat_mapply,
+        if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
+             any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
+          if (!is.na(argv$cores)) {
+            stSp_buddy_eve<-mcmapply(statSpat_mapply,
+                                     1:length(itot),
+                                     mc.cores=argv$cores,
+                                     SIMPLIFY=T,
+                                     adjust_for_elev_diff=(argv$variable=="T"),
+                                     dr=argv$dr.buddy_eve[j],
+                                     priority=priority,
+                                     statistics="buddy_event", #buddy_event
+                                     event_threshold=argv$thr_eve.buddy_eve[j],
+                                     event_def="lt")
+          # no-multicores
+          } else {
+            stSp_buddy_eve<-mapply(statSpat_mapply,
                                    1:length(itot),
-                                   mc.cores=argv$cores,
                                    SIMPLIFY=T,
-                                   drmin=argv$dr.buddy_eve[j],
+                                   adjust_for_elev_diff=(argv$variable=="T"),
+                                   dr=argv$dr.buddy,
                                    priority=priority,
                                    statistics="buddy_event", #buddy_event
                                    event_threshold=argv$thr_eve.buddy_eve[j],
                                    event_def="lt")
-        # no-multicores
-        } else {
-          stSp_buddy_eve<-mapply(statSpat_mapply,
-                                 1:length(itot),
-                                 SIMPLIFY=T,
-                                 drmin=argv$dr.buddy,
-                                 priority=priority,
-                                 statistics="buddy_event", #buddy_event
-                                 event_threshold=argv$thr_eve.buddy_eve[j],
-                                 event_def="lt")
+          }
+          n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve)
+          # suspect if:
+          if (argv$thr.buddy_eve[j]<1) { 
+            sus<-which( 
+              (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
+               stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+               is.na(dqcflag[ix])) &
+               doit[ix]==1 & 
+              ( ( stSp_buddy_eve[3,]==0 & 
+                 ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
+                ( stSp_buddy_eve[3,]==1 & 
+                 (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
+          } else if (argv$thr.buddy_eve[j]>=1) {
+            nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
+            nno<-stSp_buddy_eve[1,]-nyes
+            sus<-which( 
+              (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
+              stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+              is.na(dqcflag[ix])) &
+              doit[ix]==1 & 
+              ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
+              (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
+            rm(nyes,nno)
+          } else {
+            sus<-integer(0)
+          }
+          # set dqcflag
+          if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
         }
-        n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve)
-        # suspect if:
-        if (argv$thr.buddy_eve[j]<1) { 
-          sus<-which( 
-            (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
-             stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-             is.na(dqcflag[ix])) &
-             doit[ix]==1 & 
-            ( ( stSp_buddy_eve[3,]==0 & 
-               ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
-              ( stSp_buddy_eve[3,]==1 & 
-               (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
-        } else if (argv$thr.buddy_eve[j]>=1) {
-          nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
-          nno<-stSp_buddy_eve[1,]-nyes
-          sus<-which( 
-            (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
-            stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-            is.na(dqcflag[ix])) &
-            doit[ix]==1 & 
-            ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
-            (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
-          rm(nyes,nno)
-        } else {
-          sus<-integer(0)
-        }
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
       } else {
         print("no valid observations left, no buddy_eve check")
       }
@@ -5347,7 +5412,12 @@ print(paste0("priorities ",toString(argv$prio.buddy)))
 for (i in 1:argv$i.buddy) {
   priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
   # use only (probably) good observations with doit!=0
-  ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 )
+  flag_aux<-( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
+              !is.na(x) & !is.na(y) & !is.na(data$value) &
+              doit!=0)
+  if (priority) flag_aux<-flag_aux & !is.na(prio)
+  if (argv$variable=="T") flag_aux<-flag_aux & !is.na(z)
+  ix<-which(flag_aux)
   t0a<-Sys.time()
   if (length(ix)>0) {
     # define global 1D vector used in statSpat (1D for fast access)
@@ -5366,14 +5436,16 @@ for (i in 1:argv$i.buddy) {
                            1:length(itot),
                            mc.cores=argv$cores,
                            SIMPLIFY=T,
-                           drmin=argv$dr.buddy,
+                           adjust_for_elev_diff=(argv$variable=="T"),
+                           dr=argv$dr.buddy,
                            priority=priority)
     # no-multicores
     } else {
       stSp_buddy<-mapply(statSpat_mapply,
                          1:length(itot),
                          SIMPLIFY=T,
-                         drmin=argv$dr.buddy,
+                         adjust_for_elev_diff=(argv$variable=="T"),
+                         dr=argv$dr.buddy,
                          priority=priority)
     }
     # probability of gross error
@@ -5523,6 +5595,7 @@ if (argv$fge) {
   thrposvec<-vector(length=ndata,mode="numeric"); thrposvec[]<-NA
   thrnegvec<-vector(length=ndata,mode="numeric"); thrnegvec[]<-NA
   thrpercvec<-vector(length=ndata,mode="numeric"); thrpercvec[]<-NA
+  perc_minvalvec<-vector(length=ndata,mode="numeric"); perc_minvalvec[]<-NA
   thrpospercvec<-vector(length=ndata,mode="numeric"); thrpospercvec[]<-NA
   thrnegpercvec<-vector(length=ndata,mode="numeric"); thrnegpercvec[]<-NA
   throutvec<-vector(length=ndata,mode="numeric"); throutvec[]<-NA
@@ -5605,7 +5678,6 @@ if (argv$fge) {
                 length(which(dqcflag==argv$fge.code))))
     print("+---------------------------------+")
   }
-  rm(doit)
   if (argv$debug) 
     save.image(file.path(argv$debug.dir,"dqcres_fge.RData")) 
 }
@@ -5638,13 +5710,17 @@ for (i in 1:argv$i.sct) {
   ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 )
   if (length(ix)>0) {
     t0a<-Sys.time()
+    #--------------------------------------------------------------------------
     # SCT station-by-station
     if (argv$stn_by_stn.sct) {
-      if (i>1) break
+      if (i>1) break # the real SCT loop follows and it needs to be done just once
       sct_loop<-T
       cont_sct_loop<-0
+      # obs_to_check[i] = should we check the i-th observation?
       obs_to_check<-rep(T,length(dqcflag))
       obs_to_check[!is.na(doit) & doit!=1]<-F
+      # obs_to_use[i] = should we use the i-th observation for SCT?
+      #  note that obs_to_use is not updated within the sct_loop
       obs_to_use<-rep(T,length(dqcflag))
       if (argv$transf.sct) {
         yo_sct<-boxcox(x=data$value,lambda=argv$boxcox.lambda)
@@ -5674,10 +5750,10 @@ for (i in 1:argv$i.sct) {
         argv$fglab.sct<-NA
         obs_to_use<-!is.na(b_sct) & !is.nan(b_sct) & is.finite(b_sct)
       }
-      while (sct_loop) {
+      while (sct_loop & cont_sct_loop<(length(ix)/2)) {
         cont_sct_loop<-cont_sct_loop+1
         t00a<-Sys.time()
-        if (cont_sct_loop>(length(ix)/2)) break
+        # ixg= index to observations to check for the current iteration
         ixg<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
                     obs_to_check & obs_to_use )
         nobs_to_check<-length(ixg)
@@ -5686,6 +5762,7 @@ for (i in 1:argv$i.sct) {
         zgrid_spint<-z[ixg]
         lafgrid_spint<-laf[ixg]
         yo_to_check<-yo_sct[ixg]
+        # ixg= index to observations to use in SCT for the current iteration
         if (argv$usefge.sct | argv$usefg.sct) xb_spint<-b_sct[ixg]
         ixo<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0 &
                     obs_to_use )
@@ -5750,8 +5827,11 @@ for (i in 1:argv$i.sct) {
         yo_errvar<-arr[,3]
         dh_ref<-arr[,7]
         rm(arr)
+        # probability of gross error
         pog<-(yav-yo_to_check)**2/(yav_errvar+yo_errvar)
+        # ''presumption of innocence'' apply here
         flag_sus<-rep(F,nobs_to_check)
+        # compare pog with defined thresholds
         if (any(!is.na(T2posvec[ixg]))) 
           flag_sus<-flag_sus | 
                     (!is.na(T2posvec[ixg]) & !is.na(pog) & 
@@ -5767,18 +5847,31 @@ for (i in 1:argv$i.sct) {
         ix_sus<-which(flag_sus)
         rm(flag_sus)
         t01a<-Sys.time()
-        print(paste(" stn-by-stn iteration=",cont_sct_loop,
-                    "/#obs to check=",length(ixg),
-                    "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
+        # case of no suspect observations
         if (length(ix_sus)==0) {
+          print(paste(" stn-by-stn iteration=",cont_sct_loop,
+                      "/#obs checked=",length(ixg),
+                      "/no suspects",
+                      "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
           sct_loop<-F
+        # case of just one suspect observation
+        } else if (length(ix_sus)==1) {
+          print(paste(" stn-by-stn iteration=",cont_sct_loop,
+                      "/#obs checked=",length(ixg),
+                      "/#sus=1",
+                      "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
+          dqcflag[ixg[ix_sus]]<-argv$sct.code
+          sct_loop<-F
+        # case of more than one suspect observation
         } else {
+          #+ is the suspect observation the one with the largest pog in the neighbourhood? 
           find_the_largeErr<-function(i,dist_max){
             dist<-sqrt((xgrid_largeErr[i]-xgrid_largeErr)**2+
                        (ygrid_largeErr[i]-ygrid_largeErr)**2)
             ix_near<-which(dist<dist_max)
             ifelse(any(pog_largeErr[ix_near]>pog_largeErr[i]),F,T)
           }
+          #
           xgrid_largeErr<-xgrid_spint[ix_sus]
           ygrid_largeErr<-ygrid_spint[ix_sus]
           pog_largeErr<-pog[ix_sus]
@@ -5786,54 +5879,80 @@ for (i in 1:argv$i.sct) {
                            1:length(pog_largeErr),
                            SIMPLIFY=T,
                            dist_max=dh_ref[ix_sus])
+          # largeErr[i]=F, for all i
+          # largeErr is unable to find local maxima... should not happen
+          if (!any(largeErr)) {
+            if (argv$verbose) print("warning: SCT anomalous behaviour in largeErr")
+            sct_loop<-F
+          }
+          # observations that are locally the more suspicious ones are flagged
           dqcflag[ixg[ix_sus[which(largeErr)]]]<-argv$sct.code
-          if (!any(largeErr)) sct_loop<-F 
-          if (any(!is.na(T2vec[ixg]))) { 
-            ix_not_to_check<-which(pog<(T2vec[ixg]/4) & 
-                                   !is.na(T2vec[ixg]))
-            if (length(ix_not_to_check)>0) 
-              obs_to_check[ixg[ix_not_to_check]]<-F
-            ix_superBad<-which(pog>(4*T2vec[ixg]) & 
-                               !is.na(T2vec[ixg]))
-            if (length(ix_superBad)>0) 
-              dqcflag[ixg[ix_superBad]]<-argv$sct.code
-            rm(ix_not_to_check,ix_superBad)
-          }
-          if (any(!is.na(T2posvec[ixg]))) {
-            ix_not_to_check<-which(pog<(T2posvec[ixg]/4) & 
-                                   !is.na(T2posvec[ixg]) & 
-                                   (yo_to_check-yav)>0)
-            if (length(ix_not_to_check)>0) 
-              obs_to_check[ixg[ix_not_to_check]]<-F
-            ix_superBad<-which(pog>(4*T2posvec[ixg]) & 
-                               !is.na(T2posvec[ixg]) &
-                               (yo_to_check-yav)>0)
-            if (length(ix_superBad)>0) 
-              dqcflag[ixg[ix_superBad]]<-argv$sct.code
-            rm(ix_not_to_check,ix_superBad)
-          } 
-          if (any(!is.na(T2negvec[ixg]))) {
-            ix_not_to_check<-which(pog<(T2negvec[ixg]/4) & 
-                                   !is.na(T2negvec[ixg]) & 
-                                   (yo_to_check-yav)<0)
-            if (length(ix_not_to_check)>0) 
-              obs_to_check[ixg[ix_not_to_check]]<-F
-            ix_superBad<-which(pog>(4*T2negvec[ixg]) & 
-                               !is.na(T2negvec[ixg]) &
-                               (yo_to_check-yav)<0)
-            if (length(ix_superBad)>0) 
-              dqcflag[ixg[ix_superBad]]<-argv$sct.code
-            rm(ix_not_to_check,ix_superBad)
-          }
-          if (!exists("yav_prev")) {
-            yav_prev<-dqcflag; yav_prev[]<-NA
-            yav_prev[ixg]<-yav 
-          } else {
-            if (any(yav_prev[ixg]==yav)) 
-              obs_to_check[ixg[which(yav_prev[ixg]==yav)]]<-F
-            yav_prev[ixg]<-yav 
-          }
-        }
+          nsct_sus<-length(which(largeErr))
+          # 
+          # largeErr[i]=T, for all i. 
+          # All the suspicious observations have been flagged simultaneously
+          if (!any(!largeErr)) sct_loop<-F 
+          # prepare for the next sct loop
+          if (sct_loop & argv$fast.sct) {
+            # optimization:
+            #  observations having small pog are not be checked again
+            #  observations having large pog are flagged as suspect (even if not local max)
+            #  observations checked twice against the same CV-analysis are not checked again
+            if (any(!is.na(T2vec[ixg]))) { 
+              ix_not_to_check<-which(pog<(T2vec[ixg]/4) & 
+                                     !is.na(T2vec[ixg]))
+              if (length(ix_not_to_check)>0) 
+                obs_to_check[ixg[ix_not_to_check]]<-F
+              ix_superBad<-which(pog>(4*T2vec[ixg]) & 
+                                 !is.na(T2vec[ixg]))
+              if (length(ix_superBad)>0) 
+                dqcflag[ixg[ix_superBad]]<-argv$sct.code
+              nsct_sus<-nsct_sus+length(ix_superBad)
+              rm(ix_not_to_check,ix_superBad)
+            }
+            if (any(!is.na(T2posvec[ixg]))) {
+              ix_not_to_check<-which(pog<(T2posvec[ixg]/4) & 
+                                     !is.na(T2posvec[ixg]) & 
+                                     (yo_to_check-yav)>0)
+              if (length(ix_not_to_check)>0) 
+                obs_to_check[ixg[ix_not_to_check]]<-F
+              ix_superBad<-which(pog>(4*T2posvec[ixg]) & 
+                                 !is.na(T2posvec[ixg]) &
+                                 (yo_to_check-yav)>0)
+              if (length(ix_superBad)>0) 
+                dqcflag[ixg[ix_superBad]]<-argv$sct.code
+              nsct_sus<-nsct_sus+length(ix_superBad)
+              rm(ix_not_to_check,ix_superBad)
+            } 
+            if (any(!is.na(T2negvec[ixg]))) {
+              ix_not_to_check<-which(pog<(T2negvec[ixg]/4) & 
+                                     !is.na(T2negvec[ixg]) & 
+                                     (yo_to_check-yav)<0)
+              if (length(ix_not_to_check)>0) 
+                obs_to_check[ixg[ix_not_to_check]]<-F
+              ix_superBad<-which(pog>(4*T2negvec[ixg]) & 
+                                 !is.na(T2negvec[ixg]) &
+                                 (yo_to_check-yav)<0)
+              if (length(ix_superBad)>0) 
+                dqcflag[ixg[ix_superBad]]<-argv$sct.code
+              nsct_sus<-nsct_sus+length(ix_superBad)
+              rm(ix_not_to_check,ix_superBad)
+            }
+            if (!exists("yav_prev")) {
+              yav_prev<-dqcflag; yav_prev[]<-NA
+              yav_prev[ixg]<-yav 
+            } else {
+              if (any(yav_prev[ixg]==yav)) 
+                obs_to_check[ixg[which(yav_prev[ixg]==yav)]]<-F
+              yav_prev[ixg]<-yav 
+            }
+          } # prepare for the next sct loop 
+          print(paste(" stn-by-stn iteration=",cont_sct_loop,
+                      "/#obs checked=",length(ixg),
+                      "/#possibly sus=",length(ix_sus),
+                      "/#sus=",nsct_sus,
+                      "/time",round(t01a-t00a,1),attr(t01a-t00a,"unit")))
+        } # end case of suspect observations =0 or =1 or >1
       } # end sct_loop
       if (cont_sct_loop>(length(ix)/2)) {
         print("Warning: SCT loop stopped. Too many iterations. Better check this out.")
@@ -5929,6 +6048,8 @@ for (i in 1:argv$i.sct) {
       if (exists("yo_errvar")) rm(yo_errvar)
       if (exists("dh_ref")) rm(dh_ref)
       # 
+    # END SCT stn-by-stn
+    #--------------------------------------------------------------------------
     # SCT split grid into boxes
     } else {
       # set min and max for the background values
@@ -6299,9 +6420,11 @@ if (argv$proj4_output_files!=argv$proj4_input_obsfiles) {
 }
 varidx.out<-varidx
 if (any(!is.na(argv$varname.opt))) 
-  varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))]) 
-dataout<-array(data=NA,
-               dim=c(length(yout),(length(varidx.out)+4)))
+  varidx.out<-c(varidx,varidx.opt[which(!is.na(varidx.opt))])
+dataout_ncol<-length(varidx.out)+4
+if (file.exists(argv$fg.file)) dataout_ncol<-dataout_ncol+1
+if (file.exists(argv$fge.file)) dataout_ncol<-dataout_ncol+2
+dataout<-array( data=NA, dim=c(length(yout), dataout_ncol) )
 ord.varidx.out<-order(varidx.out)
 str<-vector()
 for (s in 1:length(ord.varidx.out)) {
@@ -6334,14 +6457,29 @@ str[s+3]<-argv$varname.sct
 dataout[,(s+3)]<-round(sctpog,2)
 str[s+4]<-argv$varname.rep
 dataout[,(s+4)]<-round(corep,5)
+s<-s+4
+if (file.exists(argv$fg.file)) {
+  s<-s+1
+  str[s]<-argv$varname.fg.out
+  dataout[,s]<-round(fg,argv$value.dig.out)
+}
+if (file.exists(argv$fge.file)) {
+  s<-s+1
+  str[s]<-argv$varname.fge_mean.out
+  dataout[,s]<-round(fge.mu,argv$value.dig.out)
+  s<-s+1
+  str[s]<-argv$varname.fge_sd.out
+  dataout[,s]<-round(fge.sd,(argv$value.dig.out+3))
+}
 if (argv$radarout) {
   if (length(radrr)>0) {
-    datarad<-array(data=NA,dim=c(length(radrr),(length(varidx.out)+4)))
-    datarad[,which(str==argv$varname.x.out)]<-round(rady.from,argv$xy.dig.out)
-    datarad[,which(str==argv$varname.y.out)]<-round(radx.from,argv$xy.dig.out)
+    datarad<-array(data=NA,dim=c(length(radrr),dataout_ncol))
+    datarad[,which(str==argv$varname.x.out)]<-round(radx.from,argv$xy.dig.out)
+    datarad[,which(str==argv$varname.y.out)]<-round(rady.from,argv$xy.dig.out)
     datarad[,which(str==argv$varname.value.out)]<-round(radrr,argv$value.dig.out)
     datarad[,which(str==argv$varname.prid)]<-rep(argv$radarout.prid,length(radrr))
     datarad[,which(str==argv$varname.dqc)]<-rep(0,length(radrr))
+    datarad[,which(str==argv$varname.rep)]<-rep(argv$radarout.corep,length(radrr))
     dataout<-rbind(dataout,datarad)
   }
 }
