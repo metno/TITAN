@@ -1941,6 +1941,19 @@ p <- add_argument(p, "--proj4_output_files",
                   type="character",
                   default=proj4_input_obsfiles_default)
 #.............................................................................. 
+# duplicates
+p <- add_argument(p, "--no_duplicates",
+                  help="remove duplicates from input data",
+                  flag=T)
+p <- add_argument(p, "--dup.match_tol_x",
+                  help="remove duplicates, matching tolerance for lat and lon (degrees)",
+                  type="numeric",
+                  default=0.00001)
+p <- add_argument(p, "--dup.match_tol_z",
+                  help="remove duplicates, matching tolerance for elevation (m)",
+                  type="numeric",
+                  default=1)
+#.............................................................................. 
 # INPUT/OUTPUT names
 p <- add_argument(p, "--separator",
                   help="character vector, input file(s) separator character(s) (default '';'')",
@@ -3009,6 +3022,11 @@ p <- add_argument(p, "--thrneg.fg",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--perc.fg_minval",
+     help="do the prec.fg test only for values greater than the specified threshold (provider dependent)",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--perc.fg_maxval",
      help="do the prec.fg test only for values greater than the specified threshold (provider dependent)",
                   type="numeric",
                   default=NA,
@@ -4373,7 +4391,8 @@ for (f in 1:nfin) {
     print("header of input file:")
     print(argv$input.files[f])
     print(names(datain))
-    boom()
+#    boom()
+    next
   }
   datatmp<-data.frame(datain[,varidxtmp])
   names(datatmp)<-c("lat","lon","elev","value")
@@ -4415,56 +4434,103 @@ for (f in 1:nfin) {
                ,FUN=setCode_lonlat,MARGIN=1,code=argv$keep.code)
     rm(out)
   }
-  if (first) {
-    varidx<-varidxtmp
-    data<-datatmp
-    first<-F
-    z<-auxz
-    dqcflag<-aux
-    sctpog<-rep(NA,length=ndatatmp)
-    corep<-rep(NA,length=ndatatmp)
-    if (any(!is.na(argv$varname.opt))) {
-      # varidx.opt is used in the output session
-      varidx.opt<-match(argv$varname.opt,
-                        names(datain))
-      dataopt<-as.data.frame(array(data=NA,
-                             dim=c(ndatatmp,length(argv$varname.opt))))
-      names(dataopt)<-argv$varname.opt
-      if (any(!is.na(varidx.opt)))
-        dataopt<-datain[,varidx.opt[which(!is.na(varidx.opt))],drop=F]
+  # ensure no duplicates
+  if (argv$no_duplicates) {
+    is_duplicate<-function(i) { dup_diff_datasources<-F
+                                if (exists("data",mode="data.frame"))
+                                  dup_diff_datasources<-
+                                   any( (abs(datatmp$lat[i]-data$lat) < argv$dup.match_tol_x |
+                                         datatmp$lat[i]==data$lat) & 
+                                        (abs(datatmp$lon[i]-data$lon) < argv$dup.match_tol_x |
+                                         datatmp$lon[i]==data$lon) &
+                                        (abs(datatmp$elev[i]-data$elev) < argv$dup.match_tol_z |
+                                         datatmp$elev[i]==data$elev) )
+                                dup_same_datasource<-F
+                                if (i<ndatatmp)
+                                  dup_same_datasource<-
+                                   any( (abs(datatmp$lat[i]-datatmp$lat[(i+1):ndatatmp]) < argv$dup.match_tol_x |
+                                         datatmp$lat[i]==datatmp$lat[(i+1):ndatatmp]) & 
+                                        (abs(datatmp$lon[i]-datatmp$lon[(i+1):ndatatmp]) < argv$dup.match_tol_x |
+                                         datatmp$lon[i]==datatmp$lon[(i+1):ndatatmp]) &
+                                        (abs(datatmp$elev[i]-datatmp$elev[(i+1):ndatatmp]) < argv$dup.match_tol_z |
+                                         datatmp$elev[i]==datatmp$elev[(i+1):ndatatmp]) ) 
+                                return(dup_diff_datasources | dup_same_datasource) }
+    if (!is.na(argv$cores)) {
+      dup<-mcmapply(is_duplicate,
+                    1:ndatatmp,
+                    mc.cores=argv$cores,
+                    SIMPLIFY=T)
+    # no-multicores
+    } else {
+      dup<-mapply(is_duplicate,
+                  1:ndatatmp,
+                  SIMPLIFY=T)
     }
+    ix_nodup<-which(!dup)
   } else {
-    data<-rbind(data,datatmp)
-    dqcflag<-c(dqcflag,aux)
-    z<-c(z,auxz)
-    sctpog<-c(sctpog,rep(NA,length=ndatatmp))
-    corep<-c(corep,rep(NA,length=ndatatmp))
-    if (any(!is.na(argv$varname.opt))) {
-      varidx.opt.check<-match(argv$varname.opt,
-                        names(datain))
-      if (any(!is.na(varidx.opt.check) & is.na(varidx.opt))) {
-        ixopt<-which(!is.na(varidx.opt.check) & is.na(varidx.opt))
-        for (iopt in ixopt) {
-          if (varidx.opt.check[iopt] %in% varidx.opt) {
-            varidx.opt[iopt]<-max(varidx.opt,na.rm=T)+1
-          } else { 
-            varidx.opt[iopt]<-varidx.opt.check[iopt]
-          }
-        }
-        rm(ixopt,iopt)
+    ix_nodup<-1:ndatatmp
+  }
+  ndatatmp<-length(ix_nodup)
+  if (ndatatmp>0) {
+    # datatmp$ lat lon elev value prid
+    datatmp<-data.frame(lat=datatmp$lat[ix_nodup],
+                        lon=datatmp$lon[ix_nodup],
+                        elev=datatmp$elev[ix_nodup],
+                        value=datatmp$value[ix_nodup],
+                        prid=datatmp$prid[ix_nodup])
+    if (first) {
+      varidx<-varidxtmp
+      data<-datatmp
+      first<-F
+      z<-auxz[ix_nodup]
+      dqcflag<-aux[ix_nodup]
+      sctpog<-rep(NA,length=ndatatmp)
+      corep<-rep(NA,length=ndatatmp)
+      if (any(!is.na(argv$varname.opt))) {
+        # varidx.opt is used in the output session
+        varidx.opt<-match(argv$varname.opt,
+                          names(datain))
+        dataopt<-as.data.frame(array(data=NA,
+                               dim=c(ndatatmp,length(argv$varname.opt))))
+        names(dataopt)<-argv$varname.opt
+        if (any(!is.na(varidx.opt)))
+          dataopt<-datain[ix_nodup,varidx.opt[which(!is.na(varidx.opt))],drop=F]
       }
-      dataopttmp<-as.data.frame(array(data=NA,
-                                dim=c(ndatatmp,length(argv$varname.opt))))
-      names(dataopttmp)<-argv$varname.opt
-      if (any(!is.na(varidx.opt.check)))
-        dataopttmp<-datain[,varidx.opt.check[which(!is.na(varidx.opt.check))],
-                           drop=F]
-      dataopt<-rbind(dataopt,
-                     dataopttmp)
-      rm(dataopttmp)
+    } else {
+      data<-rbind(data,datatmp)
+      dqcflag<-c(dqcflag,aux[ix_nodup])
+      z<-c(z,auxz[ix_nodup])
+      sctpog<-c(sctpog,rep(NA,length=ndatatmp))
+      corep<-c(corep,rep(NA,length=ndatatmp))
+      if ( any(!is.na(argv$varname.opt)) ) {
+        varidx.opt.check<-match(argv$varname.opt,
+                            names(datain))
+        if ( any(!is.na(varidx.opt.check) & 
+                  is.na(varidx.opt)) ) {
+          ixopt<-which(!is.na(varidx.opt.check) & is.na(varidx.opt))
+          for (iopt in ixopt) {
+            if (varidx.opt.check[iopt] %in% varidx.opt) {
+              varidx.opt[iopt]<-max(varidx.opt,na.rm=T)+1
+            } else { 
+              varidx.opt[iopt]<-varidx.opt.check[iopt]
+            }
+          }
+          rm(ixopt,iopt)
+        }
+        dataopttmp<-as.data.frame(array(data=NA,
+                                  dim=c(ndatatmp,length(argv$varname.opt))))
+        names(dataopttmp)<-argv$varname.opt
+        if (any(!is.na(varidx.opt.check)))
+          dataopttmp<-datain[ix_nodup,varidx.opt.check[which(!is.na(varidx.opt.check))],
+                             drop=F]
+        dataopt<-rbind(dataopt,
+                       dataopttmp)
+        rm(dataopttmp)
+      }
     }
   }
-  rm(varidxtmp)
+  if (exists("ix_nodup")) rm(ix_nodup)
+  if (exists("varidxtmp")) rm(varidxtmp)
 }
 rm(datatmp,datain,auxz,aux)
 ndata<-length(data$lat)
@@ -5829,6 +5895,7 @@ for (i in 1:argv$i.sct) {
         rm(arr)
         # probability of gross error
         pog<-(yav-yo_to_check)**2/(yav_errvar+yo_errvar)
+        sctpog[ixg]<-pog
         # ''presumption of innocence'' apply here
         flag_sus<-rep(F,nobs_to_check)
         # compare pog with defined thresholds
