@@ -436,111 +436,6 @@ sct<-function(ixynp,
         t2neg.vec[ipx]<-T2neg[f]
     }
   }
-<<<<<<< HEAD
-
-  if(argv$smartbox.sct & argv$variable == "T") {
-    # Use the smart-box approach implemented in C
-    ns = length(j)
-
-    # TODO: Deal with sel vs sel2check in sct_wrapper
-    out<-.C("sct_smart_boxes",ns=as.integer(ns),
-                                       x=as.double(xtot[j]),
-                                       y=as.double(ytot[j]),
-                                       z=as.double(ztot[j]),
-                                       t=as.double(ttot[j]),
-                                       nmax=as.integer(1000),
-                                       nmin=as.integer(100),
-                                       nminprof=as.integer(nmin),
-                                       dzmin=as.double(dzmin),
-                                       dhmin=as.double(Dhmin),
-                                       dz=as.double(Dz),
-                                       t2pos=as.double(t2pos.vec),
-                                       t2neg=as.double(t2neg.vec),
-                                       eps2=as.double(eps2.vec),
-                                       flags=as.integer(1:ns),
-                                       sct=as.double(1:ns),
-                                       rep=as.double(1:ns),
-                                       boxids=as.integer(1:ns))
-
-    keeping = which(out$flags == 0)
-    remove = which(out$flags == 1)
-    dqcflag[ix[j[remove]]] <- sus.code
-
-    assign("dqcflag",dqcflag,envir=.GlobalEnv)
-    corep[ix[j]] <- out$rep
-    corep[ix[j[remove]]] <- NA
-    assign("corep",corep,envir=.GlobalEnv)
-    sctpog[ix[j]] <- out$sct
-||||||| merged common ancestors
-  #  dqc flags
-  dqctmp<-dqcflag[ix[j]]
-  doittmp<-doit[ix[j]]
-  #  probability of gross error (pog)
-  pog<-dqctmp
-  pog[]<-NA
-  # set to optimal Dh for the SCT
-  # either Dhmin or the average 10-percentile of the set of distances between a 
-  # station and all the others
-  Dh<-max(Dhmin,
-          mean(apply(cbind(1:nrow(disth),disth),
-                     MARGIN=1,
-                     FUN=function(x){
-       as.numeric(quantile(x[which(!((1:length(x))%in%c(1,(x[1]+1))))],
-                          probs=0.1))})))
-  # background error correlation matrix
-  S<-exp(-0.5*(disth/Dh)**2.-0.5*(distz/Dz)**2.)
-  if (argv$laf.sct) {
-    S<-S * (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
-  }
-  # S+eps2I
-  diag(S)<-diag(S)+eps2.vec
-  # innvoation
-  d<-topt-tb
-  # select observations used in the test
-  sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-  # select observations to test 
-  sel2check<-which(is.na(dqctmp) & doittmp==1)
-  first<-T
-  # loop over SCT iterations 
-  # NOTE: SCT flags at most one observation, iterate until no observations fail
-  while (length(sel)>1) { 
-#    # update selection
-#    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-#    sel2check<-which(is.na(dqctmp))
-#    if (length(sel2check)==0) break
-    # first iteration, inver the matrix
-    if (first) {
-      SRinv<-chol2inv(chol(S))
-      # from S+R go back to S
-      diag(S)<-diag(S)-eps2.vec
-      first<-F
-    } else if (length(indx)>1) {
-      S<-S[-indx,-indx]
-      eps2.vec<-eps2.vec[-indx]
-      diag(S)<-diag(S)+eps2.vec
-      SRinv<-chol2inv(chol(S))
-      # from S+R go back to S
-      diag(S)<-diag(S)-eps2.vec
-    } else {
-      # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
-      aux<-SRinv
-      SRinv<-aux[-indx,-indx]-
-             (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
-      S<-S[-indx,-indx]
-      eps2.vec<-eps2.vec[-indx]
-      rm(aux)
-    }
-    # next tree lines: compute cvres=(obs - CrossValidation_prediction)
-    Zinv<-1/diag(SRinv)
-    SRinv.d<-crossprod(SRinv,d[sel])
-    ares<-crossprod(S,SRinv.d)-d[sel] #   a-Obs
-    cvres<--Zinv*SRinv.d              # CVa-Obs, Lussana et al 2010 Eq(A13)
-    sig2o<-mean(d[sel]*(-ares))       # Lussana et al 2010, Eq(32)
-    if (sig2o<0.01) sig2o<-0.01       # safe threshold  
-    # pog=cvres/(sig2obs+sig2CVpred), Lussana et al 2010 Eq(20)
-    pog[sel]<-(ares*cvres)/sig2o
-    sctpog[ix[j[sel]]]<-pog[sel]
-=======
 
   # Use the smart-box approach implemented in C
   if(argv$smartbox.sct & argv$variable == "T") {
@@ -574,7 +469,6 @@ sct<-function(ixynp,
     corep[ix[j[remove]]] <- NA
     assign("corep",corep,envir=.GlobalEnv)
     sctpog[ix[j]] <- out$sct
->>>>>>> devel
     assign("sctpog",sctpog,envir=.GlobalEnv)
 
     return(length(remove))
@@ -600,94 +494,6 @@ sct<-function(ixynp,
     if (argv$laf.sct) {
       S<-S * (1-(1-argv$lafmin.sct)*abs(outer(laftot[j],laftot[j],FUN="-")))
     }
-<<<<<<< HEAD
-    # S+eps2I
-    diag(S)<-diag(S)+eps2.vec
-    # innvoation
-    d<-topt-tb
-    # select observations used in the test
-    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-    # select observations to test 
-    sel2check<-which(is.na(dqctmp) & doittmp==1)
-    first<-T
-    # loop over SCT iterations 
-    # NOTE: SCT flags at most one observation, iterate until no observations fail
-    while (length(sel)>1) { 
-  #    # update selection
-  #    sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-  #    sel2check<-which(is.na(dqctmp))
-  #    if (length(sel2check)==0) break
-      # first iteration, inver the matrix
-      if (first) {
-        SRinv<-chol2inv(chol(S))
-        # from S+R go back to S
-        diag(S)<-diag(S)-eps2.vec
-        first<-F
-      } else if (length(indx)>1) {
-        S<-S[-indx,-indx]
-        eps2.vec<-eps2.vec[-indx]
-        diag(S)<-diag(S)+eps2.vec
-        SRinv<-chol2inv(chol(S))
-        # from S+R go back to S
-        diag(S)<-diag(S)-eps2.vec
-      } else {
-        # Update inverse matrix (Uboldi et al 2008, Appendix AND erratum!)
-        aux<-SRinv
-        SRinv<-aux[-indx,-indx]-
-               (tcrossprod(aux[indx,-indx],aux[-indx,indx]))*Zinv[indx]
-        S<-S[-indx,-indx]
-        eps2.vec<-eps2.vec[-indx]
-        rm(aux)
-      }
-      # next tree lines: compute cvres=(obs - CrossValidation_prediction)
-      Zinv<-1/diag(SRinv)
-      SRinv.d<-crossprod(SRinv,d[sel])
-      ares<-crossprod(S,SRinv.d)-d[sel] #   a-Obs
-      cvres<--Zinv*SRinv.d              # CVa-Obs, Lussana et al 2010 Eq(A13)
-      sig2o<-mean(d[sel]*(-ares))       # Lussana et al 2010, Eq(32)
-      if (sig2o<0.01) sig2o<-0.01       # safe threshold  
-      # pog=cvres/(sig2obs+sig2CVpred), Lussana et al 2010 Eq(20)
-      pog[sel]<-(ares*cvres)/sig2o
-      sctpog[ix[j[sel]]]<-pog[sel]
-      assign("sctpog",sctpog,envir=.GlobalEnv)
-      if (length(sel2check)==0) break
-      # define the threshold for each observation
-      if (any(!is.na(t2pos.vec))) {
-        cvres<-(-cvres) # Obs-CVa 
-        # cvres is a sel-vector, while T2vec is a sel2check-vector
-        # sel includes all the sel2check values, plus possibly others
-        T2vec<-vector(length=length(sel2check),mode="numeric")
-        match<-match(sel2check,sel)
-        ipos2check<-which(cvres[match]>=0 & is.na(dqctmp[sel2check]))
-        if (length(ipos2check)>0) 
-          T2vec[ipos2check]<- t2pos.vec[sel2check[ipos2check]]
-        ipos2check<-which(cvres[match]<0 & is.na(dqctmp[sel2check]))
-        if (length(ipos2check)>0)
-          T2vec[ipos2check]<- t2neg.vec[sel2check[ipos2check]]
-        rm(ipos2check)
-      } else {
-        T2vec<-t2.vec[sel2check]
-      }
-      # check if any obs fails the test
-      if (any(pog[sel2check]>T2vec)) {
-        # flag as suspect only the observation with the largest cvres 
-        # allow for more than obs being flagged at the same time
-        if (faster) {
-          if (any(pog[sel2check]>(2*T2vec))) {
-            indx<-which(pog[sel2check]>(2*T2vec))
-          } else {
-            ixprobsus<-which(pog[sel2check]>T2vec)
-            indx<-ixprobsus[which.max(pog[ixprobsus])]
-          }
-||||||| merged common ancestors
-    # check if any obs fails the test
-    if (any(pog[sel2check]>T2vec)) {
-      # flag as suspect only the observation with the largest cvres 
-      # allow for more than obs being flagged at the same time
-      if (faster) {
-        if (any(pog[sel2check]>(2*T2vec))) {
-          indx<-which(pog[sel2check]>(2*T2vec))
-=======
     # S+eps2I
     diag(S)<-diag(S)+eps2.vec
     # innovation
@@ -762,7 +568,6 @@ sct<-function(ixynp,
             ixprobsus<-which(pog[sel2check]>T2vec)
             indx<-ixprobsus[which.max(pog[ixprobsus])]
           }
->>>>>>> devel
         } else {
           ixprobsus<-which(pog[sel2check]>T2vec)
           indx<-ixprobsus[which.max(pog[ixprobsus])]
@@ -786,728 +591,6 @@ sct<-function(ixynp,
     if (length(sel)>1) { 
       corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
       assign("corep",corep,envir=.GlobalEnv)
-<<<<<<< HEAD
-    }
-    # debug: begin
-    #  if (argv$debug) {
-    #  }
-    # debug: end
-    return(length(which(dqctmp==sus.code)))
-  }
-}
-#+ find the n-th largest element from each matrix row 
-findRow <- function (x,n) {   
-# order by row number then by value
-  y<-t(x)
-  array(y[order(col(y), y)], dim(y))[nrow(y) - (n-1), ]
-}
-
-#+ mean radial distance between an observation and its k-th closest obs
-#dobs_fun<-function(ixynp,k) {
-dobs_fun<-function(obs,k) {
-# NOTE: k=1 will return 0 everywhere (1st closest obs is the obs itself)
-  nobs<-length(obs$x)
-  if (nobs<k) return(NA)
-  # distance matrices
-  disth<-(outer(obs$x,obs$x,FUN="-")**2.+
-          outer(obs$y,obs$y,FUN="-")**2.)**0.5
-  dobsRow<-findRow(x=disth,n=(nobs-k+1))
-  mean(dobsRow)
-}
-
-#+ remove clumps determined by less than n observations
-remove_ltNobsClumps<-function(r,n,reverse=F,obs) {
-  obsflag<-obs$x
-  obsflag[]<-0
-  d<-getValues(r)
-  if (reverse) {
-    dd<-d
-    d[dd==0]<-1
-    d[dd>0]<-0
-    r[]<-d
-    rm(dd)
-  }
-  rc<-clump(r)
-  dc<-getValues(rc)
-  f<-freq(rc)
-  ytmp<-extract(rc,cbind(obs$x,obs$y),na.rm=T)
-  sel<-which(!is.na(ytmp))
-  for (i in 1:length(f[,1])) {
-    if (is.na(f[i,1])) next
-    if (any(ytmp[sel]==f[i,1])) {
-      ix<-which(ytmp[sel]==f[i,1])
-      if (length(ix)<n) {
-        dc[dc==f[i,1]]<-NA
-        obsflag[sel[ix]]<-1
-      }
-    }
-  }
-  dc[is.na(dc)]<-(-1)
-  if (any(dc==0)) d[which(dc==0)]<-0
-  if (reverse) {
-    dd<-d
-    d[dd==0]<-1
-    d[dd>0]<-0
-    rm(dd)
-  }
-  r[]<-d
-  return(list(r=r,obsflag=obsflag))
-}
-
-
-# + puddle - puddle check
-puddle<-function(obs,
-                 thres=1,
-                 gt_or_lt="gt", #event definition: greater than or less than...
-                 Dh=25, # km
-                 eps2=0.1,
-                 n.eveYES_in_the_clump=2,
-                 n.eveNO_in_the_clump=2) {
-#------------------------------------------------------------------------------
-  p<-length(obs$x)
-  ydqc.flag<-vector(mode="numeric",length=p)
-  ydqc.flag[]<-0
-# eix0: vector of positions to observations that are equivalent to eventNO
-# eix1: vector of positions to observations that are equivalent to eventYES
-  if (gt_or_lt=="gt") {
-    e0<-obs$yo<=thres
-    e1<-obs$yo >thres
-  } else if (gt_or_lt=="lt") {
-    e0<-obs$yo>=thres
-    e1<-obs$yo< thres
-  } else if (gt_or_lt=="le") {
-    e0<-obs$yo >thres
-    e1<-obs$yo<=thres
-  } else if (gt_or_lt=="ge") {
-    e0<-obs$yo <thres
-    e1<-obs$yo>=thres
-  }
-  eix0<-which(e0)
-  eix1<-which(e1)
-  #
-  p0<-length(eix0)
-  p1<-length(eix1)
-  if ( (p0<=1) | (p1<=1) ) return(NULL)
-  # distance matrix
-  Disth<-matrix(ncol=p,nrow=p,data=0.)
-  Disth<-(outer(obs$y,obs$y,FUN="-")**2.+
-          outer(obs$x,obs$x,FUN="-")**2.)**0.5/1000.
-  # assign grid points to event yes/no
-  t00<-Sys.time()
-  #
-  D<-exp(-0.5*(Disth[eix0,eix0]/Dh)**2.)
-  diag(D)<-diag(D)+eps2
-  InvD<-chol2inv(chol(D))
-  assign("InvD",InvD,envir=.GlobalEnv)
-  rm(D)
-  xidi0<-OI_RR_fast(yo.sel=rep(1,p0),
-                    yb.sel=rep(0,p0),
-                    xb.sel=rep(0,length(xgrid_puddle)),
-                    xgrid.sel=xgrid_puddle,
-                    ygrid.sel=ygrid_puddle,
-                    zgrid.sel=zgrid_puddle,
-                    VecX.sel=obs$x[eix0],
-                    VecY.sel=obs$y[eix0],
-                    VecZ.sel=rep(0,p0),
-                    Dh.cur=Dh,
-                    Dz.cur=1000000) 
-  t11<-Sys.time()
-#  if (argv$verbose | argv$debug) 
-#    print(paste("xIDI event NO, time=",round(t11-t00,1),attr(t11-t00,"unit")))
-  t00<-Sys.time()
-  D<-exp(-0.5*(Disth[eix1,eix1]/Dh)**2.)
-  diag(D)<-diag(D)+eps2
-  InvD<-chol2inv(chol(D))
-  assign("InvD",InvD,envir=.GlobalEnv)
-  rm(D)
-  xidi1<-OI_RR_fast(yo.sel=rep(1,p1),
-                    yb.sel=rep(0,p1),
-                    xb.sel=rep(0,length(xgrid_puddle)),
-                    xgrid.sel=xgrid_puddle,
-                    ygrid.sel=ygrid_puddle,
-                    zgrid.sel=zgrid_puddle,
-                    VecX.sel=obs$x[eix1],
-                    VecY.sel=obs$y[eix1],
-                    VecZ.sel=rep(0,p1),
-                    Dh.cur=Dh,
-                    Dz.cur=1000000) 
-  t11<-Sys.time()
-#  if (argv$verbose | argv$debug) 
-#    print(paste("xIDI eventYES, time=",round(t11-t00,1),attr(t11-t00,"unit")))
-  rm(InvD,envir=.GlobalEnv)
-# x1=1 for grid points where event is YES
-  x1<-xidi1
-  x1[]<-0
-  if (any(xidi1>=xidi0)) {
-    x1[which(xidi1>=xidi0)]<-1
-  } else {
-    return(NULL)
-  }
-# -- remove YES(NO) observations close to a lot of NO(YES) ones --
-# observations might be correct but they will create unrealistic patterns, 
-# either a "puddle"/hole or a isolated max, in the analysis field because the local 
-# observation density is not sufficient to properly describe such small-scale
-# features
-  r1<-rgrid_puddle
-  r1[]<-NA
-  r1[mask_puddle]<-x1
-#  ytmp<-extract(r1,cbind(obs$x,obs$y),buffer=(2*mean(res(r1))),fun=mean,na.rm=T)
-  ytmp<-extract(r1,cbind(obs$x,obs$y),method="bilinear")
-  # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
-  cond<-(ytmp<=0.1 & e1) | (ytmp>=0.9 & e0)
-  if (any(cond, na.rm=TRUE)) ydqc.flag[which(cond)]<-1
-  # case 2. puddle of YES surrounded by NO
-  out<-remove_ltNobsClumps(r=r1,
-                           n=n.eveYES_in_the_clump,
-                           reverse=F,
-                           obs=data.frame(x=obs$x,
-                                          y=obs$y))  
-  if (any(out$obsflag==1)) ydqc.flag[which(out$obsflag==1)]<-1
-  rm(out)
-  # case 3. puddle of NO surrounded by YES
-  out<-remove_ltNobsClumps(r=r1,
-                           n=n.eveNO_in_the_clump,
-                           reverse=T,
-                           obs=data.frame(x=obs$x,
-                                          y=obs$y))  
-  if (any(out$obsflag==1)) ydqc.flag[which(out$obsflag==1)]<-1
-  rm(out)
-  ydqc.flag
-}
-
-# + STEVE - iSolaTed EVent tEst
-steve<-function(obs,
-                thres=1,
-                gt_or_lt="gt", #event definition: greater than or less than...
-                pmax=20, 
-                dmax=150000,
-                n.sector=16,
-                n.connected_eveYES=1,
-                frac.eveYES_in_the_clump=1,
-                dmin.next_eveYES=150000) {
-#------------------------------------------------------------------------------
-  p<-length(obs$x)
-  pmax<-min(p,pmax)
-  psub<-vector(mode="numeric",length=p)
-  psub[]<-NA
-  sector.angle<-360/n.sector
-  ydqc.flag<-vector(mode="numeric",length=p)
-  ydqc.flag[]<-0
-# eix: vector of positions to observations that are equivalent to eventYES
-  if (gt_or_lt=="gt") {
-    eix<-which(obs$yo>thres)
-  } else if (gt_or_lt=="lt") {
-    eix<-which(obs$yo<thres)
-  } else if (gt_or_lt=="le") {
-    eix<-which(obs$yo<=thres)
-  } else if (gt_or_lt=="ge") {
-    eix<-which(obs$yo>=thres)
-  }
-  # no events= no isolated events
-  if (length(eix)==0) return(ydqc.flag)
-  # group eventsYES/NO into clumps of connected eventYES
-  # vectors:
-  # +neve.vec>number of eventYES clumps
-  # +Leve.vec[i]>(i=1,..,neve.vec) number of stns in i-th clump 
-  # +eve.vec[i,n]-> n-th stn (i.e. pointers to obs) in i-th clump
-  #  matrix(i,j) i=1,neve.vec j=1,Leve.vec[i]
-  #  note: a clumps of connected eventYES points may include eventNO points too
-  #        provided that an eventNO point is connected to eventYES points
-  eve.vec<-matrix(data=NA,ncol=p,nrow=p)
-  Leve.vec<-vector(mode="numeric",length=p)
-  Leve.vec[]<-NA
-  neve.vec<-0
-  eve.aux<-matrix(data=NA,ncol=p,nrow=p)
-  Leve.aux<-vector(mode="numeric",length=p)
-  Leve.aux[]<-NA
-  neve.aux<-0
-  for (b in eix) {  # START: Cycle over eventYES points 
-    # a. identify the closest points to the b-th eventYES point 
-    #  outputs: -close2b-> pointer to the closest points
-    #            constraints: distance must be less than Lsubsample.DHmax 
-    #                         max number of points allowed is Lsubsample.max
-    #           -psub[b]-> actual number of points used
-    Disth<-sqrt((obs$y[b]-obs$y)**2.+(obs$x[b]-obs$x)**2.)
-    if (any(Disth<=dmax)) {
-      ix<-which(Disth<=dmax)
-      psub[b]<-min(pmax,length(ix))
-      c2b<-order(Disth,decreasing=F)[1:psub[b]]
-    } else {
-      psub[b]<-0
-    }
-    if (psub[b]<3) next
-    close2b<-c2b[1:psub[b]]
-    rm(c2b)
-    # c. Establish (local-) triangulation (Delauney)
-    #    note: all points are used, despite the YES/NO thing
-    aux<-cbind(obs$x[close2b],obs$y[close2b])
-    nokloop<-1
-    # tri.mesh is not happy with duplicates, then we use the jitter option
-    jit<-1/mean(c(diff(range(obs$x[close2b])),
-                  diff(range(obs$x[close2b]))))
-    aux<-cbind(obs$x[close2b],obs$y[close2b])
-    nokloop<-1
-    while (anyDuplicated(aux)) {
-      ixdup<-which(duplicated(aux))
-      ndup<-length(ixdup)
-      obs$x[close2b][ixdup]<-obs$x[close2b][ixdup]+runif(ndup)
-      obs$y[close2b][ixdup]<-obs$y[close2b][ixdup]+runif(ndup)
-      aux<-cbind(obs$x[close2b],obs$y[close2b])
-      nokloop<-nokloop+1
-      if (nokloop>10) {
-        print("ERROR: check the input data for too many duplicated stations")
-        quit(status=1)
-      }
-    }
-    options(warn = 1, scipen = 999)
-    tri.rr<-tri.mesh(obs$x[close2b],obs$y[close2b],
-                     jitter=jit,jitter.iter=100,jitter.random=T)
-    options(warn = 2, scipen = 999)
-    # d. identify all the points (wheter YES or NO) which belongs
-    #    to adjacent nodes (respect to the b-th YES point node)
-    #  procedure: tri.find-> returns the three vertex indexes of triangle
-    #   containing the specified point. To find all the neighbouring 
-    #   triangles just span the area surrounding the b-th YES point
-    #   (circle of radius=1Km)
-    #  output: nodes-> point position respect to obs
-    nodes<-vector(mode="numeric")
-    tri.loc<-tri.find(tri.rr,obs$x[b],obs$y[b])
-    # note: due to the fact that (obs$x[b],obs$y[b]) belongs to the mesh
-    # used to establish the triangulation, ...i1,i2,i3 must be >0
-    nodes<-close2b[c(tri.loc$i1,tri.loc$i2,tri.loc$i3)]
-    for (cont.clock in 1:n.sector) {
-      x.aux<-obs$x[b]+sin(sector.angle*(cont.clock-1)*pi/180.)
-      y.aux<-obs$y[b]+cos(sector.angle*(cont.clock-1)*pi/180.)
-      tri.loc<-tri.find(tri.rr,x.aux,y.aux)
-      nodes.aux<-close2b[c(tri.loc$i1,tri.loc$i2,tri.loc$i3)]
-      nodes<-c(nodes,
-               nodes.aux[which( (!(nodes.aux %in% nodes)) &
-                                  (nodes.aux>0) )])
-    }
-    rm(x.aux,y.aux,tri.loc,nodes.aux)
-    lnodes<-length(nodes)
-    # e. update the temporary structure used to identify eve 
-    #    merge in a (new) eve all the (old) temporary eve (if any) 
-    #    which contain at least one point present in nodes (avoiding
-    #    repetition); erase (i.e. set to NAs) the (old) temporary eve merged
-    aux<-vector()
-    if (neve.aux>0) {
-      for (eve in 1:neve.aux) {
-        if (Leve.aux[eve]==0) next
-        if ( any(nodes %in% eve.aux[eve,1:Leve.aux[eve]]) ) {
-          aux<-c(aux[which(!(aux %in% eve.aux[eve,1:Leve.aux[eve]]))],
-                 eve.aux[eve,1:Leve.aux[eve]])
-          eve.aux[eve,]<-NA
-          Leve.aux[eve]<-0
-        }
-      }
-    }
-    neve.aux<-neve.aux+1
-    Leve.aux[neve.aux]<-length(c(aux,nodes[which(!(nodes%in%aux))]))
-    eve.aux[neve.aux,1:Leve.aux[neve.aux]]<-c(aux,nodes[which(!(nodes%in%aux))])
-  } # END: Cycle over the eventYES points
-# Reorganise eventYES clump labels
-  y.eve<-vector(length=p)
-  y.eve[1:p]<-NA
-  neve.vec<-0
-  if (neve.aux>0) {
-    for (eve in 1:neve.aux) {
-      if (Leve.aux[eve]==0) next
-      neve.vec<-neve.vec+1
-      Leve.vec[neve.vec]<-Leve.aux[eve]
-      eve.vec[neve.vec,1:Leve.vec[neve.vec]]<-eve.aux[eve,1:Leve.aux[eve]]
-      y.eve[eve.vec[neve.vec,1:Leve.vec[neve.vec]]]<-neve.vec
-    }
-  }
-  rm(eve.aux,Leve.aux,neve.aux)
-# identify eventYES points surrounded only by eventNO points (close enough)
-  if (neve.vec>0) {
-    for (j in 1:neve.vec) {
-      eve.j<-eve.vec[j,1:Leve.vec[j]] # nodes adjacent to the jth obs
-      ix.eY.pts<-which(eve.j %in% eix) # YES nodes
-      n.eY<-length(ix.eY.pts) # number of YES nodes
-      frac.eY<-n.eY/Leve.vec[j] # fraction of YES nodes
-      if (n.eY<n.connected_eveYES & frac.eY<frac.eveYES_in_the_clump) {
-        eve.j.eY<-eve.j[ix.eY.pts]
-        # if just one YES node, then flag the jth obs
-        if (n.eY==1) {
-          ydqc.flag[eve.j.eY]<-200
-        # if more than one then the nearest YES node must be distant enough
-        } else {
-          aux.dist<-(outer(obs$y[eve.j.eY],obs$y[eve.j],FUN="-")**2.+
-                     outer(obs$x[eve.j.eY],obs$x[eve.j],FUN="-")**2.)**0.5
-          min.dist.from.eY.stn<-min(aux.dist[aux.dist>0])
-          if (min.dist.from.eY.stn>=dmin.next_eveYES) {
-            ydqc.flag[eve.j.eY]<-200
-# debug
-#            png(file="foo.png",height=800,width=800)
-#            plot(obs$x[eve.j],obs$y[eve.j])
-#            points(obs$x[eve.j.eY],obs$y[eve.j.eY],pch=19,col="red")
-#            dev.off()
-#            q()
-          }
-        }
-      }
-||||||| merged common ancestors
-      # update selection
-      sel<-which(is.na(dqctmp) | dqctmp==argv$keep.code)
-      sel2check<-which(is.na(dqctmp) & doittmp==1)
-    } else {
-      break
-    }
-  } # end cycle SCT model
-  # coefficient of observation representativeness
-  # this call to ecdf(x)(x) should be the same as rank(x)/length(x)
-  corep[ix[j[sel]]]<-(d[sel]*(-ares))/sig2o
-  assign("corep",corep,envir=.GlobalEnv)
-  # debug: begin
-#  if (argv$debug) {
-#  }
-  # debug: end
-  return(length(which(dqctmp==sus.code)))
-}
-
-
-#+ find the n-th largest element from each matrix row 
-findRow <- function (x,n) {   
-# order by row number then by value
-  y<-t(x)
-  array(y[order(col(y), y)], dim(y))[nrow(y) - (n-1), ]
-}
-
-#+ mean radial distance between an observation and its k-th closest obs
-#dobs_fun<-function(ixynp,k) {
-dobs_fun<-function(obs,k) {
-# NOTE: k=1 will return 0 everywhere (1st closest obs is the obs itself)
-  nobs<-length(obs$x)
-  if (nobs<k) return(NA)
-  # distance matrices
-  disth<-(outer(obs$x,obs$x,FUN="-")**2.+
-          outer(obs$y,obs$y,FUN="-")**2.)**0.5
-  dobsRow<-findRow(x=disth,n=(nobs-k+1))
-  mean(dobsRow)
-}
-
-#+ remove clumps determined by less than n observations
-remove_ltNobsClumps<-function(r,n,reverse=F,obs) {
-  obsflag<-obs$x
-  obsflag[]<-0
-  d<-getValues(r)
-  if (reverse) {
-    dd<-d
-    d[dd==0]<-1
-    d[dd>0]<-0
-    r[]<-d
-  }
-  rc<-clump(r)
-  dc<-getValues(rc)
-  f<-freq(rc)
-  ytmp<-extract(rc,cbind(obs$x,obs$y),na.rm=T)
-  sel<-which(!is.na(ytmp))
-  for (i in 1:length(f[,1])) {
-    if (is.na(f[i,1])) next
-    if (any(ytmp[sel]==f[i,1])) {
-      ix<-which(ytmp[sel]==f[i,1])
-      if (length(ix)<n) {
-        dc[dc==f[i,1]]<-NA
-        obsflag[sel[ix]]<-1
-      }
-    }
-  }
-  dc[is.na(dc)]<-(-1)
-  if (any(dc==0)) d[which(dc==0)]<-0
-  if (reverse) {
-    dd<-d
-    d[dd==0]<-1
-    d[dd>0]<-0
-  }
-  r[]<-d
-  return(list(r=r,obsflag=obsflag))
-}
-
-
-# + puddle - puddle check
-puddle<-function(obs,
-                 thres=1,
-                 gt_or_lt="gt", #event definition: greater than or less than...
-                 Dh=25, # km
-                 eps2=0.1,
-                 n.eveYES_in_the_clump=2,
-                 n.eveNO_in_the_clump=2) {
-#------------------------------------------------------------------------------
-  p<-length(obs$x)
-  ydqc.flag<-vector(mode="numeric",length=p)
-  ydqc.flag[]<-0
-# eix0: vector of positions to observations that are equivalent to eventNO
-# eix1: vector of positions to observations that are equivalent to eventYES
-  if (gt_or_lt=="gt") {
-    e0<-obs$yo<=thres
-    e1<-obs$yo >thres
-  } else if (gt_or_lt=="lt") {
-    e0<-obs$yo>=thres
-    e1<-obs$yo< thres
-  } else if (gt_or_lt=="le") {
-    e0<-obs$yo >thres
-    e1<-obs$yo<=thres
-  } else if (gt_or_lt=="ge") {
-    e0<-obs$yo <thres
-    e1<-obs$yo>=thres
-  }
-  eix0<-which(e0)
-  eix1<-which(e1)
-  #
-  p0<-length(eix0)
-  p1<-length(eix1)
-  if ( (p0<=1) | (p1<=1) ) return(NULL)
-  # distance matrix
-  Disth<-matrix(ncol=p,nrow=p,data=0.)
-  Disth<-(outer(obs$y,obs$y,FUN="-")**2.+
-          outer(obs$x,obs$x,FUN="-")**2.)**0.5/1000.
-  # assign grid points to event yes/no
-  t00<-Sys.time()
-  #
-  D<-exp(-0.5*(Disth[eix0,eix0]/Dh)**2.)
-  diag(D)<-diag(D)+eps2
-  InvD<-chol2inv(chol(D))
-  assign("InvD",InvD,envir=.GlobalEnv)
-  rm(D)
-  xidi0<-OI_RR_fast(yo.sel=rep(1,p0),
-                    yb.sel=rep(0,p0),
-                    xb.sel=rep(0,length(xgrid_puddle)),
-                    xgrid.sel=xgrid_puddle,
-                    ygrid.sel=ygrid_puddle,
-                    zgrid.sel=zgrid_puddle,
-                    VecX.sel=obs$x[eix0],
-                    VecY.sel=obs$y[eix0],
-                    VecZ.sel=rep(0,p0),
-                    Dh.cur=Dh,
-                    Dz.cur=1000000) 
-  t11<-Sys.time()
-#  if (argv$verbose | argv$debug) 
-#    print(paste("xIDI event NO, time=",round(t11-t00,1),attr(t11-t00,"unit")))
-  t00<-Sys.time()
-  D<-exp(-0.5*(Disth[eix1,eix1]/Dh)**2.)
-  diag(D)<-diag(D)+eps2
-  InvD<-chol2inv(chol(D))
-  assign("InvD",InvD,envir=.GlobalEnv)
-  rm(D)
-  xidi1<-OI_RR_fast(yo.sel=rep(1,p1),
-                    yb.sel=rep(0,p1),
-                    xb.sel=rep(0,length(xgrid_puddle)),
-                    xgrid.sel=xgrid_puddle,
-                    ygrid.sel=ygrid_puddle,
-                    zgrid.sel=zgrid_puddle,
-                    VecX.sel=obs$x[eix1],
-                    VecY.sel=obs$y[eix1],
-                    VecZ.sel=rep(0,p1),
-                    Dh.cur=Dh,
-                    Dz.cur=1000000) 
-  t11<-Sys.time()
-#  if (argv$verbose | argv$debug) 
-#    print(paste("xIDI eventYES, time=",round(t11-t00,1),attr(t11-t00,"unit")))
-  rm(InvD,envir=.GlobalEnv)
-# x1=1 for grid points where event is YES
-  x1<-xidi1
-  x1[]<-0
-  if (any(xidi1>=xidi0)) {
-    x1[which(xidi1>=xidi0)]<-1
-  } else {
-    return(NULL)
-  }
-# -- remove YES(NO) observations close to a lot of NO(YES) ones --
-# observations might be correct but they will create unrealistic patterns, 
-# either a "puudle"/hole or a isolated max, in the analysis field because the local 
-# observation density is not sufficient to properly describe such small-scale
-# features
-  r1<-rgrid_puddle
-  r1[]<-NA
-  r1[mask_puddle]<-x1
-#  ytmp<-extract(r1,cbind(obs$x,obs$y),buffer=(2*mean(res(r1))),fun=mean,na.rm=T)
-  ytmp<-extract(r1,cbind(obs$x,obs$y))
-  # case 1. observation YES(NO) in an area with significant prevalence of NO(YES)
-  cond<-(ytmp==0 & e1) | (ytmp==1 & e0)
-  if (any(cond)) ydqc.flag[which(cond)]<-1
-  # case 2. puddle of YES surrounded by NO
-  out<-remove_ltNobsClumps(r=r1,
-                           n=n.eveYES_in_the_clump,
-                           reverse=F,
-                           obs=data.frame(x=obs$x,
-                                          y=obs$y))  
-  if (any(out$obsflag==1)) ydqc.flag[which(out$obsflag==1)]<-1
-  rm(out)
-  # case 3. puddle of NO surrounded by YES
-  out<-remove_ltNobsClumps(r=r1,
-                           n=n.eveNO_in_the_clump,
-                           reverse=T,
-                           obs=data.frame(x=obs$x,
-                                          y=obs$y))  
-  if (any(out$obsflag==1)) ydqc.flag[which(out$obsflag==1)]<-1
-  rm(out)
-  ydqc.flag
-}
-
-# + STEVE - iSolaTed EVent tEst
-steve<-function(obs,
-                thres=1,
-                gt_or_lt="gt", #event definition: greater than or less than...
-                pmax=20, 
-                dmax=150000,
-                n.sector=16,
-                n.connected_eveYES=1,
-                frac.eveYES_in_the_clump=1,
-                dmin.next_eveYES=150000) {
-#------------------------------------------------------------------------------
-  p<-length(obs$x)
-  pmax<-min(p,pmax)
-  psub<-vector(mode="numeric",length=p)
-  psub[]<-NA
-  sector.angle<-360/n.sector
-  ydqc.flag<-vector(mode="numeric",length=p)
-  ydqc.flag[]<-0
-# eix: vector of positions to observations that are equivalent to eventYES
-  if (gt_or_lt=="gt") {
-    eix<-which(obs$yo>thres)
-  } else if (gt_or_lt=="lt") {
-    eix<-which(obs$yo<thres)
-  } else if (gt_or_lt=="le") {
-    eix<-which(obs$yo<=thres)
-  } else if (gt_or_lt=="ge") {
-    eix<-which(obs$yo>=thres)
-  }
-  # no events= no isolated events
-  if (length(eix)==0) return(ydqc.flag)
-  # group eventsYES/NO into clumps of connected eventYES
-  # vectors:
-  # +neve.vec>number of eventYES clumps
-  # +Leve.vec[i]>(i=1,..,neve.vec) number of stns in i-th clump 
-  # +eve.vec[i,n]-> n-th stn (i.e. pointers to obs) in i-th clump
-  #  matrix(i,j) i=1,neve.vec j=1,Leve.vec[i]
-  #  note: a clumps of connected eventYES points may include eventNO points too
-  #        provided that an eventNO point is connected to eventYES points
-  eve.vec<-matrix(data=NA,ncol=p,nrow=p)
-  Leve.vec<-vector(mode="numeric",length=p)
-  Leve.vec[]<-NA
-  neve.vec<-0
-  eve.aux<-matrix(data=NA,ncol=p,nrow=p)
-  Leve.aux<-vector(mode="numeric",length=p)
-  Leve.aux[]<-NA
-  neve.aux<-0
-  for (b in eix) {  # START: Cycle over eventYES points 
-    # a. identify the closest points to the b-th eventYES point 
-    #  outputs: -close2b-> pointer to the closest points
-    #            constraints: distance must be less than Lsubsample.DHmax 
-    #                         max number of points allowed is Lsubsample.max
-    #           -psub[b]-> actual number of points used
-    Disth<-sqrt((obs$y[b]-obs$y)**2.+(obs$x[b]-obs$x)**2.)
-    if (any(Disth<=dmax)) {
-      ix<-which(Disth<=dmax)
-      psub[b]<-min(pmax,length(ix))
-      c2b<-order(Disth,decreasing=F)[1:psub[b]]
-    } else {
-      psub[b]<-0
-    }
-    if (psub[b]<3) next
-    close2b<-c2b[1:psub[b]]
-    rm(c2b)
-    # c. Establish (local-) triangulation (Delauney)
-    #    note: all points are used, despite the YES/NO thing
-    aux<-cbind(obs$x[close2b],obs$y[close2b])
-    nokloop<-1
-    # tri.mesh is not happy with duplicates, then we use the jitter option
-    jit<-1/mean(c(diff(range(obs$x[close2b])),
-                  diff(range(obs$x[close2b]))))
-    aux<-cbind(obs$x[close2b],obs$y[close2b])
-    nokloop<-1
-    while (anyDuplicated(aux)) {
-      ixdup<-which(duplicated(aux))
-      ndup<-length(ixdup)
-      obs$x[close2b][ixdup]<-obs$x[close2b][ixdup]+runif(ndup)
-      obs$y[close2b][ixdup]<-obs$y[close2b][ixdup]+runif(ndup)
-      aux<-cbind(obs$x[close2b],obs$y[close2b])
-      nokloop<-nokloop+1
-      if (nokloop>10) {
-        print("ERROR: check the input data for too many duplicated stations")
-        quit(status=1)
-      }
-    }
-    options(warn = 1, scipen = 999)
-    tri.rr<-tri.mesh(obs$x[close2b],obs$y[close2b],
-                     jitter=jit,jitter.iter=100,jitter.random=T)
-    options(warn = 2, scipen = 999)
-    # d. identify all the points (wheter YES or NO) which belongs
-    #    to adjacent nodes (respect to the b-th YES point node)
-    #  procedure: tri.find-> returns the three vertex indexes of triangle
-    #   containing the specified point. To find all the neighbouring 
-    #   triangles just span the area surrounding the b-th YES point
-    #   (circle of radius=1Km)
-    #  output: nodes-> point position respect to obs
-    nodes<-vector(mode="numeric")
-    tri.loc<-tri.find(tri.rr,obs$x[b],obs$y[b])
-    # note: due to the fact that (obs$x[b],obs$y[b]) belongs to the mesh
-    # used to establish the triangulation, ...i1,i2,i3 must be >0
-    nodes<-close2b[c(tri.loc$i1,tri.loc$i2,tri.loc$i3)]
-    for (cont.clock in 1:n.sector) {
-      x.aux<-obs$x[b]+sin(sector.angle*(cont.clock-1)*pi/180.)
-      y.aux<-obs$y[b]+cos(sector.angle*(cont.clock-1)*pi/180.)
-      tri.loc<-tri.find(tri.rr,x.aux,y.aux)
-      nodes.aux<-close2b[c(tri.loc$i1,tri.loc$i2,tri.loc$i3)]
-      nodes<-c(nodes,
-               nodes.aux[which( (!(nodes.aux %in% nodes)) &
-                                  (nodes.aux>0) )])
-    }
-    rm(x.aux,y.aux,tri.loc,nodes.aux)
-    lnodes<-length(nodes)
-    # e. update the temporary structure used to identify eve 
-    #    merge in a (new) eve all the (old) temporary eve (if any) 
-    #    which contain at least one point present in nodes (avoiding
-    #    repetition); erase (i.e. set to NAs) the (old) temporary eve merged
-    aux<-vector()
-    if (neve.aux>0) {
-      for (eve in 1:neve.aux) {
-        if (Leve.aux[eve]==0) next
-        if ( any(nodes %in% eve.aux[eve,1:Leve.aux[eve]]) ) {
-          aux<-c(aux[which(!(aux %in% eve.aux[eve,1:Leve.aux[eve]]))],
-                 eve.aux[eve,1:Leve.aux[eve]])
-          eve.aux[eve,]<-NA
-          Leve.aux[eve]<-0
-        }
-      }
-    }
-    neve.aux<-neve.aux+1
-    Leve.aux[neve.aux]<-length(c(aux,nodes[which(!(nodes%in%aux))]))
-    eve.aux[neve.aux,1:Leve.aux[neve.aux]]<-c(aux,nodes[which(!(nodes%in%aux))])
-  } # END: Cycle over the eventYES points
-# Reorganise eventYES clump labels
-  y.eve<-vector(length=p)
-  y.eve[1:p]<-NA
-  neve.vec<-0
-  if (neve.aux>0) {
-    for (eve in 1:neve.aux) {
-      if (Leve.aux[eve]==0) next
-      neve.vec<-neve.vec+1
-      Leve.vec[neve.vec]<-Leve.aux[eve]
-      eve.vec[neve.vec,1:Leve.vec[neve.vec]]<-eve.aux[eve,1:Leve.aux[eve]]
-      y.eve[eve.vec[neve.vec,1:Leve.vec[neve.vec]]]<-neve.vec
-    }
-  }
-  rm(eve.aux,Leve.aux,neve.aux)
-# identify eventYES points surrounded only by eventNO points (close enough)
-  if (neve.vec>0) {
-    for (j in 1:neve.vec) {
-      eve.j<-eve.vec[j,1:Leve.vec[j]]
-      ix.eY.pts<-which(eve.j %in% eix)
-      n.eY<-length(ix.eY.pts)
-      frac.eY<-n.eY/Leve.vec[j]
-      if (n.eY<n.connected_eveYES & frac.eY<frac.eveYES_in_the_clump) {
-        eve.j.eY<-eve.j[ix.eY.pts]
-        aux.dist<-(outer(obs$y[eve.j.eY],obs$y[eve.j],FUN="-")**2.+
-                   outer(obs$x[eve.j.eY],obs$x[eve.j],FUN="-")**2.)**0.5
-        min.dist.from.eY.stn<-min(aux.dist[aux.dist>0])
-        if (min.dist.from.eY.stn<dmin.next_eveYES) 
-          ydqc.flag[eve.j.eY]<-200
-      }
-=======
->>>>>>> devel
     }
     return(length(which(dqctmp==sus.code)))
   }
@@ -2780,16 +1863,8 @@ p <- add_argument(p, "--ccrrt.code",
 p <- add_argument(p, "--cool.code",
              help=paste("quality code returned in case of cool check fails"),
                   type="numeric",
-<<<<<<< HEAD
-                  default=12,
-                  short="-puddlec")
-||||||| merged common ancestors
-                  default=12,
-                  short="-ccrrtc")
-=======
                   default=15,
                   short="-coolc")
->>>>>>> devel
 p <- add_argument(p, "--buddy_eve.code",
   help="quality code returned in case of the buddy check event-based fails",
                   type="numeric",
@@ -2834,19 +1909,10 @@ p <- add_argument(p, "--latmax",
                   type="character",
                   default="71.8",
                   short="-lax")
-<<<<<<< HEAD
-p <- add_argument(p, "--dqc_inbox_only",
-                  help="perform dqc only in the defined box (lonmin,lonmax,latmin,latmax)",
-                  type="logical",
-                  default=F)
-
-||||||| merged common ancestors
-=======
 p <- add_argument(p, "--dqc_inbox_only",
                   help="perform dqc only in the defined box (lonmin,lonmax,latmin,latmax)",
                   flag=T)
 
->>>>>>> devel
 # transformation between coordinate reference systems
 p <- add_argument(p, "--spatconv",
                   help="flag for conversion of spatial coordinates before running the data quality checks",
@@ -2952,17 +2018,9 @@ p <- add_argument(p, "--varname.elev.out",
                   help="elevation variable name in the output file",
                   type="character",
                   default="elev")
-<<<<<<< HEAD
-p <- add_argument(p, "--elev_not_used",
-                  help="elevation is not used (will be set to zero)",
-                  type="logical",
-                  default=F)
-||||||| merged common ancestors
-=======
 p <- add_argument(p, "--elev_not_used",
                   help="elevation is not used (will be set to zero)",
                   flag=T)
->>>>>>> devel
 p <- add_argument(p, "--varname.value",
                   help="character vector, variable name(s) in the input file (default ''value'')",
                   type="character",
@@ -3372,42 +2430,6 @@ p <- add_argument(p, "--laf.proj4_att",
                   type="character",
                   default="proj4",
                   short="-lfp4a")
-<<<<<<< HEAD
-p <- add_argument(p, "--fast.sct",
-                  help=paste("faster spatial consistency test. Allow for",
-                      "flagging more than one observation simulataneously"),
-                  flag=T,
-                  short="-fS")
-p <- add_argument(p, "--smartbox.sct",
-                  help=paste("use smart boxes in the spatial consistency test for temperature"),
-                  flag=T)
-#.............................................................................. 
-# observation representativeness
-p <- add_argument(p, "--mean.corep",
-                  help="average coefficient for the observation representativeness. mean.corep is a vector of positive values (not NAs). If mean.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of mean.corep[1] will be used for all providers and any other mean.corep[2:n] value will be ignored",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-avC")
-p <- add_argument(p, "--min.corep",
-     help="minimum value for the coefficient for the observation representativeness. If min.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of min.corep[1] will be used for all providers and any other min.corep[2:n] value will be ignored",
-||||||| merged common ancestors
-p <- add_argument(p, "--fast.sct",
-                  help=paste("faster spatial consistency test. Allow for",
-                      "flagging more than one observation simulataneously"),
-                  flag=T,
-                  short="-fS")
-#.............................................................................. 
-# observation representativeness
-p <- add_argument(p, "--mean.corep",
-                  help="average coefficient for the observation representativeness. mean.corep is a vector of positive values (not NAs). If mean.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of mean.corep[1] will be used for all providers and any other mean.corep[2:n] value will be ignored",
-                  type="numeric",
-                  default=NA,
-                  nargs=Inf,
-                  short="-avC")
-p <- add_argument(p, "--min.corep",
-     help="minimum value for the coefficient for the observation representativeness. If min.corep has the same length of the number of input files, then a provider dependent value will be used. Otherwise, the value of min.corep[1] will be used for all providers and any other min.corep[2:n] value will be ignored",
-=======
 p <- add_argument(p, "--laf.x_as_var.varname",
                   help="easting coordinate, variable name (used when proj4 is not specified)",
                   type="character",
@@ -3418,7 +2440,6 @@ p <- add_argument(p, "--laf.y_as_var.varname",
                   default=NA)
 p <- add_argument(p, "--laf.xy_as_var.ndim",
                   help="easting/northing coordinates, number of dimensions",
->>>>>>> devel
                   type="numeric",
                   default=NA)
 p <- add_argument(p, "--laf.xy_as_var.tpos",
@@ -3534,50 +2555,12 @@ p <- add_argument(p,"--ccrrt.filemeps",
                   default=NULL,
                   short="-ccrrtfm")
 #.............................................................................. 
-<<<<<<< HEAD
-# puddle check
-p <- add_argument(p, "--puddle",
-                  help="puddle check",
-                  flag=T,
-                  short="-pudf")
-p <- add_argument(p, "--dobs_k.puddle",
-                  help="in the calculations of the de-correlation lenght scale, consider the observations up to the \"dobs_k\" closest one. Furthermore, the grid resolution of the grid depends on \"dobs_k\"",
-                  type="numeric",
-                  default=5,
-                  short="-putk")
-p <- add_argument(p, "--Dh_min.puddle",
-                  help="minimum allowed value for the de-correlation lenght scale (in km)",
-                  type="numeric",
-                  default=5,
-                  short="-putd")
-p <- add_argument(p, "--i.puddle",
-                  help="number of puddle-check iterations",
-||||||| merged common ancestors
-# precipitation and temperature cross-check
-p <- add_argument(p, "--puddle",
-                  help="puddle check",
-                  flag=T,
-                  short="-pudf")
-p <- add_argument(p, "--dobs_k.puddle",
-                  help="in the calculations of the de-correlation lenght scale, consider the observations up to the \"dobs_k\" closest one. Furthermore, the grid resolution of the grid depends on \"dobs_k\"",
-                  type="numeric",
-                  default=5,
-                  short="-putk")
-p <- add_argument(p, "--Dh_min.puddle",
-                  help="minimum allowed value for the de-correlation lenght scale (in km)",
-                  type="numeric",
-                  default=5,
-                  short="-putd")
-p <- add_argument(p, "--i.puddle",
-                  help="number of puddle-check iterations",
-=======
 # cool check
 p <- add_argument(p, "--cool",
                   help="cool (Check fOr hOLes in the field) test",
                   flag=T)
 p <- add_argument(p, "--i.cool",
                   help="number of cool-test iterations",
->>>>>>> devel
                   type="integer",
                   default=1)
 p <- add_argument(p, "--thres.cool",
@@ -4036,31 +3019,6 @@ p <- add_argument(p, "--thrpos.fg",
 p <- add_argument(p, "--thrneg.fg",
      help="maximum allowed deviation between observation and fg (if obs<fg) (provider dependent)",
                   type="numeric",
-<<<<<<< HEAD
-                  default=NA)
-p <- add_argument(p, "--perc.fg_minval",
-     help="do the prec.fg test only for values greater than the specified threshold",
-                  type="numeric",
-                  default=1)
-p <- add_argument(p, "--thrperc.fg",
-     help="maximum allowed deviation between observation and fg (as %, e.g. 0.1=10%)",
-                  type="numeric",
-                  default=NA)
-p <- add_argument(p, "--thrpercpos.fg",
-     help="maximum allowed deviation between observation and fg (if obs>fg, as %, e.g. 0.1=10%)",
-                  type="numeric",
-                  default=NA)
-p <- add_argument(p, "--thrpercneg.fg",
-     help="maximum allowed deviation between observation and fg (if obs<fg, as %, e.g. 0.1=10%)",
-                  type="numeric",
-                  default=NA)
-p <- add_argument(p, "--fg.dodqc",
-                  help="check the first-guess field for weird values",
-                  type="logical",
-                  default=T)
-||||||| merged common ancestors
-                  default=NA)
-=======
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--perc.fg_minval",
@@ -4092,7 +3050,6 @@ p <- add_argument(p, "--fg.dodqc",
                   help="check the first-guess field for weird values",
                   type="logical",
                   default=T)
->>>>>>> devel
 p <- add_argument(p,"--fg.type",
                   help="file type for the first-guess (e.g., meps)",
                   type="character",
@@ -4604,54 +3561,6 @@ if (any(is.na(argv$input.offset))) {
     argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
   }
 }
-<<<<<<< HEAD
-# set input offsets and correction factors
-if (any(is.na(argv$input.offset))) {
-  argv$input.offset<-rep(0,length=nfin)
-} else {
-  if (length(argv$input.offset)!=nfin) 
-    argv$input.offset<-rep(argv$input.offset[1],length=nfin)
-  aux<-vector(length=nfin,mode="numeric")
-  for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$input.offset[i]))
-  argv$input.offset<-aux
-  rm(aux)
-  if (!any(is.na(argv$input.negoffset))) {
-    if (length(argv$input.negoffset)!=nfin) 
-      argv$input.negoffset<-rep(argv$input.negoffset[1],length=nfin)
-    argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
-  }
-}
-if (any(is.na(argv$input.cfact))) {
-  argv$input.cfact<-rep(1,length=nfin)
-} else {
-  if (length(argv$input.cfact)!=nfin) 
-    argv$input.cfact<-rep(argv$input.cfact[1],length=nfin)
-  aux<-vector(length=nfin,mode="numeric")
-  for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$input.cfact[i]))
-  argv$input.cfact<-aux
-  rm(aux)
-  if (!any(is.na(argv$input.negcfact))) {
-    if (length(argv$input.negcfact)!=nfin) 
-      argv$input.negcfact<-rep(argv$input.negcfact[1],length=nfin)
-    argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
-  }
-}
-# set offsets and correction factors
-#if (any(is.na(argv$input.offset))) argv$input.offset<-rep(0,nfin)
-#if (any(is.na(argv$input.negoffset))) argv$input.negoffset<-rep(0,nfin)
-#if (any(is.na(argv$input.cfact))) argv$input.cfact<-rep(1,nfin)
-#if (any(is.na(argv$input.negcfact))) argv$input.negcfact<-rep(0,nfin)
-#argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
-#argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
-||||||| merged common ancestors
-# set offsets and correction factors
-if (is.na(argv$input.offset)) argv$input.offset<-rep(0,nfin)
-if (is.na(argv$input.negoffset)) argv$input.negoffset<-rep(0,nfin)
-if (is.na(argv$input.cfact)) argv$input.cfact<-rep(1,nfin)
-if (is.na(argv$input.negcfact)) argv$input.negcfact<-rep(0,nfin)
-argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
-argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
-=======
 if (any(is.na(argv$input.cfact))) {
   argv$input.cfact<-rep(1,length=nfin)
 } else {
@@ -4743,7 +3652,6 @@ if (is.na(fge.demnegcfact)) fge.demnegcfact<-0
 fge.demcfact<-as.numeric(gsub("_","-",fge.demcfact))
 fge.demcfact<-fge.demcfact*(-1)**(fge.demnegcfact)
 #................................................................................
->>>>>>> devel
 # check variable
 if (!(argv$variable %in% c("T","RH","RR","SD"))) 
   boom("variable must be one of T, RH, RR, SD")
@@ -5079,26 +3987,11 @@ if (!is.na(argv$fg.file)) {
 }
 #
 if (!is.na(argv$month.clim) & (argv$month.clim<1 | argv$month.clim>12)) {
-<<<<<<< HEAD
-  print("ERROR: month number is wrong:")
-  print(paste("month number=",argv$month.clim))
-  quit(status=1)
-} else if (!is.na(argv$month.clim) & 
-           (length(which(!is.na(argv$vmin.clim)))!=12 | 
-            length(which(!is.na(argv$vmax.clim)))!=12) ) {
-  print("ERROR: climatological check, vmin.clim and/or vmax.clim vectors must have 12 arguments")
-  quit(status=1)
-||||||| merged common ancestors
-  print("ERROR: month number is wrong:")
-  print(paste("month number=",argv$month.clim))
-  quit(status=1)
-=======
   boom(paste("ERROR: month number is wrong. month number=",argv$month.clim))
 } else if (!is.na(argv$month.clim) & 
            (length(which(!is.na(argv$vmin.clim)))!=12 | 
             length(which(!is.na(argv$vmax.clim)))!=12) ) {
   boom("ERROR: climatological check, vmin.clim and/or vmax.clim vectors must have 12 arguments")
->>>>>>> devel
 }
 # blacklist
 if (any(!is.na(argv$blacklist.lat)) | 
@@ -5372,8 +4265,6 @@ if (argv$smartbox.sct & argv$variable == "T") {
     boom(paste("ERROR: file not found.",argv$titan_path,"sct","sct_smart_boxes.so"))
   dyn.load(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))
 }
-print(argv$titan_path)
-dyn.load(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))
 # buddy_eve checks
 if (any(is.na(argv$thr_eve.buddy_eve)))
   argv$thr_eve.buddy_eve<-c(0.1,1,10)
@@ -5486,25 +4377,11 @@ for (f in 1:nfin) {
   }
   rm(varidxtmp)
   # varidx is used also in the output session
-<<<<<<< HEAD
-  varidxtmp<-match(c(argv$varname.lat[f],
-                     argv$varname.lon[f],
-                     argv$varname.elev[f],
-                     argv$varname.value[f]),
-                   names(datain))
-||||||| merged common ancestors
-  varidxtmp<-match(c(argv$varname.lat[f],
-                  argv$varname.lon[f],
-                  argv$varname.elev[f],
-                  argv$varname.value[f]),
-                names(datain))
-=======
   varidxtmp<-match( c(argv$varname.lat[f],
                       argv$varname.lon[f],
                       argv$varname.elev[f],
                       argv$varname.value[f]),
                     names(datain) )
->>>>>>> devel
   if (any(is.na(varidxtmp))) {
     print("ERROR in the specification of the variable names")
     print(paste(" latitude=",argv$varname.lat[f]))
@@ -5720,20 +4597,11 @@ if (length(ix)>0) {
         z[ix]<argv$zmin | 
         z[ix]>argv$zmax |
         is.na(data$value[ix]) 
-<<<<<<< HEAD
-  if (argv$dqc_inbox_only) 
-    meta<- meta | ( data$lat[ix] < argv$latmin | 
-                    data$lat[ix] > argv$latmax |
-                    data$lon[ix] < argv$lonmin | 
-                    data$lon[ix] > argv$lonmax )
-||||||| merged common ancestors
-=======
   if (argv$dqc_inbox_only) 
     meta<- meta | ( data$lat[ix] < extent_latmin | 
                     data$lat[ix] > extent_latmax |
                     data$lon[ix] < extent_lonmin | 
                     data$lon[ix] > extent_lonmax )
->>>>>>> devel
   if (any(meta)) dqcflag[ix[which(meta)]]<-argv$nometa.code
 } else {
   print("no valid observations left, no metadata check")
@@ -5745,17 +4613,6 @@ if (argv$verbose) {
         length(which(flagaux))))
   print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-<<<<<<< HEAD
-  print(paste("  # lon-lat missing (*) =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
-                     data$lat < argv$latmin | data$lat > argv$latmax | 
-                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
-  print(paste("  # z missing           =",
-||||||| merged common ancestors
-  print(paste("  # lon-lat missing =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon))))))
-  print(paste("  # z missing       =",
-=======
   if (argv$dqc_inbox_only) {
     print(paste("  # lon-lat missing (*) =",
           length(which(flagaux & (is.na(data$lat) | 
@@ -5770,18 +4627,12 @@ if (argv$verbose) {
                                   is.na(data$lon) ))))) 
   }
   print(paste("  # z missing           =",
->>>>>>> devel
         length(which(flagaux & is.na(z)))))
   print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
-<<<<<<< HEAD
-  print("(*) or outside the specified box")
-||||||| merged common ancestors
-=======
   if (argv$dqc_inbox_only) 
     print("(*) or outside the specified box")
->>>>>>> devel
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -5856,13 +4707,7 @@ if (argv$dem | argv$dem.fill) {
                !is.na(data$lon)   &
                !is.na(zdem) &
                !(zdem<argv$zmin | zdem>argv$zmax) &
-<<<<<<< HEAD
-               (is.na(z) | is.nan(z) | (z<argv$zmin | z>argv$zmax)) )
-||||||| merged common ancestors
-               (is.na(z) | (z<argv$zmin | z>argv$zmax)) )
-=======
                (is.na(z) | is.nan(z) | z<argv$zmin | z>argv$zmax) )
->>>>>>> devel
     z[iz]<-zdem[iz]
     dqcflag[iz]<-dqcflag.bak[iz]
     rm(dqcflag.bak)
@@ -6130,37 +4975,7 @@ if (argv$rr.wcor) {
   } else {
     boom("ERROR precipitation correction for the wind undercatch: wind varname has not been specified")
   }
-<<<<<<< HEAD
-  if (argv$proj4wind!=argv$proj4to) {
-    ws10m<-extract(rwind, 
-           coordinates( spTransform( SpatialPoints(cbind(data$lon,data$lat), 
-                                           proj4string=CRS(argv$proj4from)),
-                                    CRS(argv$proj4wind)) ), method="bilinear")
-  } else {
-    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
-  }
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_ws.png"),
-               r=rwind,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
-  rm(rwind) 
-||||||| merged common ancestors
-  if (argv$proj4wind!=argv$proj4to) {
-    coord<-SpatialPoints(cbind(data$lon,data$lat),
-                         proj4string=CRS(argv$proj4from))
-    coord.new<-spTransform(coord,CRS(argv$proj4wind))
-    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
-    xy.tmp<-coordinates(coord.new)
-    rm(coord,coord.new,xy.tmp)
-  } else {
-    ws10m<-extract(rwind,cbind(x,y),method="bilinear")
-  }
-  if (argv$debug)
-    plot_debug(ff=file.path(argv$debug.dir,"rrwcor_ws.png"),
-               r=rwind,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4wind)
-  rm(rwind) 
-=======
   if (argv$debug) save.image(file.path(argv$debug.dir,"rrcor_before.RData"))
->>>>>>> devel
   # precipitation data adjustment
   data$rawvalue<-data$value
   res<-wolff_correction(par=argv$rr.wcor.par,
@@ -6191,241 +5006,6 @@ if (argv$rr.wcor) {
 #-----------------------------------------------------------------------------
 # Read deterministic first guess (optional)
 if (!is.na(argv$fg.file)) {
-<<<<<<< HEAD
-  if (argv$verbose | argv$debug)
-    print("Read deterministic first-guess")
-  ti<-nc4.getTime(argv$fg.file)
-  if (is.na(argv$fg.t)) argv$fg.t<-ti[1]
-  if (!(argv$fg.t %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$fg.t)
-    print(ti)
-    quit(status=1)
-  }
-  fg.epos<-argv$fg.epos
-  if (is.na(argv$fg.epos)) fg.epos<-NULL
-  fg.e<-argv$fg.e
-  if (is.na(argv$fg.e)) fg.e<-NULL
-  if (argv$fg.acc) {
-    tminus1h<-format(as.POSIXlt(
-      seq(as.POSIXlt(strptime(argv$fg.t,"%Y%m%d%H%M",tz="UTC")),
-          length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
-    raux<-try(nc4in(nc.file=argv$fg.file,
-                    nc.varname=argv$fg.varname,
-                    topdown=argv$fg.topdown,
-                    out.dim=list(ndim=argv$fg.ndim,
-                                 tpos=argv$fg.tpos,
-                                 epos=fg.epos,
-                                 names=argv$fg.dimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=c(tminus1h,argv$fg.t),e=fg.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$fg.file)
-      quit(status=1)
-    }
-    rfg<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
-  } else {
-    raux<-try(nc4in(nc.file=argv$fg.file,
-                    nc.varname=argv$fg.varname,
-                    topdown=argv$fg.topdown,
-                    out.dim=list(ndim=argv$fg.ndim,
-                                 tpos=argv$fg.tpos,
-                                 epos=fg.epos,
-                                 names=argv$fg.dimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=argv$fg.t,e=fg.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file (var):")
-      print(argv$fg.file)
-      quit(status=1)
-    }
-    rfg<-raux$stack
-  }
-  rm(raux,ti,fg.e,fg.epos)
-  # radar fg, data quality control 
-  if (!is.na(argv$fg.type)) {
-    if (argv$fg.type=="radar" & argv$fg.dodqc) {
-      if (argv$verbose | argv$debug)
-        print("Read radar and do the radar-DQC")
-      t0a<-Sys.time()
-      suppressPackageStartupMessages(library("igraph"))
-      dfg<-getValues(rfg)
-      # a. remove not plausible values
-      radardqc.min<-0
-      radardqc.max<-300
-      ix<-which( !is.na(dfg) & (dfg<radardqc.min | dfg>radardqc.max) )
-      if (length(ix)>0) {
-        dfg[ix]<-NA
-        rfg[]<-dfg
-      }
-      # b. remove patches of connected cells that are too small
-      #  check for small and isolated clumps (patches) of connected cells with 
-      #  precipitation greater than a predefined threshold
-      #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
-      #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
-      radardqc.clump.thr<-c(0,1)
-      radardqc.clump.n<-c(100,50)
-      for (i in 1:length(radardqc.clump.thr)) {
-        raux<-rfg
-        if (any(dfg<=radardqc.clump.thr[i])) 
-          raux[which(dfg<=radardqc.clump.thr[i])]<-NA
-        rclump<-clump(raux)
-        fr<-freq(rclump)
-        ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
-        dfg[getValues(rclump) %in% fr[ix,1]]<-NA
-        rfg[]<-dfg
-        rm(raux,fr,ix,rclump)
-      }
-      # c. remove outliers. Check for outliers in square boxes of 51km by 51km
-      raux<-rfg
-      daux<-boxcox(x=dfg,lambda=0.5)
-      raux[]<-daux
-      radardqc.outl.fact<-51
-      # aggregate over boxes of fact x fact cells, take the mean
-      avg<-getValues(
-            crop(
-             focal(
-              extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-              w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=mean,na.rm=T),
-            raux) )
-      stdev<-getValues(
-              crop(
-               focal(
-                extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-                w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
-              raux) )
-      ix<-which(stdev>0)
-      # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
-      suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
-      if (length(suspect)>0) dfg[ix[suspect]]<-NA
-      rfg[]<-dfg
-      rm(raux,daux,avg,stdev,ix,suspect,dfg)
-      if (argv$radarout) rrad<-rfg
-      t1a<-Sys.time()
-      print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-||||||| merged common ancestors
-  if (argv$verbose | argv$debug)
-    print("Read deterministic first-guess")
-  ti<-nc4.getTime(argv$fg.file)
-  if (is.na(argv$fg.t)) argv$fg.t<-ti[1]
-  if (!(argv$fg.t %in% ti)) {
-    print("ERROR timestamp requested is not in the file:")
-    print(argv$fg.t)
-    print(ti)
-    quit(status=1)
-  }
-  fg.epos<-argv$fg.epos
-  if (is.na(argv$fg.epos)) fg.epos<-NULL
-  fg.e<-argv$fg.e
-  if (is.na(argv$fg.e)) fg.e<-NULL
-  if (argv$fg.acc) {
-    tminus1h<-format(as.POSIXlt(
-      seq(as.POSIXlt(strptime(argv$fg.t,"%Y%m%d%H%M",tz="UTC")),
-          length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
-    raux<-try(nc4in(nc.file=argv$fg.file,
-                    nc.varname=argv$fg.varname,
-                    topdown=argv$fg.topdown,
-                    out.dim=list(ndim=argv$fg.ndim,
-                                 tpos=argv$fg.tpos,
-                                 epos=fg.epos,
-                                 names=argv$fg.dimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=c(tminus1h,argv$fg.t),e=fg.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file:")
-      print(argv$fg.file)
-      quit(status=1)
-    }
-    rfg<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
-  } else {
-    raux<-try(nc4in(nc.file=argv$fg.file,
-                    nc.varname=argv$fg.varname,
-                    topdown=argv$fg.topdown,
-                    out.dim=list(ndim=argv$fg.ndim,
-                                 tpos=argv$fg.tpos,
-                                 epos=fg.epos,
-                                 names=argv$fg.dimnames),
-                    proj4=argv$proj4fg,
-                    nc.proj4=list(var=argv$fg.proj4_var,
-                                  att=argv$fg.proj4_att),
-                    selection=list(t=argv$fg.t,e=fg.e)))
-    if (is.null(raux)) {
-      print("ERROR while reading file (var):")
-      print(argv$fg.file)
-      quit(status=1)
-    }
-    rfg<-raux$stack
-  }
-  rm(raux,ti,fg.e,fg.epos)
-  # radar fg, data quality control 
-  if (!is.na(argv$fg.type)) {
-    if (argv$fg.type=="radar") {
-      if (argv$verbose | argv$debug)
-        print("Read radar and do the radar-DQC")
-      t0a<-Sys.time()
-      suppressPackageStartupMessages(library("igraph"))
-      dfg<-getValues(rfg)
-      # a. remove not plausible values
-      radardqc.min<-0
-      radardqc.max<-300
-      ix<-which( !is.na(dfg) & (dfg<radardqc.min | dfg>radardqc.max) )
-      if (length(ix)>0) {
-        dfg[ix]<-NA
-        rfg[]<-dfg
-      }
-      # b. remove patches of connected cells that are too small
-      #  check for small and isolated clumps (patches) of connected cells with 
-      #  precipitation greater than a predefined threshold
-      #   threshold 0 mm/h. remove all the clumps made of less than 100 cells
-      #   threshold 1 mm/h. remove all the clumps made of less than 50 cells
-      radardqc.clump.thr<-c(0,1)
-      radardqc.clump.n<-c(100,50)
-      for (i in 1:length(radardqc.clump.thr)) {
-        raux<-rfg
-        if (any(dfg<=radardqc.clump.thr[i])) 
-          raux[which(dfg<=radardqc.clump.thr[i])]<-NA
-        rclump<-clump(raux)
-        fr<-freq(rclump)
-        ix<-which(!is.na(fr[,2]) & fr[,2]<=radardqc.clump.n[i])
-        dfg[getValues(rclump) %in% fr[ix,1]]<-NA
-        rfg[]<-dfg
-        rm(raux,fr,ix,rclump)
-      }
-      # c. remove outliers. Check for outliers in square boxes of 51km by 51km
-      raux<-rfg
-      daux<-boxcox(x=dfg,lambda=0.5)
-      raux[]<-daux
-      radardqc.outl.fact<-51
-      # aggregate over boxes of fact x fact cells, take the mean
-      avg<-getValues(
-            crop(
-             focal(
-              extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-              w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=mean,na.rm=T),
-            raux) )
-      stdev<-getValues(
-              crop(
-               focal(
-                extend(raux,c(radardqc.outl.fact,radardqc.outl.fact)),
-                w=matrix(1,radardqc.outl.fact,radardqc.outl.fact),fun=sd,na.rm=T),
-              raux) )
-      ix<-which(stdev>0)
-      # outliers are defined as in Lanzante,1997: abs(value-mean)/st.dev > 5
-      suspect<-which((abs(daux[ix]-avg[ix])/stdev[ix])>5) 
-      if (length(suspect)>0) dfg[ix[suspect]]<-NA
-      rfg[]<-dfg
-      rm(raux,daux,avg,stdev,ix,suspect,dfg)
-      if (argv$radarout) rrad<-rfg
-      t1a<-Sys.time()
-      print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-=======
   if (argv$verbose) print("Read deterministic first-guess")
   nc.dqc_mode<-"none"
   if (!is.na(argv$fg.type) & argv$fg.type=="radar" & argv$fg.dodqc) 
@@ -6474,7 +5054,6 @@ if (!is.na(argv$fg.file)) {
       yobs_cool_aux<-c(yobs_cool_aux,xygrid_cool[,2])
       pridobs_cool_aux<-c(pridobs_cool_aux,rep(NA,length(ix_aux)))
       rm(xygrid_cool)
->>>>>>> devel
     }
     rm(aux,ix_aux)
   }
@@ -6544,195 +5123,11 @@ if (!is.na(argv$fge.file)) {
     zfgedem<-fge.demoffset+ zfgedem * fge.demcfact
   }
   #
-<<<<<<< HEAD
-  if (is.na(argv$fge.epos)) {
-    print("ERROR fge.epos must have a valid value")
-    quit(status=1)
-  }
-  ei<-nc4.getDim(argv$fge.file,
-                 varid=argv$fge.dimnames[argv$fge.epos])
-||||||| merged common ancestors
-  ei<-nc4.getDim(argv$fge.file,varid=argv$fge.dimnames[argv$fge.epos])
-  if (is.na(argv$fge.epos)) {
-    print("ERROR fge.epos must have a valid value")
-    quit(status=1)
-  }
-=======
   if (is.na(argv$fge.epos)) boom("ERROR fge.epos must have a valid value")
   ei<-nc4.getDim(argv$fge.file, varid=argv$fge.dimnames[argv$fge.epos])
->>>>>>> devel
   edata<-array(data=NA,dim=c(ndata,length(ei)))
   first<-T
   for (ens in 1:length(ei)) {
-<<<<<<< HEAD
-    if (argv$fge.acc) {
-      tminus1h<-format(as.POSIXlt(
-        seq(as.POSIXlt(strptime(argv$fge.t,"%Y%m%d%H%M",tz="UTC")),
-            length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
-      raux<-try(nc4in(nc.file=argv$fge.file,
-                      nc.varname=argv$fge.varname,
-                      topdown=argv$fge.topdown,
-                      out.dim=list(ndim=argv$fge.ndim,
-                                   tpos=argv$fge.tpos,
-                                   epos=argv$fge.epos,
-                                   names=argv$fge.dimnames),
-                      proj4=argv$proj4fge,
-                      nc.proj4=list(var=argv$fge.proj4_var,
-                                    att=argv$fge.proj4_att),
-                      selection=list(t=c(tminus1h,argv$fge.t),
-                                     e=ei[ens])))
-      if (is.null(raux)) {
-        print("ERROR while reading file:")
-        print(argv$fge.file)
-        quit(status=1)
-      }
-      rfge<-raster(raux$stack,"layer.2")-
-            raster(raux$stack,"layer.1")
-    } else {
-      raux<-nc4in(nc.file=argv$fge.file,
-                  nc.varname=argv$fge.varname,
-                  topdown=argv$fge.topdown,
-                  out.dim=list(ndim=argv$fge.ndim,
-                               tpos=argv$fge.tpos,
-                               epos=argv$fge.epos,
-                               names=argv$fge.dimnames),
-                  proj4=argv$proj4fge,
-                  nc.proj4=list(var=argv$fge.proj4_var,
-                                att=argv$fge.proj4_att),
-#                  selection=list(t=argv$fge.t,e=ei[ens],z=4))
-                  selection=list(t=argv$fge.t,e=ei[ens]))
-      rfge<-raux$stack
-    }
-    # for ''output radar data'' usage: save the ensemble median
-    if (argv$radarout) {
-      dfge<-getValues(rfge)
-      if (any(!is.na(dfge))) {
-        if (first) {
-          gdata<-array(data=NA,dim=c(length(dfge),length(ei)))
-          rfge.grid<-rfge
-          first<-F
-        }
-        gdata[,ens]<-getValues(rfge)
-      }
-    }
-    # debug
-    if (argv$debug) {
-      png(file=file.path(argv$debug.dir,
-                         paste("fge_",formatC(ens,width=2,flag="0"),".png",sep="")),
-          width=800,height=800)
-      image(rfge,
-            breaks=seq(range(getValues(rfge),na.rm=T)[1],
-                       range(getValues(rfge),na.rm=T)[2],length=20),
-            col=c(rev(rainbow(19))))
-      if (exists("rlaf")) contour(rlaf,levels=1,add=T)
-      if (exists("rlaf")) rm(rlaf)
-      points(x,y,cex=0.8,pch=19)
-      dev.off()
-    }
-    rm(raux)
-    # extract data at observation locations (coord conversion)
-    if (argv$proj4fge!=argv$proj4to) {
-      coord<-SpatialPoints(cbind(data$lon,data$lat),
-                           proj4string=CRS(argv$proj4from))
-      coord.new<-spTransform(coord,CRS(argv$proj4fge))
-      xy.tmp<-coordinates(coord.new)
-      edata[,ens]<-extract(rfge,xy.tmp,method="bilinear")
-      rm(coord,coord.new,xy.tmp)
-    } else {
-      edata[,ens]<-extract(rfge,cbind(x,y),method="bilinear")
-    }
-    edata[,ens]<-argv$fge.offset*(-1)**(argv$fge.negoffset)+
-               edata[,ens]*argv$fge.cfact*(-1)**(argv$fge.negcfact)
-    if (argv$variable=="T") { 
-      edata[,ens]<-edata[,ens]+argv$gamma.standard*(z-zfgedem)
-    } else if (argv$variable=="RR") {
-      edata[,ens]<-boxcox(x=edata[,ens],lambda=argv$boxcox.lambda)
-    }
-    rm(rfge)
-||||||| merged common ancestors
-    if (argv$fge.acc) {
-      tminus1h<-format(as.POSIXlt(
-        seq(as.POSIXlt(strptime(argv$fge.t,"%Y%m%d%H%M",tz="UTC")),
-            length=2,by="-1 hour"),"UTC")[2],"%Y%m%d%H%M",tz="UTC")
-      raux<-try(nc4in(nc.file=argv$fge.file,
-                      nc.varname=argv$fge.varname,
-                      topdown=argv$fge.topdown,
-                      out.dim=list(ndim=argv$fge.ndim,
-                                   tpos=argv$fge.tpos,
-                                   epos=argv$fge.epos,
-                                   names=argv$fge.dimnames),
-                      proj4=argv$proj4fge,
-                      nc.proj4=list(var=argv$fge.proj4_var,
-                                    att=argv$fge.proj4_att),
-                      selection=list(t=c(tminus1h,argv$fge.t),e=ei[ens])))
-      if (is.null(raux)) {
-        print("ERROR while reading file:")
-        print(argv$fge.file)
-        quit(status=1)
-      }
-      rfge<-raster(raux$stack,"layer.2")-raster(raux$stack,"layer.1")
-    } else {
-      raux<-nc4in(nc.file=argv$fge.file,
-                  nc.varname=argv$fge.varname,
-                  topdown=argv$fge.topdown,
-                  out.dim=list(ndim=argv$fge.ndim,
-                               tpos=argv$fge.tpos,
-                               epos=argv$fge.epos,
-                               names=argv$fge.dimnames),
-                  proj4=argv$proj4fge,
-                  nc.proj4=list(var=argv$fge.proj4_var,
-                                att=argv$fge.proj4_att),
-#                  selection=list(t=argv$fge.t,e=ei[ens],z=4))
-                  selection=list(t=argv$fge.t,e=ei[ens]))
-      rfge<-raux$stack
-    }
-    # for ''output radar data'' usage: save the ensemble median
-    if (argv$radarout) {
-      dfge<-getValues(rfge)
-      if (any(!is.na(dfge))) {
-        if (first) {
-          gdata<-array(data=NA,dim=c(length(dfge),length(ei)))
-          rfge.grid<-rfge
-          first<-F
-        }
-        gdata[,ens]<-getValues(rfge)
-      }
-    }
-    # debug
-    if (argv$debug) {
-      png(file=file.path(argv$debug.dir,
-                         paste("fge_",formatC(ens,width=2,flag="0"),".png",sep="")),
-          width=800,height=800)
-      image(rfge,
-            breaks=seq(range(getValues(rfge),na.rm=T)[1],
-                       range(getValues(rfge),na.rm=T)[2],length=20),
-            col=c(rev(rainbow(19))))
-      if (exists("rlaf")) contour(rlaf,levels=1,add=T)
-      if (exists("rlaf")) rm(rlaf)
-      points(x,y,cex=0.8,pch=19)
-      dev.off()
-    }
-    rm(raux)
-    # extract data at observation locations (coord conversion)
-    if (argv$proj4fge!=argv$proj4to) {
-      coord<-SpatialPoints(cbind(data$lon,data$lat),
-                           proj4string=CRS(argv$proj4from))
-      coord.new<-spTransform(coord,CRS(argv$proj4fge))
-      xy.tmp<-coordinates(coord.new)
-      edata[,ens]<-extract(rfge,xy.tmp,method="bilinear")
-      rm(coord,coord.new,xy.tmp)
-    } else {
-      edata[,ens]<-extract(rfge,cbind(x,y),method="bilinear")
-    }
-    edata[,ens]<-argv$fge.offset*(-1)**(argv$fge.negoffset)+
-               edata[,ens]*argv$fge.cfact*(-1)**(argv$fge.negcfact)
-    if (argv$variable=="T") { 
-      edata[,ens]<-edata[,ens]+argv$gamma.standard*(z-zfgedem)
-    } else if (argv$variable=="RR") {
-      edata[,ens]<-boxcox(x=edata[,ens],lambda=argv$boxcox.lambda)
-    }
-    rm(rfge)
-=======
     debug.file<-ifelse(argv$debug, 
                        file.path(argv$debug.dir,
                         paste0("input_data_fge_member",
@@ -6765,36 +5160,9 @@ if (!is.na(argv$fge.file)) {
     if (argv$variable=="T") 
       edata[,ens]<-edata[,ens]+ argv$gamma.standard * (z-zfgedem)
     rm(res)
->>>>>>> devel
   } # end of cycle over ensemble members
   # compute mean and sd 
   fge.mu<-rowMeans(edata,na.rm=T)
-<<<<<<< HEAD
-  fge.sd<-apply(edata,MARGIN=1,FUN=function(x){sd(x,na.rm=T)})
-#  fge.q50<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
-#  fge.q25<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.25,na.rm=T))})
-#  fge.q75<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.75,na.rm=T))})
-  if (argv$debug)
-    save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
-  rm(edata)
-  #
-  if (argv$radarout) {
-#    fge.gq50<-apply(gdata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
-    fge.gmu<-rowMeans(gdata,na.rm=T)
-    rm(gdata)
-||||||| merged common ancestors
-  fge.sd<-apply(edata,MARGIN=1,FUN=function(x){sd(x,na.rm=T)})
-  fge.q50<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
-  fge.q25<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.25,na.rm=T))})
-  fge.q75<-apply(edata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.75,na.rm=T))})
-  if (argv$debug)
-    save.image(file.path(argv$debug.dir,"input_data_fge.RData")) 
-  rm(edata)
-  #
-  if (argv$radarout) {
-    fge.gq50<-apply(gdata,MARGIN=1,FUN=function(x){as.numeric(quantile(x,probs=0.5,na.rm=T))})
-    rm(gdata)
-=======
   fge_sd<-function(i) { sd(edata[i,],na.rm=T) }
   if (!is.na(argv$cores)) {
     fge.sd<-mcmapply(fge_sd,
@@ -6806,7 +5174,6 @@ if (!is.na(argv$fge.file)) {
     fge.sd<-mapply(fge_sd,
                    1:dim(edata)[1],
                    SIMPLIFY=T)
->>>>>>> devel
   }
   fge.sd<-pmax(fge.sd,argv$sdmin.fge,na.rm=T)
   rm(edata)
@@ -6817,24 +5184,6 @@ if (!is.na(argv$fge.file)) {
           toString(round(as.vector(quantile(fge.sd,
                              probs=c(0.05,0.25,0.5,0.75,0.95),
                              na.rm=T)),2))))
-<<<<<<< HEAD
-#    print(paste("fge iqr(5,25,50,75,95-th)=",
-#          toString(round(as.vector(quantile(fge.q75,
-#                             probs=c(0.05,0.25,0.5,0.75,0.95),
-#                             na.rm=T))-
-#                         as.vector(quantile(fge.q25,
-#                             probs=c(0.05,0.25,0.5,0.75,0.95),
-#                             na.rm=T)),2))))
-||||||| merged common ancestors
-    print(paste("fge iqr(5,25,50,75,95-th)=",
-          toString(round(as.vector(quantile(fge.q75,
-                             probs=c(0.05,0.25,0.5,0.75,0.95),
-                             na.rm=T))-
-                         as.vector(quantile(fge.q25,
-                             probs=c(0.05,0.25,0.5,0.75,0.95),
-                             na.rm=T)),2))))
-=======
->>>>>>> devel
     print(paste("time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
     print("+---------------------------------+")
   }
@@ -6866,21 +5215,6 @@ if (argv$verbose | argv$debug) {
   print("test for no metdata (2nd round), statistics over the whole dataset")
   print(paste("# observations lacking metadata and/or NAs=",
         length(which(flagaux))))
-<<<<<<< HEAD
-  print(paste("  # NAs                 =",
-        length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
-  print(paste("  # lon-lat missing (*) =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon) | 
-                     data$lat < argv$latmin | data$lat > argv$latmax | 
-                     data$lon < argv$lonmin | data$lon > argv$lonmax ) ))))
-  print(paste("  # z missing           =",
-||||||| merged common ancestors
-  print(paste("  # NAs             =",
-        length(which(flagaux & is.na(data$value)))))
-  print(paste("  # lon-lat missing =",
-        length(which(flagaux & (is.na(data$lat) | is.na(data$lon))))))
-  print(paste("  # z missing       =",
-=======
   print(paste("  # NAs                 =",
         length(which(flagaux & is.na(data$value))))) # coincides with all the NAs
   if (argv$dqc_inbox_only) {
@@ -6897,18 +5231,12 @@ if (argv$verbose | argv$debug) {
                                   is.na(data$lon) ))))) 
   }
   print(paste("  # z missing           =",
->>>>>>> devel
         length(which(flagaux & is.na(z)))))
   print(paste("  # z out of range      =",
         length(which(flagaux & !is.na(z) & 
                      (z<argv$zmin | z>argv$zmax) ))))
-<<<<<<< HEAD
-  print("(*) or outside the specified box")
-||||||| merged common ancestors
-=======
   if (argv$dqc_inbox_only) 
     print("(*) or outside the specified box")
->>>>>>> devel
   rm(flagaux)
   print("+---------------------------------+")
 }
@@ -7005,28 +5333,6 @@ if (!is.na(argv$month.clim)) {
 #  Define an event compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$buddy_eve) {
-<<<<<<< HEAD
-  nprev<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
-  ncur<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
-  nprev[]<-0
-  ncur[]<-0
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  prio<-vector(length=ndata,mode="numeric")
-  prio[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy_eve[f]
-  for (f in 1:nfin) prio[data$prid==argv$prid[f]]<-argv$prio.buddy_eve[f]
-||||||| merged common ancestors
-  if (argv$verbose | argv$debug) nprev<-0
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  prio<-vector(length=ndata,mode="numeric")
-  prio[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy_eve[f]
-  for (f in 1:nfin) prio[data$prid==argv$prid[f]]<-argv$prio.buddy_eve[f]
-=======
   nsus<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
   # set doit/prio vectors
   doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
@@ -7038,7 +5344,6 @@ if (argv$buddy_eve) {
     prio[aux]<-argv$prio.buddy_eve[f]
   }
   rm(aux)
->>>>>>> devel
   # test
   print(paste0("buddy_eve-check (",argv$buddy_eve.code,")"))
   print(paste0("priorities ",toString(argv$prio.buddy_eve)))
@@ -7046,8 +5351,6 @@ if (argv$buddy_eve) {
     priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
     nsus[]<-0
     for (j in 1:length(argv$thr_eve.buddy_eve)) {
-      if ((ncur[j]-nprev[j])==0 & i>2) break
-      nprev[j]<-ncur[j]
       # use only (probably) good observations with doit!=0
       ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
                  doit!=0 )
@@ -7117,27 +5420,9 @@ if (argv$buddy_eve) {
       } else {
         print("no valid observations left, no buddy_eve check")
       }
-<<<<<<< HEAD
-      ncur[j]<-length(which(dqcflag==argv$buddy_eve.code))
-||||||| merged common ancestors
-=======
       nsus[j]<-ifelse(exists("sus"),length(sus),0)
->>>>>>> devel
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
-<<<<<<< HEAD
-        print(paste("buddy_eve-check, iteration=",i,
-                    "event is: less than",argv$thr_eve.buddy_eve[j],
-                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        print(paste("# suspect observations=",ncur[j]-nprev[j]))
-||||||| merged common ancestors
-        print(paste("buddy_eve-check, iteration=",i,
-                    "event is: less than",argv$thr_eve.buddy_eve[j],
-                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        ncur<-length(which(dqcflag==argv$buddy_eve.code))
-        print(paste("# suspect observations=",ncur-nprev))
-        nprev<-length(which(dqcflag==argv$buddy_eve.code))
-=======
         str<-" (#TOT "
         for (f in 1:nfin) {
           if (f>1) str<-paste0(str,"; ") 
@@ -7154,7 +5439,6 @@ if (argv$buddy_eve) {
                      "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         print(paste0(prestr,nsus[j]," new suspect observations",str))
         rm(prestr,str)
->>>>>>> devel
       }
     } # end for j
     if (sum(nsus)==0) break
@@ -7177,25 +5461,6 @@ if (argv$buddy_eve) {
 # buddy check (standard)
 #  compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
-<<<<<<< HEAD
-nprev<-0
-# set doit vector
-doit<-vector(length=ndata,mode="numeric")
-doit[]<-NA
-prio<-vector(length=ndata,mode="numeric")
-prio[]<-NA
-for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy[f]
-for (f in 1:nfin) prio[data$prid==argv$prid[f]]<-argv$prio.buddy[f]
-||||||| merged common ancestors
-if (argv$verbose | argv$debug) nprev<-0
-# set doit vector
-doit<-vector(length=ndata,mode="numeric")
-doit[]<-NA
-prio<-vector(length=ndata,mode="numeric")
-prio[]<-NA
-for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.buddy[f]
-for (f in 1:nfin) prio[data$prid==argv$prid[f]]<-argv$prio.buddy[f]
-=======
 nprev<-0
 # set doit/prio vectors
 doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
@@ -7207,7 +5472,6 @@ for (f in 1:nfin) {
   prio[aux]<-argv$prio.buddy[f]
 }
 rm(aux)
->>>>>>> devel
 # test
 print(paste0("buddy-check (",argv$buddy.code,")"))
 print(paste0("priorities ",toString(argv$prio.buddy)))
@@ -7279,16 +5543,8 @@ for (i in 1:argv$i.buddy) {
     str<-paste0(str,")")
     print(paste("buddy-check, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-<<<<<<< HEAD
-    print(paste("# suspect observations=",ncur-nprev))
-||||||| merged common ancestors
-    ncur<-length(which(dqcflag==argv$buddy.code))
-    print(paste("# suspect observations=",ncur-nprev))
-    nprev<-length(which(dqcflag==argv$buddy.code))
-=======
     print(paste("#new suspect observations=",ncur-nprev,str))
     rm(str)
->>>>>>> devel
   }
   if ((ncur-nprev)==0 & i>2) break
   nprev<-ncur
@@ -7307,380 +5563,6 @@ if (exists("itot")) rm(itot)
 if (exists("ixyztp_tot")) rm(ixyztp_tot)
 #
 #-----------------------------------------------------------------------------
-<<<<<<< HEAD
-# STEVE - isolated event test (YES/NO)
-if (argv$steve) {
-  nprev<-0
-  if (argv$verbose | argv$debug) {
-    print(paste0("STEVE (",argv$steve.code,")"))
-  }
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.steve[f]
-  # test
-  for (i in 1:argv$i.steve) {
-    t0a<-Sys.time()
-    for (j in 1:length(argv$thres.steve)) {
-      # use only (probably) good observations
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="lt",
-                   pmax=argv$pmax_lt.steve[j],
-                   dmax=argv$dmax_lt.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_lt.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_lt.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_lt.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-      } else {
-        print("no valid observations left, no STEVE")
-      }
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="ge",
-                   pmax=argv$pmax_ge.steve[j],
-                   dmax=argv$dmax_ge.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_ge.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_ge.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_ge.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-      } else {
-        print("no valid observations left, no STEVE")
-      }
-    } # end of loop over threshold that define events
-    ncur<-length(which(dqcflag==argv$steve.code))
-    if (argv$verbose | argv$debug) {
-      t1a<-Sys.time()
-      print(paste("STEVE, iteration=",i,
-                  "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-      print(paste("# suspect observations=",ncur-nprev))
-    }
-    if ((ncur-nprev)==0) break
-    nprev<-ncur
-  }
-  rm(doit)
-  if (argv$verbose | argv$debug) 
-    print("+---------------------------------+")
-  if (argv$debug) 
-    save.image(file.path(argv$debug.dir,"dqcres_steve.RData")) 
-}
-#
-#-----------------------------------------------------------------------------
-# puddle check (first round)
-if (argv$puddle) {
-  nprev<-0
-  if (argv$verbose | argv$debug) {
-    print(paste0("puddle-check (",argv$puddle.code,")"))
-  }
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.puddle[f]
-  ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-  ptmp<-length(ix)
-  if (ptmp<1) {
-    print("puddle check: no valid observations left, no test")
-    mask_puddle<-integer(0)
-  } else {
-    if (!exists("mask_puddle")) {
-      # prepare mask with gridpoints where the calculation can be done
-      t00<-Sys.time()
-      xytmp<-cbind(x[ix],y[ix])
-      Dh_puddle<-dobs_fun(obs=data.frame(x=x[ix],y=y[ix]),
-                          k=argv$dobs_k.puddle)
-      Dh_puddle<-max(argv$Dh_min.puddle,(Dh_puddle/1000))
-      rm(xytmp)
-      # define raster grid
-      grid_res<-as.integer((Dh_puddle/argv$dobs_k.puddle)*1000)
-      if (argv$verbose | argv$debug) {
-        print(paste("Dh (to the closest",argv$dobs_k.puddle,"neighbour)=",
-              round(Dh_puddle,1),"km (grid res=",round(grid_res,0),"m)"))
-      }
-      rgrid_puddle<-raster(ext=e,resolution=grid_res)
-      rgrid_puddle[]<-NA
-      xygrid_puddle<-xyFromCell(rgrid_puddle,1:ncell(rgrid_puddle))
-      xgrid_puddle<-xygrid_puddle[,1]
-      ygrid_puddle<-xygrid_puddle[,2]
-      rm(xygrid_puddle)
-      # NOTE: z is not used here, but we are ready to introduce it for future versions
-      zgrid_puddle<-rep(0,length(ygrid_puddle))
-      D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
-                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh_puddle)**2.)
-      diag(D)<-diag(D)+argv$eps2.puddle
-#      t00b<-Sys.time()
-      InvD<-chol2inv(chol(D))
-#      t01b<-Sys.time()
-#      print(paste("InvD time",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
-      rm(D)
-#      t00b<-Sys.time()
-      xidi<-OI_RR_fast(yo.sel=rep(1,ptmp),
-                       yb.sel=rep(0,ptmp),
-                       xb.sel=rep(0,length(xgrid_puddle)),
-                       xgrid.sel=xgrid_puddle,
-                       ygrid.sel=ygrid_puddle,
-                       zgrid.sel=zgrid_puddle,
-                       VecX.sel=x[ix],
-                       VecY.sel=y[ix],
-                       VecZ.sel=rep(0,ptmp),
-                       Dh.cur=Dh_puddle,
-                       Dz.cur=1000000)
-#      t01b<-Sys.time()
-#      print(paste("OI_RR_fast",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
-      rm(InvD)
-      mask_puddle<-which(xidi>=0.00001)
-      t11<-Sys.time()
-      if (argv$verbose | argv$debug) {
-        print(paste("prepare mask, time=",round(t11-t00,1),attr(t11-t00,"unit")))
-        print(paste("tot points=",length(xgrid_puddle)))
-        print(paste("masked points=",length(mask_puddle)))
-      }
-    } # end "if (!exists("mask_puddle"))"
-  }
-  if (length(mask_puddle)==0) {
-    print("puddle check: no test")
-  } else {
-    xgrid_puddle<-xgrid_puddle[mask_puddle]
-    ygrid_puddle<-ygrid_puddle[mask_puddle]
-    zgrid_puddle<-zgrid_puddle[mask_puddle]
-    # test
-    for (i in 1:argv$i.puddle) {
-      t0a<-Sys.time()
-      for (j in 1:length(argv$thres.puddle)) {
-        # use only (probably) good observations
-        ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-        if (length(ix)>0) {
-          aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                      thres=argv$thres.puddle[j],
-                      gt_or_lt="lt",
-                      Dh=Dh_puddle,
-                      eps2=argv$eps2.puddle,
-                      n.eveYES_in_the_clump=argv$n_lt.puddle[j],
-                      n.eveNO_in_the_clump=argv$n_ge.puddle[j])
-          sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-          # set dqcflag
-          if (length(sus)>0) dqcflag[ix[sus]]<-argv$puddle.code
-        } else {
-          print("no valid observations left, no puddle check")
-        }
-      } # end of loop over threshold that define events
-      ncur<-length(which(dqcflag==argv$puddle.code & !is.na(dqcflag)))
-      if (argv$verbose | argv$debug) {
-        t1a<-Sys.time()
-        print(paste("puddle check, iteration=",i,
-                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        print(paste("# suspect observations=",ncur-nprev))
-      } 
-      if ((ncur-nprev)==0) break
-      nprev<-ncur
-    } # end of loop over test iterations
-    rm(doit)
-    if (argv$verbose | argv$debug) 
-      print("+---------------------------------+")
-    if (argv$debug) 
-      save.image(file.path(argv$debug.dir,"dqcres_puddle.RData")) 
-  } # end of "if (length(mask_puddle)==0)"
-} # end of if (argv$puddle)
-#
-#-----------------------------------------------------------------------------
-||||||| merged common ancestors
-# STEVE - isolated event test (YES/NO)
-if (argv$steve) {
-  if (argv$verbose | argv$debug) {
-    nprev<-0
-    print(paste0("STEVE (",argv$steve.code,")"))
-  }
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.steve[f]
-  # test
-  for (i in 1:argv$i.steve) {
-    t0a<-Sys.time()
-    for (j in 1:length(argv$thres.steve)) {
-      # use only (probably) good observations
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="lt",
-                   pmax=argv$pmax_lt.steve[j],
-                   dmax=argv$dmax_lt.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_lt.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_lt.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_lt.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-      } else {
-        print("no valid observations left, no STEVE")
-      }
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="ge",
-                   pmax=argv$pmax_ge.steve[j],
-                   dmax=argv$dmax_ge.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_ge.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_ge.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_ge.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-      } else {
-        print("no valid observations left, no STEVE")
-      }
-    } # end of loop over threshold that define events
-    if (argv$verbose | argv$debug) {
-      t1a<-Sys.time()
-      print(paste("STEVE, iteration=",i,
-                  "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-      ncur<-length(which(dqcflag==argv$steve.code))
-      print(paste("# suspect observations=",ncur-nprev))
-      nprev<-ncur
-    }
-  }
-  rm(doit)
-  if (argv$verbose | argv$debug) 
-    print("+---------------------------------+")
-  if (argv$debug) 
-    save.image(file.path(argv$debug.dir,"dqcres_steve.RData")) 
-}
-#
-#-----------------------------------------------------------------------------
-# puddle check (first round)
-if (argv$puddle) {
-  if (argv$verbose | argv$debug) {
-    nprev<-0
-    print(paste0("puddle-check (",argv$puddle.code,")"))
-  }
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.puddle[f]
-  ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-  ptmp<-length(ix)
-  if (ptmp<1) {
-    print("puddle check: no valid observations left, no test")
-    mask_puddle<-integer(0)
-  } else {
-    if (!exists("mask_puddle")) {
-      # prepare mask with gridpoints where the calculation can be done
-      t00<-Sys.time()
-      xytmp<-cbind(x[ix],y[ix])
-      Dh_puddle<-dobs_fun(obs=data.frame(x=x[ix],y=y[ix]),
-                          k=argv$dobs_k.puddle)
-      Dh_puddle<-max(argv$Dh_min.puddle,(Dh_puddle/1000))
-      rm(xytmp)
-      # define raster grid
-      grid_res<-as.integer((Dh_puddle/argv$dobs_k.puddle)*1000)
-      if (argv$verbose | argv$debug) {
-        print(paste("Dh (to the closest",argv$dobs_k.puddle,"neighbour)=",
-              round(Dh_puddle,1),"km (grid res=",round(grid_res,0),"m)"))
-      }
-      rgrid_puddle<-raster(ext=e,resolution=grid_res)
-      rgrid_puddle[]<-NA
-      xygrid_puddle<-xyFromCell(rgrid_puddle,1:ncell(rgrid_puddle))
-      xgrid_puddle<-xygrid_puddle[,1]
-      ygrid_puddle<-xygrid_puddle[,2]
-      rm(xygrid_puddle)
-      # NOTE: z is not used here, but we are ready to introduce it for future versions
-      zgrid_puddle<-rep(0,length(ygrid_puddle))
-      D<-exp(-0.5*(((outer(x[ix],x[ix],FUN="-")**2.+
-                     outer(y[ix],y[ix],FUN="-")**2.)**0.5/1000.)/Dh_puddle)**2.)
-      diag(D)<-diag(D)+argv$eps2.puddle
-#      t00b<-Sys.time()
-      InvD<-chol2inv(chol(D))
-#      t01b<-Sys.time()
-#      print(paste("InvD time",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
-      rm(D)
-#      t00b<-Sys.time()
-      xidi<-OI_RR_fast(yo.sel=rep(1,ptmp),
-                       yb.sel=rep(0,ptmp),
-                       xb.sel=rep(0,length(xgrid_puddle)),
-                       xgrid.sel=xgrid_puddle,
-                       ygrid.sel=ygrid_puddle,
-                       zgrid.sel=zgrid_puddle,
-                       VecX.sel=x[ix],
-                       VecY.sel=y[ix],
-                       VecZ.sel=rep(0,ptmp),
-                       Dh.cur=Dh_puddle,
-                       Dz.cur=1000000)
-#      t01b<-Sys.time()
-#      print(paste("OI_RR_fast",round(t01b-t00b,1),attr(t01b-t00b,"unit")))
-      rm(InvD)
-      mask_puddle<-which(xidi>=0.00001)
-      t11<-Sys.time()
-      if (argv$verbose | argv$debug) {
-        print(paste("prepare mask, time=",round(t11-t00,1),attr(t11-t00,"unit")))
-        print(paste("tot points=",length(xgrid_puddle)))
-        print(paste("masked points=",length(mask_puddle)))
-      }
-    } # end "if (!exists("mask_puddle"))"
-  }
-  if (length(mask_puddle)==0) {
-    print("puddle check: no test")
-  } else {
-    xgrid_puddle<-xgrid_puddle[mask_puddle]
-    ygrid_puddle<-ygrid_puddle[mask_puddle]
-    zgrid_puddle<-zgrid_puddle[mask_puddle]
-    # test
-    for (i in 1:argv$i.puddle) {
-      t0a<-Sys.time()
-      for (j in 1:length(argv$thres.puddle)) {
-        # use only (probably) good observations
-        ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-        if (length(ix)>0) {
-          aux<-puddle(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                      thres=argv$thres.puddle[j],
-                      gt_or_lt="lt",
-                      Dh=Dh_puddle,
-                      eps2=argv$eps2.puddle,
-                      n.eveYES_in_the_clump=argv$n_lt.puddle[j],
-                      n.eveNO_in_the_clump=argv$n_ge.puddle[j])
-          sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-          # set dqcflag
-          if (length(sus)>0) dqcflag[ix[sus]]<-argv$puddle.code
-        } else {
-          print("no valid observations left, no puddle check")
-        }
-      } # end of loop over threshold that define events
-      if (argv$verbose | argv$debug) {
-        t1a<-Sys.time()
-        print(paste("puddle plot, iteration=",i,
-                    "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        ncur<-length(which(dqcflag==argv$puddle.code))
-        print(paste("# suspect observations=",ncur-nprev))
-        nprev<-ncur
-      } 
-    } # end of loop over test iterations
-    rm(doit)
-    if (argv$verbose | argv$debug) 
-      print("+---------------------------------+")
-    if (argv$debug) 
-      save.image(file.path(argv$debug.dir,"dqcres_puddle.RData")) 
-  } # end of "if (length(mask_puddle)==0)"
-} # end of if (argv$puddle)
-#
-#-----------------------------------------------------------------------------
-=======
->>>>>>> devel
 # check against a first-guess (deterministic)
 if (argv$fg) {
   if (argv$verbose | argv$debug) {
@@ -7710,55 +5592,7 @@ if (argv$fg) {
   }
   # use only (probably) good observations
   ix<-which(is.na(dqcflag) & doit!=0)
-  if (exists("sus")) rm(sus)
-  sus<-integer(0)
   if (length(ix)>0) {
-<<<<<<< HEAD
-    if (is.null(argv$thr.fg)) argv$thr.fg<-NA
-    if (is.null(argv$thrpos.fg)) argv$thrpos.fg<-NA
-    if (is.null(argv$thrneg.fg)) argv$thrneg.fg<-NA
-    aux<-(!is.na(fg) & is.na(dqcflag) & doit==1)
-    dev<-fg
-    dev[]<-NA
-    dev[which(aux)]<-data$value[which(aux)]-fg[which(aux)]
-    if (!is.na(argv$thr.fg)) 
-      sus<-c(sus, which( aux & abs(dev)>argv$thr.fg ) ) 
-    if (!is.na(argv$thrpos.fg)) 
-      sus<-c(sus, which( aux & dev>argv$thrpos.fg ) ) 
-    if (!is.na(argv$thrneg.fg)) 
-      sus<-c(sus, which( aux & dev<(-argv$thrneg.fg) ) ) 
-    rm(aux,dev)
-    if (is.null(argv$perc.fg_minval)) argv$perc.fg_minval<-NA
-    if (is.null(argv$thrperc.fg)) argv$thrperc.fg<-NA
-    if (is.null(argv$thrposperc.fg)) argv$thrposperc.fg<-NA
-    if (is.null(argv$thrnegperc.fg)) argv$thrnegperc.fg<-NA
-    if (!is.na(argv$perc.fg_minval)) {
-      aux<-(!is.na(fg) & is.na(dqcflag) & doit==1 & fg>=argv$perc.fg_minval)
-      devperc<-fg
-      devperc[]<-NA
-      devperc[which(aux)]<-(data$value[which(aux)]-fg[which(aux)])/fg[which(aux)]
-      if (!is.na(argv$thrperc.fg)) 
-        sus<-c(sus, which( aux & abs(devperc)>argv$thrperc.fg ) ) 
-      if (!is.na(argv$thrpercpos.fg)) 
-        sus<-c(sus, which( aux & devperc>argv$thrposperc.fg ) ) 
-      if (!is.na(argv$thrpercneg.fg)) 
-        sus<-c(sus, which( aux & devperc<(-argv$thrnegperc.fg) ) ) 
-      rm(aux,devperc)
-    }
-||||||| merged common ancestors
-    if (is.na(argv$thrpos.fg) | is.na(argv$thrneg.fg)) {
-      sus<-which(!is.na(fg) & 
-                 is.na(dqcflag) & 
-                 (abs(data$value-fg)>argv$thr.fg) &
-                 doit==1)
-    } else {
-      sus<-which(!is.na(fg) & 
-                 is.na(dqcflag) & 
-                 ( ((data$value-fg)>argv$thrpos.fg) | 
-                   ((fg-data$value)>argv$thrneg.fg) ) &
-                 doit==1)
-    }
-=======
     dev<-data$value-fg
     devperc<-dev/fg
     flag_sus<-rep(F,ndata)
@@ -7792,7 +5626,6 @@ if (argv$fg) {
     rm(flag_sus,flag_to_check,dev,devperc)
     rm(doit,thrvec,thrposvec,thrnegvec,perc_minvalvec,thrpercvec)
     rm(thrpospercvec,thrnegpercvec)
->>>>>>> devel
     # set dqcflag
     if (length(ix_sus)>0) dqcflag[ix_sus]<-argv$fg.code
     rm(ix_sus)
@@ -7853,42 +5686,6 @@ if (argv$fge) {
   # use only (probably) good observations
   ix<-which(is.na(dqcflag) & doit!=0)
   if (length(ix)>0) {
-<<<<<<< HEAD
-    if (argv$variable=="RR") {
-      ttot<-boxcox(x=data$value,lambda=argv$boxcox.lambda)
-    } else {
-      ttot<-data$value
-    }
-    fge.sd<-pmax(fge.sd,argv$sdmin.fge,na.rm=T)
-#    fge.iqr<-pmax((fge.q75-fge.q25),argv$iqrmin.fge,na.rm=T)
-    sus<-which( 
-#    ( (abs(fge.mu-ttot)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
-#      ((ttot-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
-#      ((fge.q25-ttot)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr)) ) &
-    (abs(fge.mu-ttot)>(argv$csd.fge*argv$infsd.fge*fge.sd))    & 
-    !is.na(fge.mu) & 
-    !is.na(fge.sd) & 
-#    !is.na(fge.iqr) & 
-    is.na(dqcflag) &
-    doit==1)
-||||||| merged common ancestors
-    if (argv$variable=="RR") {
-      ttot<-boxcox(x=data$value,lambda=argv$boxcox.lambda)
-    } else {
-      ttot<-data$value
-    }
-    fge.sd<-pmax(fge.sd,argv$sdmin.fge,na.rm=T)
-    fge.iqr<-pmax((fge.q75-fge.q25),argv$iqrmin.fge,na.rm=T)
-    sus<-which( ( 
-    (abs(fge.mu-ttot)>(argv$csd.fge*argv$infsd.fge*fge.sd))    | 
-    ((ttot-fge.q75)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr))   |
-    ((fge.q25-ttot)>(argv$ciqr.fge*argv$infiqr.fge*fge.iqr)) ) &
-    !is.na(fge.mu) & 
-    !is.na(fge.sd) & 
-    !is.na(fge.iqr) & 
-    is.na(dqcflag) &
-    doit==1)
-=======
     dev<-data$value-fge.mu
     devperc<-dev/fge.mu
     devout<-dev/fge.sd
@@ -7936,7 +5733,6 @@ if (argv$fge) {
     rm(flag_sus,flag_to_check,dev,devperc,devout)
     rm(doit,thrvec,thrposvec,thrnegvec,perc_minvalvec,thrpercvec)
     rm(thrpospercvec,thrnegpercvec,throutvec,thrposoutvec,thrnegoutvec)
->>>>>>> devel
     # set dqcflag
     if (length(ix_sus)>0) dqcflag[ix_sus]<-argv$fge.code
     rm(ix_sus)
@@ -8388,16 +6184,8 @@ for (i in 1:argv$i.sct) {
     str<-paste0(str,")")
     print(paste("SCT, iteration=",i,
                 "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-<<<<<<< HEAD
-    print(paste("# suspect observations=",ncur-nprev))
-||||||| merged common ancestors
-    ncur<-length(which(dqcflag==argv$sct.code))
-    print(paste("# suspect observations=",ncur-nprev))
-    nprev<-length(which(dqcflag==argv$sct.code))
-=======
     print(paste("# suspect observations=",ncur-nprev,str))
     rm(str)
->>>>>>> devel
   }
   if ((ncur-nprev)==0) break
   nprev<-ncur
@@ -8422,180 +6210,8 @@ if (!any(is.na(argv$const.corep))) {
     }
   }
 } else {
-<<<<<<< HEAD
-  print("no valid first guess for the observation error variance found")
-}
-if (argv$debug) 
-  save.image(file.path(argv$debug.dir,"dqcres_sct.RData")) 
-#
-#-----------------------------------------------------------------------------
-# check elevation against dem 
-# NOTE: keep-listed stations canNOT be flagged here
-if (argv$dem) {
-  if (argv$verbose | argv$debug) 
-    print(paste0("check for stations too far from dem (",argv$dem.code,")"))
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.dem[f]
-  # use only (probably) good observations
-  ix<-which(is.na(dqcflag))
-||||||| merged common ancestors
-  print("no valid first guess for the observation error variance found")
-}
-if (argv$debug) 
-  save.image(file.path(argv$debug.dir,"dqcres_sct.RData")) 
-#
-#-----------------------------------------------------------------------------
-# check elevation against dem 
-# NOTE: keep-listed stations canNOT be flagged here
-if (argv$dem) {
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.dem[f]
-  # use only (probably) good observations
-  ix<-which(is.na(dqcflag))
-=======
   ix<-which(!is.na(corep) & (is.na(dqcflag) | dqcflag==argv$keep.code)) 
->>>>>>> devel
   if (length(ix)>0) {
-<<<<<<< HEAD
-    ixna<-which(!is.na(z) & !is.na(zdem) & is.na(dqcflag))
-    sus<-which( abs(z[ixna]-zdem[ixna])>argv$dz.dem &
-                doit[ixna]==1 )
-    # set dqcflag
-    if (length(sus)>0) dqcflag[ixna[sus]]<-argv$dem.code
-  }  else {
-    print("no valid observations left, no dem check")
-  }
-  if (argv$verbose | argv$debug) {
-    print(paste("# observations too far from dem=",
-                length(which(dqcflag==argv$dem.code))))
-    print("+---------------------------------+")
-  }
-  rm(doit)
-}
-if (argv$debug) 
-  save.image(file.path(argv$debug.dir,"dqcres_demcheck.RData")) 
-#
-#-----------------------------------------------------------------------------
-# STEVE (second round) - isolated event test (YES/NO)
-if (argv$steve) {
-  t0a<-Sys.time()
-  if (argv$verbose | argv$debug) {
-    print(paste0("STEVE 2 (",argv$steve.code,")"))
-  }
-  nprev<-0
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.steve[f]
-  # test
-  for (i in 1:argv$i.steve) {
-    t0a<-Sys.time()
-    for (j in 1:length(argv$thres.steve)) {
-      # use only (probably) good observations
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="lt",
-                   pmax=argv$pmax_lt.steve[j],
-                   dmax=argv$dmax_lt.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_lt.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_lt.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_lt.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-      } else {
-        print("no valid observations left, no STEVE")
-      }
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="ge",
-                   pmax=argv$pmax_ge.steve[j],
-                   dmax=argv$dmax_ge.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_ge.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_ge.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_ge.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-||||||| merged common ancestors
-    ixna<-which(!is.na(z) & !is.na(zdem) & is.na(dqcflag))
-    sus<-which( abs(z[ixna]-zdem[ixna])>argv$dz.dem &
-                doit[ixna]==1 )
-    # set dqcflag
-    if (length(sus)>0) dqcflag[ixna[sus]]<-argv$dem.code
-  }  else {
-    print("no valid observations left, no dem check")
-  }
-  if (argv$verbose | argv$debug) {
-    print(paste("# observations too far from dem=",
-                length(which(dqcflag==argv$dem.code))))
-    print("+---------------------------------+")
-  }
-  rm(doit)
-}
-if (argv$debug) 
-  save.image(file.path(argv$debug.dir,"dqcres_demcheck.RData")) 
-#
-#-----------------------------------------------------------------------------
-# STEVE - isolated event test (YES/NO)
-if (argv$steve) {
-  t0a<-Sys.time()
-  if (argv$verbose | argv$debug) nprev<-0
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric")
-  doit[]<-NA
-  for (f in 1:nfin) doit[data$prid==argv$prid[f]]<-argv$doit.steve[f]
-  # test
-  for (i in 1:argv$i.steve) {
-    t0a<-Sys.time()
-    for (j in 1:length(argv$thres.steve)) {
-      # use only (probably) good observations
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="lt",
-                   pmax=argv$pmax_lt.steve[j],
-                   dmax=argv$dmax_lt.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_lt.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_lt.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_lt.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-      } else {
-        print("no valid observations left, no STEVE")
-      }
-      ix<-which((is.na(dqcflag) | dqcflag==argv$keep.code) & doit!=0)
-      if (length(ix)>0) {
-        obs<-data.frame(x[ix],y[ix],data$value[ix])
-        aux<-steve(obs=data.frame(x=x[ix],y=y[ix],yo=data$value[ix]),
-                   thres=argv$thres.steve[j],
-                   gt_or_lt="ge",
-                   pmax=argv$pmax_ge.steve[j],
-                   dmax=argv$dmax_ge.steve[j],
-                   n.sector=16,
-                   n.connected_eveYES=argv$n_ge.steve[j],
-                   frac.eveYES_in_the_clump=argv$frac_ge.steve[j],
-                   dmin.next_eveYES=argv$dmin_next_ge.steve[j])
-        sus<-which(aux!=0 & is.na(dqcflag[ix]) & doit[ix]==1)
-        # set dqcflag
-        if (length(sus)>0) dqcflag[ix[sus]]<-argv$steve.code
-=======
     qmn<-0.25
     qmx<-0.75
     qav<-0.5
@@ -8614,77 +6230,23 @@ if (argv$steve) {
         if (length(ip)>0)      
           corep[ix[ip]]<-argv$mean.corep[f]+
             (argv$max.corep[f]-argv$mean.corep[f])*(qcorep[ip]-qav)/(qmx-qav)
->>>>>>> devel
       } else {
         print(paste("provider ",argv$prid[f],
         ": no valid data found to compute the coefficient of representativeness",sep=""))
       }
-<<<<<<< HEAD
-    } # end of loop over threshold that define events
-    ncur<-length(which(dqcflag==argv$steve.code))
-    if (argv$verbose | argv$debug) {
-      t1a<-Sys.time()
-      print(paste("STEVE, iteration=",i,
-                  "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-      print(paste("# suspect observations=",ncur-nprev))
-||||||| merged common ancestors
-    } # end of loop over threshold that define events
-    if (argv$verbose | argv$debug) {
-      t1a<-Sys.time()
-      print(paste("STEVE, iteration=",i,
-                  "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-      ncur<-length(which(dqcflag==argv$steve.code))
-      print(paste("# suspect observations=",ncur-nprev))
-      nprev<-length(which(dqcflag==argv$steve.code))
-=======
->>>>>>> devel
     }
-<<<<<<< HEAD
-    if ((ncur-nprev)==0) break
-    nprev<-ncur
-  }
-  rm(doit)
-  if (argv$verbose | argv$debug) 
-    print("+---------------------------------+")
-  if (argv$debug) 
-    save.image(file.path(argv$debug.dir,"dqcres_steve2.RData")) 
-||||||| merged common ancestors
-  }
-  rm(doit)
-  if (argv$verbose | argv$debug) 
-    print("+---------------------------------+")
-  if (argv$debug) 
-    save.image(file.path(argv$debug.dir,"dqcres_steve2.RData")) 
-=======
   } else {
     print("no valid first guess for the observation error variance found")
   } 
->>>>>>> devel
 }
 if (argv$debug) 
   save.image(file.path(argv$debug.dir,"dqcres_sct.RData")) 
 #-----------------------------------------------------------------------------
-<<<<<<< HEAD
-# puddle check (second round)
-if (argv$puddle) {
-  nprev<-length(which(dqcflag==argv$puddle.code))
-||||||| merged common ancestors
-# puddle check (second round)
-if (argv$puddle) {
-=======
 # cool test (Check fOr hOLes in the field)
 if (argv$cool) {
   nprev<-0
->>>>>>> devel
   if (argv$verbose | argv$debug) {
-<<<<<<< HEAD
-    print(paste0("puddle-check 2 (",argv$puddle.code,")"))
-||||||| merged common ancestors
-    nprev<-0
-    print(paste0("puddle-check 2 (",argv$puddle.code,")"))
-=======
     print(paste0("cool test (",argv$cool.code,")"))
->>>>>>> devel
   }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
@@ -8768,13 +6330,7 @@ if (argv$cool) {
       ncur<-length(which(dqcflag==argv$cool.code & !is.na(dqcflag)))
       if (argv$verbose | argv$debug) {
         t1a<-Sys.time()
-<<<<<<< HEAD
-        print(paste("puddle check, iteration=",i,
-||||||| merged common ancestors
-        print(paste("puddle plot, iteration=",i,
-=======
         print(paste("cool test. iteration=",i,
->>>>>>> devel
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         print(paste("# suspect observations=",ncur-nprev))
       } 
@@ -8823,63 +6379,6 @@ if (argv$debug)
 # observations not flagged are assumed to be good observations 
 dqcflag[is.na(dqcflag)]<-0
 if (argv$verbose | argv$debug) {
-<<<<<<< HEAD
-  nsus<-length(which(dqcflag!=0))
-  nok<-length(which(dqcflag==0))
-  nsus_notna<-length(which(dqcflag!=0 & !is.na(data$value)))
-  nok_notna<-length(which(dqcflag==0 & !is.na(data$value)))
-  nnotna<-length(which(!is.na(data$value)))
-  nna<-length(which(is.na(data$value)))
-#  print(paste("# total suspect & no-metadata observations=",
-#              nsus," [",round(100*nsus/ndata,0),"%]",sep="") )
-  print("summary:")
-  print(" #  NAs, number of observations with no value (NAs)")
-  print(" #  sus, number of suspicious observations or no-metadata")
-  print(" # good, number of good observations")
-  print(" NOTE for sus and good, the statistics consider only observations not NAs")
-  print("summary:")
-  print(paste0(" #  NAs= ",nna))
-  print(paste0(" #  sus= ",nsus_notna," [",round(100*nsus_notna/nnotna,0),"%]"))
-  print(paste0(" # good= ",nok," [", round(100*nok_notna/nnotna,0), "%]"))
-   if (nfin>1) {
-    for (f in 1:nfin) {
-      nsus<-length(which(dqcflag!=0 & data$prid==argv$prid[f]))
-      nok<-length(which(dqcflag==0 & data$prid==argv$prid[f]))
-      nsus_notna<-length(which(dqcflag!=0 & 
-                               !is.na(data$value) & 
-                               data$prid==argv$prid[f]))
-      nok_notna<-length(which(dqcflag==0 & 
-                              !is.na(data$value) & 
-                              data$prid==argv$prid[f]))
-      nnotna<-length(which(!is.na(data$value) & 
-                           data$prid==argv$prid[f]))
-      nna<-length(which(is.na(data$value) & data$prid==argv$prid[f]))
-      print(paste("--> summary provider",argv$prid[f]))
-      print(paste0("  #  NAs= ",nna))
-      print(paste0("  #  sus= ",nsus_notna," [",round(100*nsus_notna/nnotna,0),"%]"))
-      print(paste0("  # good= ",nok," [", round(100*nok_notna/nnotna,0), "%]"))
-
-    }
-  }
-||||||| merged common ancestors
-  print("summary")
-  print(paste("# total suspect & no-metadata observations=",
-              length(which(dqcflag!=0))," [",
-              round(100*length(which(dqcflag!=0))/ndata,0),
-              "%]",sep="") )
-   print(paste("# total suspect & no-metadata observations (statistics over not NAs only)=",
-              length(which(dqcflag!=0 & !is.na(data$value)))," [",
-        round(100*length(which(dqcflag!=0 & !is.na(data$value)))/length(which(!is.na(data$value))),0),
-              "%]",sep="") )
-  print(paste("# total good observations=",
-              length(which(dqcflag==0))," [",
-              round(100*length(which(dqcflag==0))/ndata,0),
-              "%]",sep="") )
-  print(paste("# total good observations (statistics over not NAs only)=",
-              length(which(dqcflag==0))," [",
-   round(100*length(which(dqcflag==0 & !is.na(data$value)))/length(which(!is.na(data$value))),0),
-              "%]",sep="") )
-=======
   nsus<-length(which(dqcflag!=0))
   nok<-length(which(dqcflag==0))
   nsus_notna<-length(which(dqcflag!=0 & !is.na(data$value)))
@@ -8915,7 +6414,6 @@ if (argv$verbose | argv$debug) {
 
     }
   }
->>>>>>> devel
   print("+---------------------------------+")
 }
 #
@@ -8924,127 +6422,6 @@ if (argv$verbose | argv$debug) {
 if (argv$radarout) {
   if (argv$verbose | argv$debug) 
     print("include radar-derived precipitation in the output file")
-<<<<<<< HEAD
-  drad<-getValues(rrad) #fg-vec & fg-grid
-  # get radar-point coordinates into fge CRS (only for not-NA points)
-  ix1<-which(!is.na(drad)) # indx over fg-vec
-  radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
-  names(radxy)<-c("x","y")
-  coordinates(radxy)<-c("x","y")
-  proj4string(radxy)<-CRS(argv$proj4fg)
-  radxy.fge<-spTransform(radxy,CRS=argv$proj4fge) #ix1-vec
-  radxy.fge<-as.data.frame(radxy.fge)
-  # default: aggregate radar values onto the fge grid
-  # if fge grid is not defined, then use a template
-  if (exists("rfge.grid")) {
-    raux<-rasterize(radxy.fge, #fge-grid
-                    rfge.grid,
-                    drad[ix1],
-                    fun=mean)
-  } else if (exists("rdem")) {
-    raux<-rasterize(radxy.fge, #fge-grid
-                    rdem,
-                    drad[ix1],
-                    fun=mean)
-  } else {
-    print("please define either rdem or rfge")
-    quit(status=1)
-  }
-  raux[raux<=0]<-NA 
-  daux<-getValues(raux) #fge-vec
-  if (argv$debug) 
-    plot_debug(ff=file.path(argv$debug.dir,"radar_1_fgegrid.png"),
-               r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
-  # keep points where radar prec is greater than the ensemble median
-#  ix2<-which(!is.na(daux) & daux<fge.gq50) # indx over fge-vec
-  ix2<-which(!is.na(daux) & daux<fge.gmu) # indx over fge-vec
-  if (length(ix2)>0) daux[ix2]<-NA
-  raux[]<-daux
-  if (argv$debug) { 
-    plot_debug(ff=file.path(argv$debug.dir,"radar_2_fgegrid.png"),
-               r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
-#    ixdeb<-which(!is.na(fge.gq50) & !is.na(daux))
-    ixdeb<-which(!is.na(fge.gmu) & !is.na(daux))
-    png(file=file.path(argv$debug.dir,"radar_vs_fgegq50.png"))
-#    plot(daux[ixdeb],fge.gq50[ixdeb],xlab="radar (mm)",
-    plot(daux[ixdeb],fge.gmu[ixdeb],xlab="radar (mm)",
-         ylab="numerical model, ensemble median (mm)")
-    dev.off()
-  }
-  ix1.1<-which(!is.na(extract(raux,radxy.fge))) #indx over ix1-vec
-  ix1.2<-which(is.na(extract(raux,radxy.fge))) #indx over ix1-vec
-  rm(raux,daux)
-  # case of valid radar-data points found
-  if (length(ix1.1)>0) {
-    # remove patches of connected cells that are too small
-    drad[ix1[ix1.2]]<-NA
-    rrad[]<-drad
-    rclump<-clump(rrad)
-    fr<-freq(rclump)
-    ix<-which(!is.na(fr[,2]) & fr[,2]<=10)
-    if (length(ix)>0) drad[getValues(rclump) %in% fr[ix,1]]<-NA
-    rrad[]<-drad
-    rm(rclump,fr,ix)
-    # (optional) aggregate radar data onto a coarser grid
-    if (argv$radarout.aggfact>1) {
-      raux<-aggregate(rrad,fact=argv$radarout.aggfact,na.rm=T,expand=T,fun=mean)
-      rrad<-raux
-      rm(raux)
-      drad<-getValues(rrad)
-||||||| merged common ancestors
-  drad<-getValues(rrad) #fg-vec & fg-grid
-  # get radar-point coordinates into fge CRS (only for not-NA points)
-  ix1<-which(!is.na(drad)) # indx over fg-vec
-  radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
-  names(radxy)<-c("x","y")
-  coordinates(radxy)<-c("x","y")
-  proj4string(radxy)<-CRS(argv$proj4fg)
-  radxy.fge<-spTransform(radxy,CRS=argv$proj4fge) #ix1-vec
-  radxy.fge<-as.data.frame(radxy.fge)
-  # aggregate radar values onto the fge grid
-  raux<-rasterize(radxy.fge, #fge-grid
-                  rfge.grid,
-                  drad[ix1],
-                  fun=mean)
-  raux[raux<=0]<-NA 
-  daux<-getValues(raux) #fge-vec
-  if (argv$debug) 
-    plot_debug(ff=file.path(argv$debug.dir,"radar_1_fgegrid.png"),
-               r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
-  # keep points where radar prec is greater than the ensemble median
-  ix2<-which(!is.na(daux) & daux<fge.gq50) # indx over fge-vec
-  if (length(ix2)>0) daux[ix2]<-NA
-  raux[]<-daux
-  if (argv$debug) { 
-    plot_debug(ff=file.path(argv$debug.dir,"radar_2_fgegrid.png"),
-               r=raux,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fge)
-    ixdeb<-which(!is.na(fge.gq50) & !is.na(daux))
-    png(file=file.path(argv$debug.dir,"radar_vs_fgegq50.png"))
-    plot(daux[ixdeb],fge.gq50[ixdeb],xlab="radar (mm)",
-         ylab="numerical model, ensemble median (mm)")
-    dev.off()
-  }
-  ix1.1<-which(!is.na(extract(raux,radxy.fge))) #indx over ix1-vec
-  ix1.2<-which(is.na(extract(raux,radxy.fge))) #indx over ix1-vec
-  rm(raux,daux)
-  # case of valid radar-data points found
-  if (length(ix1.1)>0) {
-    # remove patches of connected cells that are too small
-    drad[ix1[ix1.2]]<-NA
-    rrad[]<-drad
-    rclump<-clump(rrad)
-    fr<-freq(rclump)
-    ix<-which(!is.na(fr[,2]) & fr[,2]<=10)
-    if (length(ix)>0) drad[getValues(rclump) %in% fr[ix,1]]<-NA
-    rrad[]<-drad
-    rm(rclump,fr,ix)
-    # (optional) aggregate radar data onto a coarser grid
-    if (argv$radarout.aggfact>1) {
-      raux<-aggregate(rrad,fact=argv$radarout.aggfact,na.rm=T,expand=T,fun=mean)
-      rrad<-raux
-      rm(raux)
-      drad<-getValues(rrad)
-=======
   # (optional) aggregate radar data onto a coarser grid
   if (!is.na(argv$radarout.aggfact) & argv$radarout.aggfact>1) {
     if (argv$radarout.aggfun=="ngb") {
@@ -9067,71 +6444,7 @@ if (argv$radarout) {
                       na.rm=T,
                       expand=T, 
                       fact=argv$radarout.aggfact)
->>>>>>> devel
     }
-<<<<<<< HEAD
-    if (argv$debug) 
-      plot_debug(ff=file.path(argv$debug.dir,"radar_3_fggrid.png"),
-                 r=rrad,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fg)
-    # prepare list of valid radar-points in output CRS
-    ix1<-which(!is.na(drad)) # indx over fg-vec
-    if(length(ix1) > 0) {
-      radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
-      names(radxy)<-c("x","y")
-      coordinates(radxy)<-c("x","y")
-      proj4string(radxy)<-CRS(argv$proj4fg)
-      radxy.from<-as.data.frame(spTransform(radxy,CRS=argv$proj4from))  
-      radx.from<-radxy.from[,1]
-      rady.from<-radxy.from[,2]
-      radrr<-drad[ix1]
-      if (argv$debug) {
-        ixdeb<-which(dqcflag==0 & !is.na(dqcflag))
-        png(file=file.path(argv$debug.dir,"radar_4_ll.png"),
-                           width=800,height=800)
-        plotp(x=c(data$lon[ixdeb],radx.from),
-              y=c(data$lat[ixdeb],rady.from),
-              val=c(data$value[ixdeb],radrr),
-              br=c(0,0.1,0.5,1,2,3,4,5,7,10,15,20,50,100),
-              col=c("gray",rev(rainbow(12))),
-              map=NULL,map.br=NULL,map.col=NULL,
-              xl=range(radx.from),yl=range(rady.from))
-        dev.off() 
-      }
-    } else {
-      radx.from<-integer(0)
-      rady.from<-integer(0)
-      radrr<-integer(0)
-    }
-  # case of no valid radar-data points found
-||||||| merged common ancestors
-    if (argv$debug) 
-      plot_debug(ff=file.path(argv$debug.dir,"radar_3_fggrid.png"),
-                 r=rrad,x=x,y=y,proj4=argv$proj4to,proj4plot=argv$proj4fg)
-    # prepare list of valid radar-points in output CRS
-    ix1<-which(!is.na(drad)) # indx over fg-vec
-    radxy<-as.data.frame(xyFromCell(rrad,ix1)) #ix1-vec
-    names(radxy)<-c("x","y")
-    coordinates(radxy)<-c("x","y")
-    proj4string(radxy)<-CRS(argv$proj4fg)
-    radxy.from<-as.data.frame(spTransform(radxy,CRS=argv$proj4from))  
-    radx.from<-radxy.from[,1]
-    rady.from<-radxy.from[,2]
-    radrr<-drad[ix1]
-    if (argv$debug) {
-      ixdeb<-which(dqcflag==0 & !is.na(dqcflag))
-      png(file=file.path(argv$debug.dir,"radar_4_ll.png"),
-                         width=800,height=800)
-      plotp(x=c(data$lon[ixdeb],radx.from),
-            y=c(data$lat[ixdeb],rady.from),
-            val=c(data$value[ixdeb],radrr),
-            br=c(0,0.1,0.5,1,2,3,4,5,7,10,15,20,50,100),
-            col=c("gray",rev(rainbow(12))),
-            map=NULL,map.br=NULL,map.col=NULL,
-            xl=range(radx.from),yl=range(rady.from))
-      dev.off() 
-    }
-  # case of no valid radar-data points found
-=======
     rrad<-raux
     rm(raux)
   }
@@ -9147,7 +6460,6 @@ if (argv$radarout) {
     radx.from<-radxy.from[,1]
     rady.from<-radxy.from[,2]
     radrr<-drad[ix]
->>>>>>> devel
   } else {
     radx.from<-integer(0)
     rady.from<-integer(0)
