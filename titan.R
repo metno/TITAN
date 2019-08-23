@@ -1403,6 +1403,7 @@ oi_var_gridpoint_by_gridpoint<-function(i,
                                         fg_min=NA,
                                         fg_max=NA,
                                         succ_corr=F,
+                                        succ_corr_niter=3,
                                         y_elab=F,
                                         loocv=F,
                                         o_errvar_min=0.001,
@@ -1599,7 +1600,7 @@ oi_var_gridpoint_by_gridpoint<-function(i,
   }
   # successive corrections (Barnes scheme) step
   if (succ_corr) {
-    for (sc in 3:1) {
+    for (sc in succ_corr_niter:1) {
       if (corr=="gaussian") {
         S1<-S**(1/sc**2)
         rloc1<-rloc**(1/sc**2)
@@ -4410,7 +4411,7 @@ for (f in 1:nfin) {
   ndatatmp<-length(datatmp$lat)
   if (ndatatmp==0) next
   # set provider id
-  datatmp$prid<-rep(argv$prid[f],ndatatmp)
+  datatmp$prid<-as.numeric(rep(argv$prid[f],ndatatmp))
   aux<-rep(NA,length=ndatatmp)
   if (any(!is.na(argv$blacklist.idx)) & 
       any(argv$blacklist.fidx==argv$prid[f])) {
@@ -4477,7 +4478,7 @@ for (f in 1:nfin) {
                         lon=datatmp$lon[ix_nodup],
                         elev=datatmp$elev[ix_nodup],
                         value=datatmp$value[ix_nodup],
-                        prid=datatmp$prid[ix_nodup])
+                        prid=as.numeric(datatmp$prid[ix_nodup]))
     if (first) {
       varidx<-varidxtmp
       data<-datatmp
