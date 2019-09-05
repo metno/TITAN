@@ -31,6 +31,40 @@ boom<-function(str=NULL) {
   quit(status=1)
 }
 
+#+ convert (input) strings to numeric values
+convert_strings_to_numbers<-function(strings,
+                                     default=NA,
+                                     strings_dim=1,
+                                     neg=NA) {
+# strings is a vector of characters
+#------------------------------------------------------------------------------
+  options(warn = 1)
+  # string is a one-dimensional
+  if (strings_dim==1) {
+    if (is.na(strings)) strings<-default
+    numbers<-as.numeric(gsub("_","-",strings))
+    if (!is.na(neg)) numbers<-numbers*(-1)**as.numeric(neg)
+  # string is a vector
+  } else {
+    if (any(is.na(strings))) {
+      numbers<-rep(default,length=strings_dim)
+    } else {
+      if (length(strings)!=strings_dim) 
+        strings<-rep(strings[1],length=strings_dim)
+      aux<-vector(length=strings_dim,mode="numeric")
+      for (i in 1:strings_dim) aux[i]<-as.numeric(gsub("_","-",strings[i]))
+      numbers<-aux
+      rm(aux)
+      if (!any(is.na(neg))) {
+        if (length(neg)!=strings_dim) neg<-rep(neg[1],length=strings_dim)
+        for (i in 1:strings_dim) numbers[i]<-numbers[i]*(-1)**as.numeric(neg[i])
+      }
+    }
+  }
+  options(warn = 2)
+  numbers
+}
+
 # auxiliary function to keep/blacklist observations
 setCode_lonlat<-function(lonlat,code) {
 # lonlat. vector. 1=lon; 2=lat
@@ -2750,23 +2784,23 @@ p <- add_argument(p,"--t2m.file",
                   short="-rrwt")
 p <- add_argument(p, "--t2m.offset",
                   help="air temperature offset",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-rrwto")
 p <- add_argument(p, "--t2m.cfact",
                   help="air temperature correction factor",
-                  type="numeric",
-                  default=1,
+                  type="character",
+                  default="1",
                   short="-rrwtc")
 p <- add_argument(p, "--t2m.negoffset",
                   help="offset sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-rrwtos")
 p <- add_argument(p, "--t2m.negcfact",
                   help="correction factor sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-rrwton")
 p <- add_argument(p, "--proj4t2m",
                   help="proj4 string for the air temperature file",
@@ -2852,13 +2886,13 @@ p <- add_argument(p,"--t2m.demfile",
                   short="-rrwdf")
 p <- add_argument(p, "--t2m.demoffset",
                   help="offset",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-rrwdoff")
 p <- add_argument(p, "--t2m.demcfact",
                   help="correction factor",
-                  type="numeric",
-                  default=1,
+                  type="character",
+                  default="1",
                   short="-rrwdcf")
 p <- add_argument(p, "--t2m.demnegoffset",
                   help="offset sign (1=neg, 0=pos)",
@@ -3022,14 +3056,24 @@ p <- add_argument(p, "--thrneg.fg",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
-p <- add_argument(p, "--perc.fg_minval",
-     help="do the prec.fg test only for values greater than the specified threshold (provider dependent)",
-                  type="numeric",
+p <- add_argument(p, "--fg_minval.fg",
+     help="do the 'fg' test only when first-guess values are greater than or equal to these thresholds (provider dependent)",
+                  type="character",
                   default=NA,
                   nargs=Inf)
-p <- add_argument(p, "--perc.fg_maxval",
-     help="do the prec.fg test only for values greater than the specified threshold (provider dependent)",
-                  type="numeric",
+p <- add_argument(p, "--fg_maxval.fg",
+     help="do the 'fg' test only when first-guess values are less than or equal to these thresholds (provider dependent)",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--obs_minval.fg",
+     help="do the 'fg' test only when observed values are greater than or equal to these thresholds (provider dependent)",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--obs_maxval.fg",
+     help="do the 'fg' test only when observed values are less than or equal to these thresholds (provider dependent)",
+                  type="character",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--thrperc.fg",
@@ -3045,6 +3089,26 @@ p <- add_argument(p, "--thrposperc.fg",
 p <- add_argument(p, "--thrnegperc.fg",
      help="maximum allowed deviation between observation and fg (if obs<fg, as %, e.g. 0.1=10%) (provider dependent)",
                   type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--fg_minval_perc.fg",
+     help="do the 'fg' test (%) only when first-guess values are greater than or equal to these thresholds (provider dependent)",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--fg_maxval_perc.fg",
+     help="do the 'fg' test (%) only when first-guess values are less than or equal to these thresholds (provider dependent)",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--obs_minval_perc.fg",
+     help="do the 'fg' test (%) only when observed values are greater than or equal to these thresholds (provider dependent)",
+                  type="character",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--obs_maxval_perc.fg",
+     help="do the 'fg' test (%) only when observed values are less than or equal to these thresholds (provider dependent)",
+                  type="character",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--fg.dodqc",
@@ -3174,23 +3238,23 @@ p <- add_argument(p,"--fg.demfile",
                   short="-fgdf")
 p <- add_argument(p, "--fg.demoffset",
                   help="offset",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-fgdoff")
 p <- add_argument(p, "--fg.demcfact",
                   help="correction factor",
-                  type="numeric",
-                  default=1,
+                  type="character",
+                  default="1",
                   short="-fgdcf")
 p <- add_argument(p, "--fg.demnegoffset",
                   help="offset sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-fgdnoff")
 p <- add_argument(p, "--fg.demnegcfact",
                   help="correction factor sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-fgdncf")
 p <- add_argument(p, "--fg.demt",
                   help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
@@ -3412,23 +3476,23 @@ p <- add_argument(p,"--fge.demfile",
                   short="-fgedf")
 p <- add_argument(p, "--fge.demoffset",
                   help="offset",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-fgedoff")
 p <- add_argument(p, "--fge.demcfact",
                   help="correction factor",
-                  type="numeric",
-                  default=1,
+                  type="character",
+                  default="1",
                   short="-fgedcf")
 p <- add_argument(p, "--fge.demnegoffset",
                   help="offset sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-fgednoff")
 p <- add_argument(p, "--fge.demnegcfact",
                   help="correction factor sign (1=neg, 0=pos)",
-                  type="numeric",
-                  default=0,
+                  type="character",
+                  default="0",
                   short="-fgedncf")
 p <- add_argument(p, "--fge.demt",
                   help="timestamp to read in the netCDF file (YYYYMMDDHH00)",
@@ -3547,111 +3611,57 @@ if (any(is.na(argv$prid))) {
 }
 #................................................................................
 # set input offsets and correction factors
-if (any(is.na(argv$input.offset))) {
-  argv$input.offset<-rep(0,length=nfin)
-} else {
-  if (length(argv$input.offset)!=nfin) 
-    argv$input.offset<-rep(argv$input.offset[1],length=nfin)
-  aux<-vector(length=nfin,mode="numeric")
-  for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$input.offset[i]))
-  argv$input.offset<-aux
-  rm(aux)
-  if (!any(is.na(argv$input.negoffset))) {
-    if (length(argv$input.negoffset)!=nfin) 
-      argv$input.negoffset<-rep(argv$input.negoffset[1],length=nfin)
-    argv$input.offset<-argv$input.offset*(-1)**argv$input.negoffset
-  }
-}
-if (any(is.na(argv$input.cfact))) {
-  argv$input.cfact<-rep(1,length=nfin)
-} else {
-  if (length(argv$input.cfact)!=nfin) 
-    argv$input.cfact<-rep(argv$input.cfact[1],length=nfin)
-  aux<-vector(length=nfin,mode="numeric")
-  for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$input.cfact[i]))
-  argv$input.cfact<-aux
-  rm(aux)
-  if (!any(is.na(argv$input.negcfact))) {
-    if (length(argv$input.negcfact)!=nfin) 
-      argv$input.negcfact<-rep(argv$input.negcfact[1],length=nfin)
-    argv$input.cfact<-argv$input.cfact*(-1)**argv$input.negcfact
-  }
-}
+argv$input.offset<-convert_strings_to_numbers(strings=argv$input.offset, 
+                                              default=0,
+                                              strings_dim=nfin,
+                                              neg=argv$input.negoffset)
+argv$input.cfact<-convert_strings_to_numbers(strings=argv$input.cfact,
+                                             default=1,
+                                             strings_dim=nfin,
+                                             neg=argv$input.negcfact)
 #t2m
-t2m.offset<-argv$t2m.offset
-t2m.negoffset<-argv$t2m.negoffset
-t2m.cfact<-argv$t2m.cfact
-t2m.negcfact<-argv$t2m.negcfact
-if (is.na(t2m.offset)) t2m.offset<-0
-if (is.na(t2m.negoffset)) t2m.negoffset<-0
-t2m.offset<-as.numeric(gsub("_","-",t2m.offset))
-t2m.offset<-t2m.offset*(-1)**(t2m.negoffset)
-if (is.na(t2m.cfact)) t2m.cfact<-0
-if (is.na(t2m.negcfact)) t2m.negcfact<-0
-t2m.cfact<-as.numeric(gsub("_","-",t2m.cfact))
-t2m.cfact<-t2m.cfact*(-1)**(t2m.negcfact)
-t2m.demoffset<-argv$t2m.demoffset
-t2m.demnegoffset<-argv$t2m.demnegoffset
-t2m.demcfact<-argv$t2m.demcfact
-t2m.demnegcfact<-argv$t2m.demnegcfact
-if (is.na(t2m.demoffset)) t2m.demoffset<-0
-if (is.na(t2m.demnegoffset)) t2m.demnegoffset<-0
-t2m.demoffset<-as.numeric(gsub("_","-",t2m.demoffset))
-t2m.demoffset<-t2m.demoffset*(-1)**(t2m.demnegoffset)
-if (is.na(t2m.demcfact)) t2m.demcfact<-0
-if (is.na(t2m.demnegcfact)) t2m.demnegcfact<-0
-t2m.demcfact<-as.numeric(gsub("_","-",t2m.demcfact))
-t2m.demcfact<-t2m.demcfact*(-1)**(t2m.demnegcfact)
+t2m.offset<-convert_strings_to_numbers(strings=argv$t2m.offset,default=0,
+                                       neg=argv$t2m.negoffset)
+t2m.cfact<-convert_strings_to_numbers(strings=argv$t2m.cfact,default=0,
+                                      neg=argv$t2m.negcfact)
+t2m.demoffset<-convert_strings_to_numbers(strings=argv$t2m.demoffset,default=0,
+                                          neg=argv$t2m.demnegoffset)
+t2m.demcfact<-convert_strings_to_numbers(strings=argv$t2m.demcfact,default=0,
+                                         neg=argv$t2m.demnegcfact)
 #fg
-fg.offset<-argv$fg.offset
-fg.negoffset<-argv$fg.negoffset
-fg.cfact<-argv$fg.cfact
-fg.negcfact<-argv$fg.negcfact
-if (is.na(fg.offset)) fg.offset<-0
-if (is.na(fg.negoffset)) fg.negoffset<-0
-fg.offset<-as.numeric(gsub("_","-",fg.offset))
-fg.offset<-fg.offset*(-1)**(fg.negoffset)
-if (is.na(fg.cfact)) fg.cfact<-0
-if (is.na(fg.negcfact)) fg.negcfact<-0
-fg.cfact<-as.numeric(gsub("_","-",fg.cfact))
-fg.cfact<-fg.cfact*(-1)**(fg.negcfact)
-fg.demoffset<-argv$fg.demoffset
-fg.demnegoffset<-argv$fg.demnegoffset
-fg.demcfact<-argv$fg.demcfact
-fg.demnegcfact<-argv$fg.demnegcfact
-if (is.na(fg.demoffset)) fg.demoffset<-0
-if (is.na(fg.demnegoffset)) fg.demnegoffset<-0
-fg.demoffset<-as.numeric(gsub("_","-",fg.demoffset))
-fg.demoffset<-fg.demoffset*(-1)**(fg.demnegoffset)
-if (is.na(fg.demcfact)) fg.demcfact<-0
-if (is.na(fg.demnegcfact)) fg.demnegcfact<-0
-fg.demcfact<-as.numeric(gsub("_","-",fg.demcfact))
-fg.demcfact<-fg.demcfact*(-1)**(fg.demnegcfact)
+fg.offset<-convert_strings_to_numbers(strings=argv$fg.offset,default=0,
+                                      neg=argv$fg.negoffset)
+fg.cfact<-convert_strings_to_numbers(strings=argv$fg.cfact,default=0,
+                                     neg=argv$fg.negcfact)
+fg.demoffset<-convert_strings_to_numbers(strings=argv$fg.demoffset,default=0,
+                                         neg=argv$fg.demnegoffset)
+fg.demcfact<-convert_strings_to_numbers(strings=argv$fg.demcfact,default=0,
+                                        neg=argv$fg.demnegcfact)
+argv$fg_minval.fg<-convert_strings_to_numbers(strings=argv$fg_minval.fg,
+                                              strings_dim=nfin)
+argv$fg_maxval.fg<-convert_strings_to_numbers(strings=argv$fg_maxval.fg,
+                                              strings_dim=nfin)
+argv$obs_minval.fg<-convert_strings_to_numbers(strings=argv$obs_minval.fg,
+                                               strings_dim=nfin)
+argv$obs_maxval.fg<-convert_strings_to_numbers(strings=argv$obs_maxval.fg,
+                                               strings_dim=nfin)
+argv$fg_minval_perc.fg<-convert_strings_to_numbers(strings=argv$fg_minval_perc.fg,
+                                                   strings_dim=nfin)
+argv$fg_maxval_perc.fg<-convert_strings_to_numbers(strings=argv$fg_maxval_perc.fg,
+                                                   strings_dim=nfin)
+argv$obs_minval_perc.fg<-convert_strings_to_numbers(strings=argv$obs_minval_perc.fg,
+                                                    strings_dim=nfin)
+argv$obs_maxval_perc.fg<-convert_strings_to_numbers(strings=argv$obs_maxval_perc.fg,
+                                                    strings_dim=nfin)
 # fge
-fge.offset<-argv$fge.offset
-fge.negoffset<-argv$fge.negoffset
-fge.cfact<-argv$fge.cfact
-fge.negcfact<-argv$fge.negcfact
-if (is.na(fge.offset)) fge.offset<-0
-if (is.na(fge.negoffset)) fge.negoffset<-0
-fge.offset<-as.numeric(gsub("_","-",fge.offset))
-fge.offset<-fge.offset*(-1)**(fge.negoffset)
-if (is.na(fge.cfact)) fge.cfact<-0
-if (is.na(fge.negcfact)) fge.negcfact<-0
-fge.cfact<-as.numeric(gsub("_","-",fge.cfact))
-fge.cfact<-fge.cfact*(-1)**(fge.negcfact)
-fge.demoffset<-argv$fge.demoffset
-fge.demnegoffset<-argv$fge.demnegoffset
-fge.demcfact<-argv$fge.demcfact
-fge.demnegcfact<-argv$fge.demnegcfact
-if (is.na(fge.demoffset)) fge.demoffset<-0
-if (is.na(fge.demnegoffset)) fge.demnegoffset<-0
-fge.demoffset<-as.numeric(gsub("_","-",fge.demoffset))
-fge.demoffset<-fge.demoffset*(-1)**(fge.demnegoffset)
-if (is.na(fge.demcfact)) fge.demcfact<-0
-if (is.na(fge.demnegcfact)) fge.demnegcfact<-0
-fge.demcfact<-as.numeric(gsub("_","-",fge.demcfact))
-fge.demcfact<-fge.demcfact*(-1)**(fge.demnegcfact)
+fge.offset<-convert_strings_to_numbers(strings=argv$fge.offset,default=0,
+                                       neg=argv$fge.negoffset)
+fge.cfact<-convert_strings_to_numbers(strings=argv$fge.cfact,default=0,
+                                      neg=argv$fge.negcfact)
+fge.demoffset<-convert_strings_to_numbers(strings=argv$fge.demoffset,default=0,
+                                          neg=argv$fge.demnegoffset)
+fge.demcfact<-convert_strings_to_numbers(strings=argv$fge.demcfact,default=0,
+                                         neg=argv$fge.demnegcfact)
 #................................................................................
 # check variable
 if (!(argv$variable %in% c("T","RH","RR","SD"))) 
@@ -4068,12 +4078,8 @@ if (length(argv$const.corep)!=nfin)
   argv$const.corep<-rep(argv$const.corep[1],length=nfin)
 #
 # precip and temperature crosscheck
-if (length(argv$ccrrt.tmin)!=nfin) 
-  argv$ccrrt.tmin<-rep(argv$ccrrt.tmin[1],length=nfin)
-aux<-vector(length=nfin,mode="numeric")
-for (i in 1:nfin) aux[i]<-as.numeric(gsub("_","-",argv$ccrrt.tmin[i]))
-argv$ccrrt.tmin<-aux
-rm(aux)
+argv$ccrrt.tmin<-convert_strings_to_numbers(strings=argv$ccrrt.tmin,
+                                            strings_dim=nfin)
 #
 # fg
 if (argv$fg) {
@@ -4089,17 +4095,9 @@ if (argv$fg) {
     argv$thrnegperc.fg<-rep(argv$thrnegperc.fg[1],length=nfin)
   if (length(argv$thrperc.fg)!=nfin)
     argv$thrperc.fg<-rep(argv$thrperc.fg[1],length=nfin)
-  if (length(argv$perc.fg_minval)!=nfin) 
-    argv$perc.fg_minval<-rep(argv$perc.fg_minval[1],length=nfin)
-  if ( !any(!is.na(argv$thrpos.fg)) &
-       !any(!is.na(argv$thrneg.fg)) &
-       !any(!is.na(argv$thr.fg)) &
-       !any(!is.na(argv$thrposperc.fg)) &
-       !any(!is.na(argv$thrnegperc.fg)) &
-       !any(!is.na(argv$thrperc.fg)) &
-       !any(!is.na(argv$perc.fg_minval)) ) {
+  if ( !any(!is.na(c(argv$thrpos.fg,argv$thrneg.fg,argv$thr.fg,
+                     argv$thrposperc.fg,argv$thrnegperc.fg,argv$thrperc.fg))))
     boom("Error in specification of fg-thresholds")
-  }
 }
 #
 # fge
@@ -4245,14 +4243,12 @@ if (any(is.na(argv$vmin.clim)) & !any(is.na(argv$tmin.clim)))
   argv$vmin.clim<-argv$tmin.clim
 if (any(is.na(argv$vmax.clim)) & !any(is.na(argv$tmax.clim))) 
   argv$vmax.clim<-argv$tmax.clim
-argv$vmin<-as.numeric(gsub("_","-",argv$vmin))
-argv$vmin<-argv$vmin*(-1)**argv$vminsign
-argv$vmax<-as.numeric(gsub("_","-",argv$vmax))
-argv$vmax<-argv$vmax*(-1)**argv$vmaxsign
-argv$vmin.clim<-as.numeric(gsub("_","-",argv$vmin.clim))
-argv$vmin.clim<-argv$vmin.clim*(-1)**argv$vminsign.clim
-argv$vmax.clim<-as.numeric(gsub("_","-",argv$vmax.clim))
-argv$vmax.clim<-argv$vmax.clim*(-1)**argv$vmaxsign.clim
+argv$vmin<-convert_strings_to_numbers(strings=argv$vmin,neg=argv$vminsign)
+argv$vmax<-convert_strings_to_numbers(strings=argv$vmax,neg=argv$vmaxsign)
+argv$vmin.clim<-convert_strings_to_numbers(strings=argv$vmin.clim,
+                                        strings_dim=12, neg=argv$vminsign.clim)
+argv$vmax.clim<-convert_strings_to_numbers(strings=argv$vmax.clim,
+                                        strings_dim=12, neg=argv$vmaxsign.clim)
 # buddy priorities
 if (is.null(argv$prio.buddy)) argv$prio.buddy<-rep(-1,length=nfin)
 if (any(is.na(argv$prio.buddy))) argv$prio.buddy<-rep(-1,length=nfin)
@@ -4541,10 +4537,10 @@ if (ndata==0) {
 }
 #
 # set domain extent for SCT and metadata tests
-argv$lonmin<-as.numeric(gsub("_","-",argv$lonmin))
-argv$lonmax<-as.numeric(gsub("_","-",argv$lonmax))
-argv$latmin<-as.numeric(gsub("_","-",argv$latmin))
-argv$latmax<-as.numeric(gsub("_","-",argv$latmax))
+argv$lonmin<-convert_strings_to_numbers(strings=argv$lonmin)
+argv$lonmax<-convert_strings_to_numbers(strings=argv$lonmax)
+argv$latmin<-convert_strings_to_numbers(strings=argv$latmin)
+argv$latmax<-convert_strings_to_numbers(strings=argv$latmax)
 if (argv$dqc_inbox_only) {
   extent_lonmin<-argv$lonmin
   extent_lonmax<-argv$lonmax
@@ -5574,10 +5570,19 @@ if (argv$fg) {
   thrvec<-vector(length=ndata,mode="numeric"); thrvec[]<-NA
   thrposvec<-vector(length=ndata,mode="numeric"); thrposvec[]<-NA
   thrnegvec<-vector(length=ndata,mode="numeric"); thrnegvec[]<-NA
-  perc_minvalvec<-vector(length=ndata,mode="numeric"); perc_minvalvec[]<-NA
   thrpercvec<-vector(length=ndata,mode="numeric"); thrpercvec[]<-NA
   thrpospercvec<-vector(length=ndata,mode="numeric"); thrpospercvec[]<-NA
   thrnegpercvec<-vector(length=ndata,mode="numeric"); thrnegpercvec[]<-NA
+  fg_minval<-vector(length=ndata,mode="numeric"); fg_minval[]<-NA
+  fg_maxval<-vector(length=ndata,mode="numeric"); fg_maxval[]<-NA
+  obs_minval<-vector(length=ndata,mode="numeric"); obs_minval[]<-NA
+  obs_maxval<-vector(length=ndata,mode="numeric"); obs_maxval[]<-NA
+  fg_minval_perc<-vector(length=ndata,mode="numeric"); fg_minval_perc[]<-NA
+  fg_maxval_perc<-vector(length=ndata,mode="numeric"); fg_maxval_perc[]<-NA
+  obs_minval_perc<-vector(length=ndata,mode="numeric"); obs_minval_perc[]<-NA
+  obs_maxval_perc<-vector(length=ndata,mode="numeric"); obs_maxval_perc[]<-NA
+  fg_range<-range(fg,na.rm=T)
+  obs_range<-range(data$value,na.rm=T)
   for (f in 1:nfin) {
     if (!any(data$prid==argv$prid[f])) next
     aux<-which(data$prid==argv$prid[f])
@@ -5585,10 +5590,25 @@ if (argv$fg) {
     thrvec[aux]<-argv$thr.fg[f]
     thrposvec[aux]<-argv$thrpos.fg[f]
     thrnegvec[aux]<-argv$thrneg.fg[f]
-    perc_minvalvec[aux]<-argv$perc.fg_minval[f]
     thrpercvec[aux]<-argv$thrperc.fg[f]
     thrpospercvec[aux]<-argv$thrposperc.fg[f]
     thrnegpercvec[aux]<-argv$thrnegperc.fg[f]
+    fg_minval[aux]<-ifelse(is.na(argv$fg_minval.fg[f]),fg_range[1],
+                                                       argv$fg_minval.fg[f])
+    fg_maxval[aux]<-ifelse(is.na(argv$fg_maxval.fg[f]),fg_range[2],
+                                                       argv$fg_maxval.fg[f])
+    obs_minval[aux]<-ifelse(is.na(argv$obs_minval.fg[f]),obs_range[1],
+                                                         argv$obs_minval.fg[f])
+    obs_maxval[aux]<-ifelse(is.na(argv$obs_maxval.fg[f]),obs_range[2],
+                                                        argv$obs_maxval.fg[f])
+    fg_minval_perc[aux]<-ifelse(is.na(argv$fg_minval_perc.fg[f]),fg_range[1],
+                                                     argv$fg_minval_perc.fg[f])
+    fg_maxval_perc[aux]<-ifelse(is.na(argv$fg_maxval_perc.fg[f]),fg_range[2],
+                                                     argv$fg_maxval_perc.fg[f])
+    obs_minval_perc[aux]<-ifelse(is.na(argv$obs_minval_perc.fg[f]),obs_range[1],
+                                                    argv$obs_minval_perc.fg[f])
+    obs_maxval_perc[aux]<-ifelse(is.na(argv$obs_maxval_perc.fg[f]),obs_range[2],
+                                                     argv$obs_maxval_perc.fg[f])
     rm(aux)
   }
   # use only (probably) good observations
@@ -5597,11 +5617,15 @@ if (argv$fg) {
     dev<-data$value-fg
     devperc<-dev/fg
     flag_sus<-rep(F,ndata)
-    flag_to_check<-is.na(dqcflag) & doit==1 &
+    flag_to_check_basic<-is.na(dqcflag) & doit==1 &
                    !is.na(data$value) & 
                    !is.nan(data$value) & 
                    is.finite(data$value) &
                    !is.na(fg) & !is.nan(fg) & is.finite(fg)
+    flag_to_check<-flag_to_check_basic &
+                   data$value>=obs_minval & data$value<=obs_maxval &
+                   fg>=fg_minval & fg<=fg_maxval
+    # additive model
     if (any(!is.na(thrvec))) 
       flag_sus<-flag_sus | 
        (!is.na(thrvec) & flag_to_check & abs(dev)>thrvec)
@@ -5611,7 +5635,10 @@ if (argv$fg) {
     if (any(!is.na(thrnegvec))) 
       flag_sus<-flag_sus | 
        (!is.na(thrnegvec) & flag_to_check & dev<0 & abs(dev)>thrnegvec)
-    flag_to_check<-flag_to_check & fg>=perc_minvalvec
+    # multiplicative model
+    flag_to_check<-flag_to_check_basic &
+                   data$value>=obs_minval_perc & data$value<=obs_maxval_perc &
+                   fg>=fg_minval_perc & fg<=fg_maxval_perc
     if (any(!is.na(thrpercvec))) 
       flag_sus<-flag_sus | 
        (!is.na(thrpercvec) & flag_to_check & abs(devperc)>thrpercvec)
@@ -5624,8 +5651,8 @@ if (argv$fg) {
        (!is.na(thrnegpercvec) & flag_to_check & 
         dev<0 & abs(devperc)>thrnegpercvec)
     ix_sus<-which(flag_sus)
-    rm(flag_sus,flag_to_check,dev,devperc)
-    rm(doit,thrvec,thrposvec,thrnegvec,perc_minvalvec,thrpercvec)
+    rm(flag_sus,flag_to_check,flag_to_check_basic,dev,devperc)
+    rm(doit,thrvec,thrposvec,thrnegvec,thrpercvec)
     rm(thrpospercvec,thrnegpercvec)
     # set dqcflag
     if (length(ix_sus)>0) dqcflag[ix_sus]<-argv$fg.code
@@ -5644,7 +5671,14 @@ if (argv$fg) {
   if (exists("thrvec")) rm(thrvec)
   if (exists("thrposvec")) rm(thrposvec)
   if (exists("thrnegvec")) rm(thrnegvec)  
-  if (exists("perc_minvalvec")) rm(perc_minvalvec)
+  if (exists("obs_minval_perc")) rm(obs_minval_perc)
+  if (exists("obs_maxval_perc")) rm(obs_maxval_perc)
+  if (exists("fg_minval_perc")) rm(fg_minval_perc)
+  if (exists("fg_maxval_perc")) rm(fg_maxval_perc)
+  if (exists("obs_minval")) rm(obs_minval)
+  if (exists("obs_maxval")) rm(obs_maxval)
+  if (exists("fg_minval")) rm(fg_minval)
+  if (exists("fg_maxval")) rm(fg_maxval)
   if (exists("thrpercvec")) rm(thrpercvec)
   if (exists("thrpospercvec")) rm(thrpospercvec)
   if (exists("thrnegpercvec")) rm(thrnegpercvec)
