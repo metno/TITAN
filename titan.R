@@ -100,10 +100,10 @@ statSpat_mapply<-function(i,                           # index over tot-vectors
                           event_threshold=NULL,
                           event_def=NULL) {
 #------------------------------------------------------------------------------
-# The point has coordinates (xtot[i],ytot[i],ztot[i]). 
-# The neighbourhood considered includes the (max pmax) closest observations 
+# The point has coordinates (obsToCheck_x[i],obsToCheck_y[i],obsToCheck_z[i]). 
+# The neighbourhood considered includes the (max pmax) closest dataToUse 
 # within a radius dr. The so-called buddies.
-# The i-th point itself is excluded from the statistics.
+# The i-th point is excluded from the reference statistics.
 #
 # input
 # 6 vectors. itot=index; xtot=x; ytot=y; ztot=z; ttot=variable; priotot=priority
@@ -117,20 +117,20 @@ statSpat_mapply<-function(i,                           # index over tot-vectors
 # -- output "buddy_event"
 # 1 = nobs
 # 2 = maxVertDist[m]
-# 3 = event occurrence at the i-th point (1=yes,0=no)
+# 3 = event yes/no at the i-th point (1=yes,0=no)
 # 4 = percentage of event=yes among the buddies
 #------------------------------------------------------------------------------
-  deltax<-abs(xtot[i]-xtot)
-  deltay<-abs(ytot[i]-ytot)
+  deltax<-abs(obsToCheck_x[i]-dataToUse_x)
+  deltay<-abs(obsToCheck_y[i]-dataToUse_y)
   if (priority) {
     jx<-which(deltax<=dr & 
               deltay<=dr &
-              itot!=itot[i]            &
-              (priotot<priotot[i] | priotot<0) )
+              dataToUse_i!=obsToCheck_i[i]            &
+              (dataToUse_prio<obsToCheck_prio[i] | dataToUse_prio<0) )
   } else {
     jx<-which(deltax<=dr & 
               deltay<=dr &
-              itot!=itot[i])
+              dataToUse_i!=obsToCheck_i[i])
   }
   njx<-length(jx)
   if (njx==0) return(c(0,NA,NA,NA))
@@ -140,28 +140,30 @@ statSpat_mapply<-function(i,                           # index over tot-vectors
     njx<-length(jx)
   }
   if (njx==0) return(c(0,NA,NA,NA))
-  dz<-ztot[jx]-ztot[i]
+  dz<-dataToUse_z[jx]-obsToCheck_z[i]
   dz_mx<-max(abs(dz))
   if (adjust_for_elev_diff) {
-    buddies_val<-ttot[jx]+gamma*dz
+    buddies_val<-dataToUse_val[jx]+gamma*dz
   } else {
-    buddies_val<-ttot[jx]
+    buddies_val<-dataToUse_val[jx]
   }
+  # buddy check, standard
   if (statistics=="buddy_standard") {
     if (njx==1) return(c(1,dz,buddies_val,NA))
     return(c(njx,dz_mx,mean(buddies_val),sd(buddies_val)))
+  # buddy check, based on the definition of a binary event
   } else if (statistics=="buddy_event") {
     if (event_def=="gt") {
-      i_eve<-as.integer(ttot[i]>event_threshold)
+      i_eve<-as.integer(obsToCheck_val[i]>event_threshold)
       buddies_eve_yes.prob<-length(which(buddies_val>event_threshold))/njx
     } else if (event_def=="ge") {
-      i_eve<-as.integer(ttot[i]>=event_threshold)
+      i_eve<-as.integer(obsToCheck_val[i]>=event_threshold)
       buddies_eve_yes.prob<-length(which(buddies_val>=event_threshold))/njx
     } else if (event_def=="lt") {
-      i_eve<-as.integer(ttot[i]<event_threshold)
+      i_eve<-as.integer(obsToCheck_val[i]<event_threshold)
       buddies_eve_yes.prob<-length(which(buddies_val<event_threshold))/njx
     } else if (event_def=="le") {
-      i_eve<-as.integer(ttot[i]<=event_threshold)
+      i_eve<-as.integer(obsToCheck_val[i]<=event_threshold)
       buddies_eve_yes.prob<-length(which(buddies_val<=event_threshold))/njx
     } else {
       i_eve<-NA
@@ -2187,82 +2189,108 @@ p <- add_argument(p, "--vmaxsign.clim",
 #.............................................................................. 
 # Buddy-check (event-based)
 p <- add_argument(p, "--buddy_eve",
-                  help="do the buddy check event-based",
+                  help="do the buddy check based on the definition of a binary event (yes/no)",
                   flag=T,
                   short="-Be")
 p <- add_argument(p, "--thr_eve.buddy_eve",
-                  help=paste("numeric vector with the thresholds used to define events (same units of the specified variable). Each threshold defines two events: (i) less than the threshold and (ii) greater or equal to it."),
+                  help=paste("threshold(s) used to define the binary event (same units as the variable). It is possible to specify more than one threshold, then titan executes more than one check. (same units of the specified variable). Consider an arbitrary observation, each threshold defines two events: (i) event='yes' when observed value is less than the threshold and (ii) event='no' when the observd value is greater or equal to the threhsold."),
                   type="numeric",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--dr.buddy_eve",
-                  help="numeric vector of the same dimension of thr_eve.buddy_eve. perform the buddy_eve-check in a dr-by-dr square-box around each observation [m] (default is 3000m)",
+                  help="perform each test within a (2*dr)-by-(2*dr) square-box around each observation [m] (default is 3000m). This is a numeric vector with the same dimension of the vector specifying the thresholds",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--i.buddy_eve",
-                  help="number of buddy_eve-check iterations",
+                  help="number of iterations",
                   type="integer",
                   default=1,
                   short="-iBe")
 p <- add_argument(p, "--thr.buddy_eve",
-                  help="buddy_eve-check threshold (same dimension of thr_eve.buddy_eve). flag observation as suspect if: is event(no) and less than a fraction of thr.buddy_eve of the neighbouring observations are event(no) OR is event(yes) and less than a fraction of thr.buddy_eve of the neighbouring observations are event(yes). (default is 0.05, i.e. 5% of the neighbouring observations)",
+                  help="threshold(s) used to perform the quality checks. This is a numeric vector with the same dimension of the vector specifying the thresholds defining the binary events. Consider the j-th elment of thr.buddy_eve, there are two mode of operations. Mode 'A', when thr.buddy_eve[j] is less than 1. Mode 'B', when thr.buddy_eve[j] is equal to or greater than 1. Mode 'A', thr.buddy_eve[j] specifies a percentage and an observation can be flagged as suspect for two reasons: if the observed event is 'yes' ('no') and the percentage of 'yes' ('no') among the buddies is equal to or less than thr.buddy_eve[j]. Mode 'B', thr.buddy_eve[j] specifies a number of observations and an observation can be flagged as suspect for two reasons: if the observed event is 'yes' ('no') and the number of 'yes' ('no') among the buddies is less than thr.buddy_eve[j]. The default values is 0.05, i.e. 5% of the neighbouring observations.",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--n.buddy_eve",
-                  help="numeric vector of the same dimension of thr_eve.buddy_eve. minimum number of neighbouring observations to perform the buddy-check (dafualt is set to 5)",
+                  help="consider an arbitrary observation, how many neighbouring observations do we need to call them 'buddies' and perform the check? We need a number greater than 'n'. This is a numeric vector with the same dimension of the vector specifying the thresholds defining the binary events. Default is set to 5.",
                   type="integer",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--dz.buddy_eve",
-                  help="numeric vector of the same dimension of thr_eve.buddy_eve. maximum allowed range of elevation in a square-box to perform the buddy_eve-check (i.e. no check if elevation > dz.buddy_eve) (default is 30m)",
+                  help="do not perform the check if at least one of the elevation differences between an observation and its buddies is equal to or greater than the threshold(s) 'dz'. This is a numeric vector with the same dimension of the vector specifying the thresholds defining the binary events. Default is 30 m.",
                   type="numeric",
                   default=NA,
                   nargs=Inf)
 p <- add_argument(p, "--prio.buddy_eve",
-                  help="priorities used in the buddy_eve check. One positive value for each provider. The lower the number the more priority that provider gets. In the first round of the buddy_eve check, high priority observations are not compared against lower priority observations. From the second round onwards, all the providers are set to the same priority value.",
+                  help="specify priorities. This is a numeric vector, with the dimension of the number of providers. One positive value for each provider. The smaller the value, the greater the priority. Priorities are used only in the first round of the check, when each observation is compared only against other observations having a priority equal to or grater than its own.",
                   type="numeric",
                   default=NA,
                   nargs=Inf,
                   short="-prBe")
+p <- add_argument(p, "--usefg.buddy_eve",
+                  help="should first-guess values be used in the test? 1=yes, otherwise=no. This is a numeric vector, with the same dimension of the vector specifying the thresholds. If used, the first-guess priority is set to '-1'.",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--break.buddy_eve",
+                  help="break the loop if the number of flagged observations in the last iretation (by considering al the test) is euqual to or less than this value.",
+                  type="numeric",
+                  default=0)
 #.............................................................................. 
 # Buddy-check
 p <- add_argument(p, "--dr.buddy",
-                  help="consider only the observations within a radius of \"dr\" meters from each observation [m]",
+                  help="perform each test within a (2*dr)-by-(2*dr) square-box around each observation [m] (default is 3000m). This is a numeric vector with the same dimension of the vector specifying the thresholds",
                   type="numeric",
-                  default=3000,
+                  default=NA,
+                  nargs=Inf,
                   short="-dB")
 p <- add_argument(p, "--i.buddy",
-                  help="number of buddy-check iterations",
+                  help="number of iterations",
                   type="integer",
                   default=1,
                   short="-iB")
 p <- add_argument(p, "--thr.buddy",
-                  help="buddy-check threshold. flag observation if: abs(obs-pred)/st_dev > thr.buddy",
+                  help="threshold(s) used to perform the quality checks. This is a numeric vector with the same dimension of the vector specifying the sizes of the square boxes. flag observation if: abs( obs - mean(buddies) ) / st_dev(buddies) > threshold. Default is 3.", 
                   type="numeric",
-                  default=3,
+                  default=NA,
+                  nargs=Inf,
                   short="-thB")
 p <- add_argument(p, "--sdmin.buddy",
-                  help="minimum allowed value for the standard deviation",
+                  help="minimum allowed value(s) for the standard deviation. This is a numeric vector with the same dimension of the vector specifying the sizes of the square boxes.",
                   type="numeric",
-                  default=0.5)
+                  default=NA,
+                  nargs=Inf)
 p <- add_argument(p, "--n.buddy",
-                  help="minimum number of neighbouring observations to perform the buddy-check",
+                  help="consider an arbitrary observation, how many neighbouring observations do we need to call them 'buddies' and perform the check? We need a number greater than 'n'. This is a numeric vector with the same dimension of the vector specifying the sizes of the square boxes. Default is set to 5.",
+                  default=NA,
+                  nargs=Inf,
                   type="integer",
-                  default=5,
                   short="-nB")
 p <- add_argument(p, "--dz.buddy",
-                  help="maximum allowed range of elevation in a square-box to perform the buddy-check (i.e. no check if elevation > dz.buddy)",
+                  help="do not perform the check if at least one of the elevation differences between an observation and its buddies is equal to or greater than the threshold(s) 'dz'. This is a numeric vector with the same dimension of the vector specifying the sizes of the square boxes. Default is 30 m.",
                   type="numeric",
-                  default=30,
+                  default=NA,
+                  nargs=Inf,
                   short="-zB")
 p <- add_argument(p, "--prio.buddy",
-                  help="priorities used in the buddy check. One positive value for each provider. Lower numbers get higher priorities. In the first round of the buddy check, high priority observations are not compared against lower priority observations. From the second round onwards, all the providers are set to the same priority value.",
+                  help="specify priorities. This is a numeric vector, with the dimension of the number of providers. One positive value for each provider. The smaller the value, the greater the priority. Priorities are used only in the first round of the check, when each observation is compared only against other observations having a priority equal to or grater than its own.",
                   type="numeric",
                   default=NA,
                   nargs=Inf,
                   short="-prB")
+p <- add_argument(p, "--usefg.buddy",
+                  help="should first-guess values be used in the test? 1=yes, otherwise=no. This is a numeric vector, with the same dimension of the vector specifying the sizes of the square boxes. If used, the first-guess priority is set to '-1'.",
+                  type="numeric",
+                  default=NA,
+                  nargs=Inf)
+p <- add_argument(p, "--break.buddy",
+                  help="break the loop if the number of flagged observations in the last iretation (by considering al the test) is euqual to or less than this value.",
+                  type="numeric",
+                  default=0)
+p <- add_argument(p, "--transf.buddy",
+                  help="apply Box-Cox transformation",
+                  flag=T)
 #.............................................................................. 
 # isolated stations
 p <- add_argument(p, "--dr.isol",
@@ -2392,6 +2420,10 @@ p <- add_argument(p, "--fg_gamma.sct",
 p <- add_argument(p, "--transf.sct",
                   help="apply Box-Cox transformation before SCT (\"stn_by_stn.sct\")",
                   flag=T)
+p <- add_argument(p, "--break.sct",
+                  help="break the loop if the number of flagged observations in the last iretation (by considering al the test) is euqual to or less than this value.",
+                  type="numeric",
+                  default=0)
 #.............................................................................. 
 # observation representativeness
 p <- add_argument(p, "--mean.corep",
@@ -2621,6 +2653,10 @@ p <- add_argument(p, "--dh_max.cool",
                   help="gridpoints having the nearest observation more than dh_max units apart are set to NAs.",
                   type="integer",
                   default=100000)
+p <- add_argument(p, "--break.cool",
+                  help="break the loop if the number of flagged observations in the last iretation (by considering al the test) is euqual to or less than this value.",
+                  type="numeric",
+                  default=0)
 #.............................................................................. 
 # blacklist
 # specified by triple/pairs of numbers: either (lat,lon,IDprovider) OR (index,IDprovider)
@@ -3696,6 +3732,10 @@ if (argv$latlon.dig.out!=argv$xy.dig.out) {
 }
 #................................................................................
 # set the input arguments according to user specification
+if (argv$variable=="RR") {
+  argv$transf.buddy<-T
+  argv$transf.sct<-T
+}
 if (!is.na(argv$fg.type)) {
   if (argv$fg.type=="meps") {
     if (argv$variable=="T") {
@@ -4262,25 +4302,25 @@ if (argv$smartbox.sct & argv$variable == "T") {
     boom(paste("ERROR: file not found.",argv$titan_path,"sct","sct_smart_boxes.so"))
   dyn.load(file.path(argv$titan_path,"sct","sct_smart_boxes.so"))
 }
+# buddy checks
+if (!any(!is.na(argv$dr.buddy))) argv$dr.buddy<-3000
+if (length(argv$thr.buddy)!=length(argv$dr.buddy))
+  argv$thr.buddy<-rep(0.05,length=argv$dr.buddy)
+if (any(is.na(argv$n.buddy)))
+  argv$n.buddy<-rep(5,length=argv$dr.buddy)
+if (any(is.na(argv$dz.buddy)))
+  argv$dz.buddy<-rep(10000,length=argv$dr.buddy)
 # buddy_eve checks
-if (any(is.na(argv$thr_eve.buddy_eve)))
-  argv$thr_eve.buddy_eve<-c(0.1,1,10)
-if (any(is.na(argv$dr.buddy_eve)))
-  argv$dr.buddy_eve<-c(3000,3000,3000)
-if (length(argv$dr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
-  argv$dr.buddy_eve<-c(3000,3000,3000)
-if (any(is.na(argv$thr.buddy_eve)))
-  argv$thr.buddy_eve<-c(0.05,0.05,1)
-if (length(argv$thr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
-  argv$thr.buddy_eve<-c(0.05,0.05,1)
-if (any(is.na(argv$n.buddy_eve)))
-  argv$n.buddy_eve<-c(5,5,5)
-if (length(argv$n.buddy_eve)!=length(argv$n_eve.buddy_eve))
-  argv$n.buddy_eve<-c(5,5,5)
-if (any(is.na(argv$dz.buddy_eve)))
-  argv$dz.buddy_eve<-c(1500,1500,1500)
-if (length(argv$dz.buddy_eve)!=length(argv$n_eve.buddy_eve))
-  argv$dz.buddy_eve<-c(1500,1500,1500)
+if (argv$buddy_eve) {
+  if (length(argv$dr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
+    argv$dr.buddy_eve<-rep(3000,length=argv$thr_eve.buddy_eve)
+  if (length(argv$thr.buddy_eve)!=length(argv$thr_eve.buddy_eve))
+    argv$thr.buddy_eve<-rep(0.05,length=argv$thr_eve.buddy_eve)
+  if (any(is.na(argv$n.buddy_eve)))
+    argv$n.buddy_eve<-rep(5,length=argv$thr_eve.buddy_eve)
+  if (any(is.na(argv$dz.buddy_eve)))
+    argv$dz.buddy_eve<-rep(10000,length=argv$thr_eve.buddy_eve)
+}
 # wind-induced undercatch of precipitation, check consistency of inputs
 if (argv$rr.wcor & argv$variable!="RR") 
   boom("ERROR: wind-induced correction for undercatch is implemented for precipitation only")
@@ -5033,7 +5073,7 @@ if (!is.na(argv$fg.file)) {
                             debug.file=debug.file,
                             nc.dqc_mode=nc.dqc_mode) 
   rfg<-res$raster
-  fg<-res$values
+  fg<-res$values # this has the dimension of the observation vector
   if (argv$radarout) rrad<-rfg
   rm(res)
   fg<-fg.offset+ fg * fg.cfact
@@ -5058,30 +5098,34 @@ if (!is.na(argv$fg.file)) {
   # temperature: adjust for elevation differences
   if (argv$variable=="T") {
     debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"fgdemnc.RData"), NA)
-    zfgdem<-get_data_from_ncfile(nc.file=argv$fg.demfile,
-                                 nc.varname=argv$fg.demvarname,
-                                 nc.t=argv$fg.demt,
-                                 nc.e=argv$fg.deme,
-                                 topdown=argv$fg.demtopdown,
-                                 var.dim=list(ndim=argv$fg.demndim,
-                                              tpos=argv$fg.demtpos,
-                                              epos=argv$fg.demepos,
-                                              names=argv$fg.demdimnames),
-                                 proj4=proj4fg,
-                                 proj4_from_nc=proj4fg_from_nc,
-                                 xy_as_vars=fg.xy_as_vars,
-                                 x_as_var.varname=argv$fg.x_as_var.varname,
-                                 y_as_var.varname=argv$fg.y_as_var.varname,
-                                 xy_as_var.dim=list(ndim=argv$fg.xy_as_var.ndim,
-                                                    tpos=argv$fg.xy_as_var.tpos,
-                                                    epos=NULL,
-                                                    names=argv$fg.xy_as_var.dimnames),
-                                 xy_as_var.dh_max=NA,
-                                 return_raster=F,
-                                 debug.file=debug.file,
-                                 nc.dqc_mode="none")
-    zfgdem<-fg.demoffset+ zfgdem * fg.demcfact
-    fg<-fg+argv$gamma.standard*(z-zfgdem); rm(zfgdem)
+    ref<-get_data_from_ncfile(nc.file=argv$fg.demfile,
+                              nc.varname=argv$fg.demvarname,
+                              nc.t=argv$fg.demt,
+                              nc.e=argv$fg.deme,
+                              topdown=argv$fg.demtopdown,
+                              var.dim=list(ndim=argv$fg.demndim,
+                                           tpos=argv$fg.demtpos,
+                                           epos=argv$fg.demepos,
+                                           names=argv$fg.demdimnames),
+                              proj4=proj4fg,
+                              proj4_from_nc=proj4fg_from_nc,
+                              xy_as_vars=fg.xy_as_vars,
+                              x_as_var.varname=argv$fg.x_as_var.varname,
+                              y_as_var.varname=argv$fg.y_as_var.varname,
+                              xy_as_var.dim=list(ndim=argv$fg.xy_as_var.ndim,
+                                                 tpos=argv$fg.xy_as_var.tpos,
+                                                 epos=NULL,
+                                                 names=argv$fg.xy_as_var.dimnames),
+                              xy_as_var.dh_max=NA,
+#                              return_raster=F,
+                              return_raster=T,
+                              debug.file=debug.file,
+                              nc.dqc_mode="none")
+    rfgdem<-res$raster
+    fg<-res$values # this has the dimension of the observation vector
+    zfgdem<-fg.demoffset+ res$values * fg.demcfact
+    fg<-fg+argv$gamma.standard*(z-zfgdem)
+    rm(zfgdem,res)
   }
   if (argv$debug) save.image(file.path(argv$debug.dir,"input_data_fg.RData"))
   if (argv$verbose) print("+---------------------------------+")
@@ -5326,10 +5370,12 @@ if (!is.na(argv$month.clim)) {
 }
 #
 #-----------------------------------------------------------------------------
-# buddy check (event-based)
+# buddy check (based on the definition of a binary yes/no event)
 #  Define an event compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
 if (argv$buddy_eve) {
+  print(paste0("buddy_eve-check (",argv$buddy_eve.code,")"))
+  print(paste0("priorities ",toString(argv$prio.buddy_eve)))
   nsus<-vector(mode="numeric",length=length(argv$thr_eve.buddy_eve))
   # set doit/prio vectors
   doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
@@ -5341,79 +5387,160 @@ if (argv$buddy_eve) {
     prio[aux]<-argv$prio.buddy_eve[f]
   }
   rm(aux)
+  # if needed, prepare fg for buddy check
+  # if argv$usefg.buddy_eve are not all NAs and at least one of them == 1
+  fg_x<-integer(0)
+  fg_y<-integer(0)
+  fg_z<-integer(0)
+  fg_val<-integer(0)
+  fg_prio<-integer(0)
+  nfg_val<-0
+  if (any(!is.na(argv$usefg.buddy_eve)) & any(argv$usefg.buddy_eve==1)) {
+    t0a<-Sys.time()
+    dfg<-getValues(rfg)
+    if (exists("rfgdem")) { dfgdem<-getValues(rfgdem) } else 
+                          { dfgdem<-rep(0,length(dfg)) }
+    # get coordinates into CRS 
+    ixx<-which(!is.na(dfg) & !is.na(dfgdem)) 
+    if (length(ixx)>0) {
+      fgxy<-as.data.frame(xyFromCell(rfg,ixx))
+      names(fgxy)<-c("x","y")
+      coordinates(fgxy)<-c("x","y")
+      proj4string(fgxy)<-CRS(argv$proj4fg)
+      fgxy_transf<-as.data.frame(spTransform(fgxy,CRS=argv$proj4_where_dqc_is_done))  
+      fg_x<-fgxy_transf[,1]
+      fg_y<-fgxy_transf[,2] 
+      fg_z<-dfgdem[ixx]
+      fg_val<-dfg[ixx]
+      fg_prio<-rep(-1,length(ixx))
+      rm(fgxy,fgxy_transf)
+    }
+    # thinning
+    ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
+               !is.na(x) & !is.na(y) & !is.na(z) & !is.na(prio) &
+               !is.na(data$value) & doit!=0 )
+    thin_fg_for_buddy<-function(i, dr) {
+      if (any(abs(obsToCheck_x-fg_x[i])<dr & abs(obsToCheck_y-fg_y[i])<dr)) return(1)
+      return(0)
+    }
+    obsToCheck_x<-x[ix]
+    obsToCheck_y<-y[ix]
+    dr_max<-max(argv$dr.buddy_eve[argv$usefg.buddy_eve==1 & !is.na(argv$usefg.buddy_eve)])
+    thin_fg<-mcmapply(thin_fg_for_buddy,
+                      1:length(fg_x),
+                      mc.cores=argv$cores,
+                      SIMPLIFY=T,
+                      dr=dr_max)
+    ixx<-which(thin_fg>0) 
+    if (length(ixx)>0) {
+      fg_x<-fg_x[ixx]
+      fg_y<-fg_y[ixx]
+      fg_z<-fg_z[ixx]
+      fg_val<-fg_val[ixx]
+      fg_prio<-fg_prio[ixx]
+    }
+    rm(ix,obsToCheck_x,obsToCheck_y,thin_fg)
+    rm(dfg,ixx,dr_max)
+    nfg_val<-length(fg_val)
+    if (argv$verbose | argv$debug) {
+      t1a<-Sys.time()
+      print(paste0("use first-guess values, number of values is =",nfg_val,
+                   "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+    }
+  } # end prepare fg for the test
   # test
-  print(paste0("buddy_eve-check (",argv$buddy_eve.code,")"))
-  print(paste0("priorities ",toString(argv$prio.buddy_eve)))
   for (i in 1:argv$i.buddy_eve) {
     priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
     nsus[]<-0
     for (j in 1:length(argv$thr_eve.buddy_eve)) {
       # use only (probably) good observations with doit!=0
-      ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
-                 doit!=0 )
+      flag_aux<-( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
+                  !is.na(x) & !is.na(y) & !is.na(data$value) &
+                  doit!=0)
+      if (priority) flag_aux<-flag_aux & !is.na(prio)
+      if (argv$variable=="T") flag_aux<-flag_aux & !is.na(z)
+      ix<-which(flag_aux); rm(flag_aux)
       t0a<-Sys.time()
-      if (length(ix)>0) {
+      obsToCheck_n<-length(ix)
+      if (obsToCheck_n>0) {
         # define global 1D vector used in statSpat (1D for fast access)
-        itot<-1:length(ix)
-        xtot<-x[ix]
-        ytot<-y[ix]
-        ztot<-as.numeric(z[ix])
-        priotot<-as.numeric(prio[ix])
-        ttot<-data$value[ix]
-        if ( any(is.na(itot)) | any(is.na(xtot)) | any(is.na(ytot)) | 
-             any(is.na(ztot)) | any(is.na(ttot)) | any(is.na(priotot)) ) {
-          if (!is.na(argv$cores)) {
-            stSp_buddy_eve<-mcmapply(statSpat_mapply,
-                                     1:length(itot),
-                                     mc.cores=argv$cores,
-                                     SIMPLIFY=T,
-                                     adjust_for_elev_diff=(argv$variable=="T"),
-                                     dr=argv$dr.buddy_eve[j],
-                                     priority=priority,
-                                     statistics="buddy_event", #buddy_event
-                                     event_threshold=argv$thr_eve.buddy_eve[j],
-                                     event_def="lt")
-          # no-multicores
-          } else {
-            stSp_buddy_eve<-mapply(statSpat_mapply,
-                                   1:length(itot),
+        obsToCheck_i<-1:obsToCheck_n
+        obsToCheck_x<-x[ix]
+        obsToCheck_y<-y[ix]
+        obsToCheck_z<-as.numeric(z[ix])
+        obsToCheck_prio<-as.numeric(prio[ix])
+        obsToCheck_val<-data$value[ix]
+        if (argv$usefg.buddy_eve[j]==1 & !is.na(argv$usefg.buddy_eve[j])) {
+          dataToUse_i<-1:(obsToCheck_n+nfg_val)
+          dataToUse_x<-c(obsToCheck_x,fg_x)
+          dataToUse_y<-c(obsToCheck_y,fg_y)
+          dataToUse_z<-as.numeric(c(obsToCheck_z,fg_z))
+          dataToUse_prio<-as.numeric(c(prio[ix],fg_prio))
+          dataToUse_val<-c(obsToCheck_val,fg_val)
+        } else {
+          dataToUse_i<-1:obsToCheck_n
+          dataToUse_x<-obsToCheck_x
+          dataToUse_y<-obsToCheck_y
+          dataToUse_z<-as.numeric(obsToCheck_z)
+          dataToUse_prio<-as.numeric(prio[ix])
+          dataToUse_val<-obsToCheck_val
+        }
+        if (!is.na(argv$cores)) {
+          stSp_buddy_eve<-mcmapply(statSpat_mapply,
+                                   1:obsToCheck_n,
+                                   mc.cores=argv$cores,
                                    SIMPLIFY=T,
                                    adjust_for_elev_diff=(argv$variable=="T"),
-                                   dr=argv$dr.buddy,
+                                   dr=argv$dr.buddy_eve[j],
                                    priority=priority,
                                    statistics="buddy_event", #buddy_event
                                    event_threshold=argv$thr_eve.buddy_eve[j],
+                                   pmax=1000,
                                    event_def="lt")
-          }
-          n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve)
-          # suspect if:
-          if (argv$thr.buddy_eve[j]<1) { 
-            sus<-which( 
-              (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
-               stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-               is.na(dqcflag[ix])) &
-               doit[ix]==1 & 
-              ( ( stSp_buddy_eve[3,]==0 & 
-                 ((1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j])) |
-                ( stSp_buddy_eve[3,]==1 & 
-                 (    stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j])) ))
-          } else if (argv$thr.buddy_eve[j]>=1) {
-            nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
-            nno<-stSp_buddy_eve[1,]-nyes
-            sus<-which( 
-              (stSp_buddy_eve[1,]>n.buddy_eve[j] & 
-              stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
-              is.na(dqcflag[ix])) &
-              doit[ix]==1 & 
-              ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
-              (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) ))
-            rm(nyes,nno)
-          } else {
-            sus<-integer(0)
-          }
-          # set dqcflag
-          if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
+        # no-multicores
+        } else {
+          stSp_buddy_eve<-mapply(statSpat_mapply,
+                                 1:obsToCheck_n,
+                                 SIMPLIFY=T,
+                                 adjust_for_elev_diff=(argv$variable=="T"),
+                                 dr=argv$dr.buddy_eve[j],
+                                 priority=priority,
+                                 statistics="buddy_event", #buddy_event
+                                 event_threshold=argv$thr_eve.buddy_eve[j],
+                                 pmax=1000,
+                                 event_def="lt")
         }
+        # stSp_buddy_eve: 1 = nobs, 2 = maxVertDist[m], 
+        #                 3 = event yes/no at the i-th point (1=yes,0=no)
+        #                 4 = percentage of event=yes among the buddies
+        n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve[j])
+        # suspect if:
+        # Mode 'A' (see thr.buddy_eve help)
+        if (argv$thr.buddy_eve[j]<1) { 
+          sus<-which( 
+           stSp_buddy_eve[1,]>n.buddy_eve & 
+           stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+           is.na(dqcflag[ix]) &
+           doit[ix]==1 & 
+           ( ( stSp_buddy_eve[3,]==0 & (1-stSp_buddy_eve[4,])<=argv$thr.buddy_eve[j] ) |
+             ( stSp_buddy_eve[3,]==1 & stSp_buddy_eve[4,]<=argv$thr.buddy_eve[j] ) )    )
+        # Mode 'B' (see thr.buddy_eve help)
+        } else if (argv$thr.buddy_eve[j]>=1) {
+          nyes<-round(stSp_buddy_eve[1,]*stSp_buddy_eve[4,],0)
+          nno<-stSp_buddy_eve[1,]-nyes
+          sus<-which( 
+           stSp_buddy_eve[1,]>n.buddy_eve & 
+           stSp_buddy_eve[2,]<argv$dz.buddy_eve[j] &
+           is.na(dqcflag[ix]) &
+           doit[ix]==1 & 
+           ( (stSp_buddy_eve[3,]==0 & nno<argv$thr.buddy_eve[j]) |
+             (stSp_buddy_eve[3,]==1 & nyes<argv$thr.buddy_eve[j]) )  )
+          rm(nyes,nno)
+        } else {
+          sus<-integer(0)
+        }
+        # set dqcflag
+        if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy_eve.code
       } else {
         print("no valid observations left, no buddy_eve check")
       }
@@ -5428,17 +5555,24 @@ if (argv$buddy_eve) {
           rm(aux)
         }
         str<-paste0(str,")")
-        prestr<-ifelse(j==1,"","  ")
-        print(paste0(prestr,"buddy_eve-check, iteration=",i,
-                     "/event def: value less than ",argv$thr_eve.buddy_eve[j],
-                     "/dqc param: thres=",argv$thr.buddy_eve[j],
-                     "rad=",argv$dr.buddy_eve[j],
-                     "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-        print(paste0(prestr,nsus[j]," new suspect observations",str))
-        rm(prestr,str)
+        if (i==1) {
+          print(paste0("iteration=",i,
+                       "/test=",j,
+                       "/event=yes if value less than ",argv$thr_eve.buddy_eve[j],
+                       "/dqc param: thres=",argv$thr.buddy_eve[j],
+                       "rad=",argv$dr.buddy_eve[j],
+                       "usefg=",argv$usefg.buddy_eve[j],
+                       "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+        } else {
+          print(paste0("iteration=",i,
+                       "/test=",j,
+                       "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+        }
+        print(paste0(nsus[j]," new suspect observations",str))
+        rm(str)
       }
     } # end for j
-    if (sum(nsus)==0) break
+    if (sum(nsus)<=argv$break.buddy_eve) break
   }  # end for i
   rm(doit)
   if (argv$debug) 
@@ -5451,14 +5585,19 @@ if (argv$buddy_eve) {
   if (exists("ytot")) rm(ytot)
   if (exists("ztot")) rm(ztot)
   if (exists("itot")) rm(itot)
-  if (exists("ixyztp_tot")) rm(ixyztp_tot)
+  rm(list = ls()[grep("dataToUse", ls())])
+  rm(list = ls()[grep("obsToCheck", ls())])
+  rm(list = ls()[grep("stSp_buddy", ls())])
+  rm(list = ls()[grep("aux", ls())])
 }
 #
 #-----------------------------------------------------------------------------
 # buddy check (standard)
 #  compare each observation against the average of neighbouring observations 
 # NOTE: keep-listed stations are used but they canNOT be flagged here
-nprev<-0
+print(paste0("buddy-check (",argv$buddy.code,")"))
+print(paste0("priorities ",toString(argv$prio.buddy)))
+nsus<-vector(mode="numeric",length=length(argv$dr.buddy))
 # set doit/prio vectors
 doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
 prio<-vector(length=ndata,mode="numeric"); prio[]<-NA
@@ -5469,83 +5608,172 @@ for (f in 1:nfin) {
   prio[aux]<-argv$prio.buddy[f]
 }
 rm(aux)
-# test
-print(paste0("buddy-check (",argv$buddy.code,")"))
-print(paste0("priorities ",toString(argv$prio.buddy)))
-for (i in 1:argv$i.buddy) {
-  priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
-  # use only (probably) good observations with doit!=0
-  flag_aux<-( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
-              !is.na(x) & !is.na(y) & !is.na(data$value) &
-              doit!=0)
-  if (priority) flag_aux<-flag_aux & !is.na(prio)
-  if (argv$variable=="T") flag_aux<-flag_aux & !is.na(z)
-  ix<-which(flag_aux)
+# if needed, prepare fg for buddy check
+# if argv$usefg.buddy are not all NAs and at least one of them == 1
+fg_x<-integer(0)
+fg_y<-integer(0)
+fg_z<-integer(0)
+fg_val<-integer(0)
+fg_prio<-integer(0)
+nfg_val<-0
+if (any(!is.na(argv$usefg.buddy)) & any(argv$usefg.buddy==1)) {
   t0a<-Sys.time()
-  if (length(ix)>0) {
-    # define global 1D vector used in statSpat (1D for fast access)
-    itot<-1:length(ix)
-    xtot<-x[ix]
-    ytot<-y[ix]
-    ztot<-as.numeric(z[ix])
-    priotot<-as.numeric(prio[ix])
-    if (argv$variable=="RR") {
-      ttot<-boxcox(x=data$value[ix],lambda=argv$boxcox.lambda)
-    } else {
-      ttot<-as.numeric(data$value[ix])
-    }
-    if (!is.na(argv$cores)) {
-      stSp_buddy<-mcmapply(statSpat_mapply,
-                           1:length(itot),
-                           mc.cores=argv$cores,
-                           SIMPLIFY=T,
-                           adjust_for_elev_diff=(argv$variable=="T"),
-                           dr=argv$dr.buddy,
-                           priority=priority)
-    # no-multicores
-    } else {
-      stSp_buddy<-mapply(statSpat_mapply,
-                         1:length(itot),
-                         SIMPLIFY=T,
-                         adjust_for_elev_diff=(argv$variable=="T"),
-                         dr=argv$dr.buddy,
-                         priority=priority)
-    }
-    # probability of gross error
-    stSp_buddy[4,]<-pmax(argv$sdmin.buddy,stSp_buddy[4,])
-    stSp_buddy[4,which(stSp_buddy[1,]==1)]<-argv$sdmin.buddy
-    pog<-abs(ttot-stSp_buddy[3,])/stSp_buddy[4,]
-    n.buddy<-ifelse(priority,0,argv$n.buddy) 
-    # suspect if: 
-    sus<-which( (pog>argv$thr.buddy & 
-                 stSp_buddy[1,]>n.buddy & 
-                 stSp_buddy[2,]<argv$dz.buddy &
-                 is.na(dqcflag[ix])) &
-                 doit[ix]==1 )
-    # set dqcflag
-    if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
-  } else {
-    print("no valid observations left, no buddy check")
+  dfg<-getValues(rfg)
+  if (exists("rfgdem")) { dfgdem<-getValues(rfgdem) } else 
+                        { dfgdem<-rep(0,length(dfg)) }
+  # get coordinates into CRS 
+  ixx<-which(!is.na(dfg) & !is.na(dfgdem)) 
+  if (length(ixx)>0) {
+    fgxy<-as.data.frame(xyFromCell(rfg,ixx))
+    names(fgxy)<-c("x","y")
+    coordinates(fgxy)<-c("x","y")
+    proj4string(fgxy)<-CRS(argv$proj4fg)
+    fgxy_transf<-as.data.frame(spTransform(fgxy,CRS=argv$proj4_where_dqc_is_done))  
+    fg_x<-fgxy_transf[,1]
+    fg_y<-fgxy_transf[,2] 
+    fg_z<-dfgdem[ixx]
+    fg_val<-dfg[ixx]
+    fg_prio<-rep(-1,length(ixx))
+    rm(fgxy,fgxy_transf)
   }
-  ncur<-length(which(dqcflag==argv$buddy.code))
+  # thinning
+  ix<-which( (is.na(dqcflag) | dqcflag==argv$keep.code) &
+             !is.na(x) & !is.na(y) & !is.na(z) & !is.na(prio) &
+             !is.na(data$value) & doit!=0 )
+  thin_fg_for_buddy<-function(i, dr) {
+    if (any(abs(obsToCheck_x-fg_x[i])<dr & abs(obsToCheck_y-fg_y[i])<dr)) return(1)
+    return(0)
+  }
+  obsToCheck_x<-x[ix]
+  obsToCheck_y<-y[ix]
+  dr_max<-max(argv$dr.buddy[argv$usefg.buddy==1 & !is.na(argv$usefg.buddy)])
+  thin_fg<-mcmapply(thin_fg_for_buddy,
+                    1:length(fg_x),
+                    mc.cores=argv$cores,
+                    SIMPLIFY=T,
+                    dr=dr_max)
+  ixx<-which(thin_fg>0) 
+  if (length(ixx)>0) {
+    fg_x<-fg_x[ixx]
+    fg_y<-fg_y[ixx]
+    fg_z<-fg_z[ixx]
+    fg_val<-fg_val[ixx]
+    fg_prio<-fg_prio[ixx]
+  }
+  rm(ix,obsToCheck_x,obsToCheck_y,thin_fg)
+  rm(dfg,ixx,dr_max)
+  nfg_val<-length(fg_val)
   if (argv$verbose | argv$debug) {
     t1a<-Sys.time()
-    str<-"(#TOT "
-    for (f in 1:nfin) {
-      if (f>1) str<-paste0(str,"; ") 
-      aux<-which(dqcflag==argv$buddy.code & data$prid==argv$prid[f])
-      str<-paste0(str,"prid",argv$prid[f],"=",length(aux))
-      rm(aux)
-    }
-    str<-paste0(str,")")
-    print(paste("buddy-check, iteration=",i,
-                "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
-    print(paste("#new suspect observations=",ncur-nprev,str))
-    rm(str)
+    print(paste0("use first-guess values, number of values is =",nfg_val,
+                 "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
   }
-  if ((ncur-nprev)==0 & i>2) break
-  nprev<-ncur
-}
+} # end prepare fg for the test
+# test
+for (i in 1:argv$i.buddy) {
+  priority<-ifelse((i==1 & any(prio!=(-1))),T,F)
+  nsus[]<-0
+  for (j in 1:length(argv$dr.buddy)) {
+    # use only (probably) good observations with doit!=0
+    flag_aux<-( (is.na(dqcflag) | dqcflag==argv$keep.code) & 
+                !is.na(x) & !is.na(y) & !is.na(data$value) &
+                doit!=0)
+    if (priority) flag_aux<-flag_aux & !is.na(prio)
+    if (argv$variable=="T") flag_aux<-flag_aux & !is.na(z)
+    ix<-which(flag_aux); rm(flag_aux)
+    t0a<-Sys.time()
+    obsToCheck_n<-length(ix)
+    if (obsToCheck_n>0) {
+      # define global 1D vector used in statSpat (1D for fast access)
+      obsToCheck_i<-1:obsToCheck_n
+      obsToCheck_x<-x[ix]
+      obsToCheck_y<-y[ix]
+      obsToCheck_z<-as.numeric(z[ix])
+      obsToCheck_prio<-as.numeric(prio[ix])
+      obsToCheck_val<-data$value[ix]
+      if (argv$usefg.buddy[j]==1 & !is.na(argv$usefg.buddy[j])) {
+        dataToUse_i<-1:(obsToCheck_n+nfg_val)
+        dataToUse_x<-c(obsToCheck_x,fg_x)
+        dataToUse_y<-c(obsToCheck_y,fg_y)
+        dataToUse_z<-as.numeric(c(obsToCheck_z,fg_z))
+        dataToUse_prio<-as.numeric(c(prio[ix],fg_prio))
+        dataToUse_val<-c(obsToCheck_val,fg_val)
+      } else {
+        dataToUse_i<-1:obsToCheck_n
+        dataToUse_x<-obsToCheck_x
+        dataToUse_y<-obsToCheck_y
+        dataToUse_z<-as.numeric(obsToCheck_z)
+        dataToUse_prio<-as.numeric(prio[ix])
+        dataToUse_val<-obsToCheck_val
+      }
+      if (argv$transf.buddy) {
+        dataToUse_val<-boxcox(x=dataToUse_val,lambda=argv$boxcox.lambda)
+        obsToCheck_val<-boxcox(x=obsToCheck_val,lambda=argv$boxcox.lambda)
+      }
+      if (!is.na(argv$cores)) {
+        stSp_buddy<-mcmapply(statSpat_mapply,
+                             1:obsToCheck_n,
+                             mc.cores=argv$cores,
+                             SIMPLIFY=T,
+                             adjust_for_elev_diff=(argv$variable=="T"),
+                             dr=argv$dr.buddy[j],
+                             priority=priority,
+                             pmax=1000)
+      # no-multicores
+      } else {
+        stSp_buddy<-mapply(statSpat_mapply,
+                           1:obsToCheck_n,
+                           SIMPLIFY=T,
+                           adjust_for_elev_diff=(argv$variable=="T"),
+                           dr=argv$dr.buddy[j],
+                           priority=priority,
+                           pmax=1000)
+      }
+      # probability of gross error
+      stSp_buddy[4,]<-pmax(argv$sdmin.buddy[j],stSp_buddy[4,])
+      stSp_buddy[4,which(stSp_buddy[1,]==1)]<-argv$sdmin.buddy[j]
+      pog<-abs(obsToCheck_val-stSp_buddy[3,])/stSp_buddy[4,]
+      n.buddy<-ifelse(priority,0,argv$n.buddy[j]) 
+      # suspect if: 
+      sus<-which( pog>argv$thr.buddy[j] & 
+                  stSp_buddy[1,]>n.buddy & 
+                  stSp_buddy[2,]<argv$dz.buddy[j] &
+                  is.na(dqcflag[ix]) &
+                  doit[ix]==1 )
+      # set dqcflag
+      if (length(sus)>0) dqcflag[ix[sus]]<-argv$buddy.code
+    } else {
+      print("no valid observations left, no buddy check")
+    }
+    nsus[j]<-ifelse(exists("sus"),length(sus),0)
+    if (argv$verbose | argv$debug) {
+      t1a<-Sys.time()
+      str<-" (#TOT "
+      for (f in 1:nfin) {
+        if (f>1) str<-paste0(str,"; ") 
+        aux<-which(dqcflag==argv$buddy.code & data$prid==argv$prid[f])
+        str<-paste0(str,"prid",argv$prid[f],"=",length(aux))
+        rm(aux)
+      }
+      str<-paste0(str,")")
+      if (i==1) {
+        print(paste0("iteration=",i,
+                     "/test=",j,
+                     "/dqc param: thres=",argv$thr.buddy[j],
+                     "rad=",argv$dr.buddy[j],
+                     "usefg=",argv$usefg.buddy[j],
+                     "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+      } else {
+        print(paste0("iteration=",i,
+                     "/test=",j,
+                     "/time ",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
+      }
+      print(paste0(nsus[j]," new suspect observations",str))
+      rm(str)
+    }
+  } # end for j
+  if (sum(nsus)<=argv$break.buddy) break
+}  # end for i
 rm(doit,prio)
 if (argv$debug) save.image(file.path(argv$debug.dir,"dqcres_buddy.RData")) 
 if (argv$verbose | argv$debug) 
@@ -5557,131 +5785,137 @@ if (exists("xtot")) rm(xtot)
 if (exists("ytot")) rm(ytot)
 if (exists("ztot")) rm(ztot)
 if (exists("itot")) rm(itot)
-if (exists("ixyztp_tot")) rm(ixyztp_tot)
+rm(list = ls()[grep("dataToUse", ls())])
+rm(list = ls()[grep("obsToCheck", ls())])
+rm(list = ls()[grep("stSp_buddy", ls())])
+rm(list = ls()[grep("aux", ls())])
 #
 #-----------------------------------------------------------------------------
 # check against a first-guess (deterministic)
 if (argv$fg) {
-  if (argv$verbose | argv$debug) {
-    print(paste0("first-guess check det (",argv$fg.code,")"))
+  if (!any(!is.na(fg))) {
+    if (argv$verbose | argv$debug) print("first guess is not defined (all NAs)")
+  } else {
+    if (argv$verbose | argv$debug) 
+      print(paste0("first-guess check det (",argv$fg.code,")"))
+    # set doit vector
+    doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
+    thrvec<-vector(length=ndata,mode="numeric"); thrvec[]<-NA
+    thrposvec<-vector(length=ndata,mode="numeric"); thrposvec[]<-NA
+    thrnegvec<-vector(length=ndata,mode="numeric"); thrnegvec[]<-NA
+    thrpercvec<-vector(length=ndata,mode="numeric"); thrpercvec[]<-NA
+    thrpospercvec<-vector(length=ndata,mode="numeric"); thrpospercvec[]<-NA
+    thrnegpercvec<-vector(length=ndata,mode="numeric"); thrnegpercvec[]<-NA
+    fg_minval<-vector(length=ndata,mode="numeric"); fg_minval[]<-NA
+    fg_maxval<-vector(length=ndata,mode="numeric"); fg_maxval[]<-NA
+    obs_minval<-vector(length=ndata,mode="numeric"); obs_minval[]<-NA
+    obs_maxval<-vector(length=ndata,mode="numeric"); obs_maxval[]<-NA
+    fg_minval_perc<-vector(length=ndata,mode="numeric"); fg_minval_perc[]<-NA
+    fg_maxval_perc<-vector(length=ndata,mode="numeric"); fg_maxval_perc[]<-NA
+    obs_minval_perc<-vector(length=ndata,mode="numeric"); obs_minval_perc[]<-NA
+    obs_maxval_perc<-vector(length=ndata,mode="numeric"); obs_maxval_perc[]<-NA
+    fg_range<-range(fg,na.rm=T)
+    obs_range<-range(data$value,na.rm=T)
+    for (f in 1:nfin) {
+      if (!any(data$prid==argv$prid[f])) next
+      aux<-which(data$prid==argv$prid[f])
+      doit[aux]<-argv$doit.fg[f]
+      thrvec[aux]<-argv$thr.fg[f]
+      thrposvec[aux]<-argv$thrpos.fg[f]
+      thrnegvec[aux]<-argv$thrneg.fg[f]
+      thrpercvec[aux]<-argv$thrperc.fg[f]
+      thrpospercvec[aux]<-argv$thrposperc.fg[f]
+      thrnegpercvec[aux]<-argv$thrnegperc.fg[f]
+      fg_minval[aux]<-ifelse(is.na(argv$fg_minval.fg[f]),fg_range[1],
+                                                         argv$fg_minval.fg[f])
+      fg_maxval[aux]<-ifelse(is.na(argv$fg_maxval.fg[f]),fg_range[2],
+                                                         argv$fg_maxval.fg[f])
+      obs_minval[aux]<-ifelse(is.na(argv$obs_minval.fg[f]),obs_range[1],
+                                                           argv$obs_minval.fg[f])
+      obs_maxval[aux]<-ifelse(is.na(argv$obs_maxval.fg[f]),obs_range[2],
+                                                          argv$obs_maxval.fg[f])
+      fg_minval_perc[aux]<-ifelse(is.na(argv$fg_minval_perc.fg[f]),fg_range[1],
+                                                       argv$fg_minval_perc.fg[f])
+      fg_maxval_perc[aux]<-ifelse(is.na(argv$fg_maxval_perc.fg[f]),fg_range[2],
+                                                       argv$fg_maxval_perc.fg[f])
+      obs_minval_perc[aux]<-ifelse(is.na(argv$obs_minval_perc.fg[f]),obs_range[1],
+                                                      argv$obs_minval_perc.fg[f])
+      obs_maxval_perc[aux]<-ifelse(is.na(argv$obs_maxval_perc.fg[f]),obs_range[2],
+                                                       argv$obs_maxval_perc.fg[f])
+      rm(aux)
+    }
+    # use only (probably) good observations
+    ix<-which(is.na(dqcflag) & doit!=0)
+    if (length(ix)>0) {
+      dev<-data$value-fg
+      devperc<-dev/fg
+      flag_sus<-rep(F,ndata)
+      flag_to_check_basic<-is.na(dqcflag) & doit==1 &
+                     !is.na(data$value) & 
+                     !is.nan(data$value) & 
+                     is.finite(data$value) &
+                     !is.na(fg) & !is.nan(fg) & is.finite(fg)
+      flag_to_check<-flag_to_check_basic &
+                     data$value>=obs_minval & data$value<=obs_maxval &
+                     fg>=fg_minval & fg<=fg_maxval
+      # additive model
+      if (any(!is.na(thrvec))) 
+        flag_sus<-flag_sus | 
+         (!is.na(thrvec) & flag_to_check & abs(dev)>thrvec)
+      if (any(!is.na(thrposvec))) 
+        flag_sus<-flag_sus | 
+         (!is.na(thrposvec) & flag_to_check & dev>thrposvec)
+      if (any(!is.na(thrnegvec))) 
+        flag_sus<-flag_sus | 
+         (!is.na(thrnegvec) & flag_to_check & dev<0 & abs(dev)>thrnegvec)
+      # multiplicative model
+      flag_to_check<-flag_to_check_basic &
+                     data$value>=obs_minval_perc & data$value<=obs_maxval_perc &
+                     fg>=fg_minval_perc & fg<=fg_maxval_perc
+      if (any(!is.na(thrpercvec))) 
+        flag_sus<-flag_sus | 
+         (!is.na(thrpercvec) & flag_to_check & abs(devperc)>thrpercvec)
+      if (any(!is.na(thrpospercvec))) 
+        flag_sus<-flag_sus | 
+         (!is.na(thrpospercvec) & flag_to_check & 
+          dev>0 & abs(devperc)>thrpospercvec)
+      if (any(!is.na(thrnegpercvec))) 
+        flag_sus<-flag_sus | 
+         (!is.na(thrnegpercvec) & flag_to_check & 
+          dev<0 & abs(devperc)>thrnegpercvec)
+      ix_sus<-which(flag_sus)
+      rm(flag_sus,flag_to_check,flag_to_check_basic,dev,devperc)
+      rm(doit,thrvec,thrposvec,thrnegvec,thrpercvec)
+      rm(thrpospercvec,thrnegpercvec)
+      # set dqcflag
+      if (length(ix_sus)>0) dqcflag[ix_sus]<-argv$fg.code
+      rm(ix_sus)
+    }  else {
+      print("no valid observations left, no first-guess check")
+    }
+    if (argv$verbose | argv$debug) {
+      print(paste("# observations that fail the first-guess check (det)=",
+                  length(which(dqcflag==argv$fg.code))))
+      print("+---------------------------------+")
+    }
+    if (argv$debug) 
+      save.image(file.path(argv$debug.dir,"dqcres_fg.RData")) 
+    if (exists("doit")) rm(doit)
+    if (exists("thrvec")) rm(thrvec)
+    if (exists("thrposvec")) rm(thrposvec)
+    if (exists("thrnegvec")) rm(thrnegvec)  
+    if (exists("obs_minval_perc")) rm(obs_minval_perc)
+    if (exists("obs_maxval_perc")) rm(obs_maxval_perc)
+    if (exists("fg_minval_perc")) rm(fg_minval_perc)
+    if (exists("fg_maxval_perc")) rm(fg_maxval_perc)
+    if (exists("obs_minval")) rm(obs_minval)
+    if (exists("obs_maxval")) rm(obs_maxval)
+    if (exists("fg_minval")) rm(fg_minval)
+    if (exists("fg_maxval")) rm(fg_maxval)
+    if (exists("thrpercvec")) rm(thrpercvec)
+    if (exists("thrpospercvec")) rm(thrpospercvec)
+    if (exists("thrnegpercvec")) rm(thrnegpercvec)
   }
-  # set doit vector
-  doit<-vector(length=ndata,mode="numeric"); doit[]<-NA
-  thrvec<-vector(length=ndata,mode="numeric"); thrvec[]<-NA
-  thrposvec<-vector(length=ndata,mode="numeric"); thrposvec[]<-NA
-  thrnegvec<-vector(length=ndata,mode="numeric"); thrnegvec[]<-NA
-  thrpercvec<-vector(length=ndata,mode="numeric"); thrpercvec[]<-NA
-  thrpospercvec<-vector(length=ndata,mode="numeric"); thrpospercvec[]<-NA
-  thrnegpercvec<-vector(length=ndata,mode="numeric"); thrnegpercvec[]<-NA
-  fg_minval<-vector(length=ndata,mode="numeric"); fg_minval[]<-NA
-  fg_maxval<-vector(length=ndata,mode="numeric"); fg_maxval[]<-NA
-  obs_minval<-vector(length=ndata,mode="numeric"); obs_minval[]<-NA
-  obs_maxval<-vector(length=ndata,mode="numeric"); obs_maxval[]<-NA
-  fg_minval_perc<-vector(length=ndata,mode="numeric"); fg_minval_perc[]<-NA
-  fg_maxval_perc<-vector(length=ndata,mode="numeric"); fg_maxval_perc[]<-NA
-  obs_minval_perc<-vector(length=ndata,mode="numeric"); obs_minval_perc[]<-NA
-  obs_maxval_perc<-vector(length=ndata,mode="numeric"); obs_maxval_perc[]<-NA
-  fg_range<-range(fg,na.rm=T)
-  obs_range<-range(data$value,na.rm=T)
-  for (f in 1:nfin) {
-    if (!any(data$prid==argv$prid[f])) next
-    aux<-which(data$prid==argv$prid[f])
-    doit[aux]<-argv$doit.fg[f]
-    thrvec[aux]<-argv$thr.fg[f]
-    thrposvec[aux]<-argv$thrpos.fg[f]
-    thrnegvec[aux]<-argv$thrneg.fg[f]
-    thrpercvec[aux]<-argv$thrperc.fg[f]
-    thrpospercvec[aux]<-argv$thrposperc.fg[f]
-    thrnegpercvec[aux]<-argv$thrnegperc.fg[f]
-    fg_minval[aux]<-ifelse(is.na(argv$fg_minval.fg[f]),fg_range[1],
-                                                       argv$fg_minval.fg[f])
-    fg_maxval[aux]<-ifelse(is.na(argv$fg_maxval.fg[f]),fg_range[2],
-                                                       argv$fg_maxval.fg[f])
-    obs_minval[aux]<-ifelse(is.na(argv$obs_minval.fg[f]),obs_range[1],
-                                                         argv$obs_minval.fg[f])
-    obs_maxval[aux]<-ifelse(is.na(argv$obs_maxval.fg[f]),obs_range[2],
-                                                        argv$obs_maxval.fg[f])
-    fg_minval_perc[aux]<-ifelse(is.na(argv$fg_minval_perc.fg[f]),fg_range[1],
-                                                     argv$fg_minval_perc.fg[f])
-    fg_maxval_perc[aux]<-ifelse(is.na(argv$fg_maxval_perc.fg[f]),fg_range[2],
-                                                     argv$fg_maxval_perc.fg[f])
-    obs_minval_perc[aux]<-ifelse(is.na(argv$obs_minval_perc.fg[f]),obs_range[1],
-                                                    argv$obs_minval_perc.fg[f])
-    obs_maxval_perc[aux]<-ifelse(is.na(argv$obs_maxval_perc.fg[f]),obs_range[2],
-                                                     argv$obs_maxval_perc.fg[f])
-    rm(aux)
-  }
-  # use only (probably) good observations
-  ix<-which(is.na(dqcflag) & doit!=0)
-  if (length(ix)>0) {
-    dev<-data$value-fg
-    devperc<-dev/fg
-    flag_sus<-rep(F,ndata)
-    flag_to_check_basic<-is.na(dqcflag) & doit==1 &
-                   !is.na(data$value) & 
-                   !is.nan(data$value) & 
-                   is.finite(data$value) &
-                   !is.na(fg) & !is.nan(fg) & is.finite(fg)
-    flag_to_check<-flag_to_check_basic &
-                   data$value>=obs_minval & data$value<=obs_maxval &
-                   fg>=fg_minval & fg<=fg_maxval
-    # additive model
-    if (any(!is.na(thrvec))) 
-      flag_sus<-flag_sus | 
-       (!is.na(thrvec) & flag_to_check & abs(dev)>thrvec)
-    if (any(!is.na(thrposvec))) 
-      flag_sus<-flag_sus | 
-       (!is.na(thrposvec) & flag_to_check & dev>thrposvec)
-    if (any(!is.na(thrnegvec))) 
-      flag_sus<-flag_sus | 
-       (!is.na(thrnegvec) & flag_to_check & dev<0 & abs(dev)>thrnegvec)
-    # multiplicative model
-    flag_to_check<-flag_to_check_basic &
-                   data$value>=obs_minval_perc & data$value<=obs_maxval_perc &
-                   fg>=fg_minval_perc & fg<=fg_maxval_perc
-    if (any(!is.na(thrpercvec))) 
-      flag_sus<-flag_sus | 
-       (!is.na(thrpercvec) & flag_to_check & abs(devperc)>thrpercvec)
-    if (any(!is.na(thrpospercvec))) 
-      flag_sus<-flag_sus | 
-       (!is.na(thrpospercvec) & flag_to_check & 
-        dev>0 & abs(devperc)>thrpospercvec)
-    if (any(!is.na(thrnegpercvec))) 
-      flag_sus<-flag_sus | 
-       (!is.na(thrnegpercvec) & flag_to_check & 
-        dev<0 & abs(devperc)>thrnegpercvec)
-    ix_sus<-which(flag_sus)
-    rm(flag_sus,flag_to_check,flag_to_check_basic,dev,devperc)
-    rm(doit,thrvec,thrposvec,thrnegvec,thrpercvec)
-    rm(thrpospercvec,thrnegpercvec)
-    # set dqcflag
-    if (length(ix_sus)>0) dqcflag[ix_sus]<-argv$fg.code
-    rm(ix_sus)
-  }  else {
-    print("no valid observations left, no first-guess check")
-  }
-  if (argv$verbose | argv$debug) {
-    print(paste("# observations that fail the first-guess check (det)=",
-                length(which(dqcflag==argv$fg.code))))
-    print("+---------------------------------+")
-  }
-  if (argv$debug) 
-    save.image(file.path(argv$debug.dir,"dqcres_fg.RData")) 
-  if (exists("doit")) rm(doit)
-  if (exists("thrvec")) rm(thrvec)
-  if (exists("thrposvec")) rm(thrposvec)
-  if (exists("thrnegvec")) rm(thrnegvec)  
-  if (exists("obs_minval_perc")) rm(obs_minval_perc)
-  if (exists("obs_maxval_perc")) rm(obs_maxval_perc)
-  if (exists("fg_minval_perc")) rm(fg_minval_perc)
-  if (exists("fg_maxval_perc")) rm(fg_maxval_perc)
-  if (exists("obs_minval")) rm(obs_minval)
-  if (exists("obs_maxval")) rm(obs_maxval)
-  if (exists("fg_minval")) rm(fg_minval)
-  if (exists("fg_maxval")) rm(fg_maxval)
-  if (exists("thrpercvec")) rm(thrpercvec)
-  if (exists("thrpospercvec")) rm(thrpospercvec)
-  if (exists("thrnegpercvec")) rm(thrnegpercvec)
 }
 #
 #-----------------------------------------------------------------------------
@@ -6222,7 +6456,7 @@ for (i in 1:argv$i.sct) {
     print(paste("# suspect observations=",ncur-nprev,str))
     rm(str)
   }
-  if ((ncur-nprev)==0) break
+  if ((ncur-nprev)<=argv$break.sct) break
   nprev<-ncur
 }
 rm(doit)
@@ -6369,7 +6603,7 @@ if (argv$cool) {
                     "/time",round(t1a-t0a,1),attr(t1a-t0a,"unit")))
         print(paste("# suspect observations=",ncur-nprev))
       } 
-      if ((ncur-nprev)==0) break
+      if ((ncur-nprev)<=argv$break.cool) break
       nprev<-ncur
     } # end of loop over test iterations
     rm(doit)
