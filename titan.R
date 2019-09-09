@@ -5572,7 +5572,7 @@ if (argv$buddy_eve) {
         rm(str)
       }
     } # end for j
-    if (sum(nsus)<=argv$break.buddy_eve) break
+    if (!priority & sum(nsus)<=argv$break.buddy_eve) break
   }  # end for i
   rm(doit)
   if (argv$debug) 
@@ -5772,7 +5772,7 @@ for (i in 1:argv$i.buddy) {
       rm(str)
     }
   } # end for j
-  if (sum(nsus)<=argv$break.buddy) break
+  if (!priority & sum(nsus)<=argv$break.buddy) break
 }  # end for i
 rm(doit,prio)
 if (argv$debug) save.image(file.path(argv$debug.dir,"dqcres_buddy.RData")) 
@@ -6514,9 +6514,8 @@ if (argv$debug)
 # cool test (Check fOr hOLes in the field)
 if (argv$cool) {
   nprev<-0
-  if (argv$verbose | argv$debug) {
+  if (argv$verbose | argv$debug) 
     print(paste0("cool test (",argv$cool.code,")"))
-  }
   # set doit vector
   doit<-vector(length=ndata,mode="numeric")
   doit[]<-NA
