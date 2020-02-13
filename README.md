@@ -38,7 +38,7 @@ Installation Instructions
 -------------------------
 Ensure the following R-libraries (and their dependencies) are installed:
 
-   * argparser
+   * argparser (tested with version 0.4. It does not work with version 0.6)
    * sp
    * raster
    * rgdal
