@@ -2237,6 +2237,10 @@ p <- add_argument(p, "--break.buddy_eve",
                   help="break the loop if the number of flagged observations in the last iretation (by considering al the test) is euqual to or less than this value.",
                   type="numeric",
                   default=0)
+p <- add_argument(p, "--fg_prio.buddy_eve",
+                  help="priority for the first guess (used only if usefg.buddy_eve=1).",
+                  type="numeric",
+                  default=-1)
 #.............................................................................. 
 # Buddy-check
 p <- add_argument(p, "--dr.buddy",
@@ -5425,7 +5429,7 @@ if (argv$buddy_eve) {
       fg_y<-fgxy_transf[,2] 
       fg_z<-dfgdem[ixx]
       fg_val<-dfg[ixx]
-      fg_prio<-rep(-1,length(ixx))
+      fg_prio<-rep(argv$fg_prio.buddy_eve,length(ixx))
       rm(fgxy,fgxy_transf)
     }
     # thinning
@@ -5658,7 +5662,7 @@ if ( any(!is.na(argv$usefg.buddy)) &
     fg_y<-fgxy_transf[,2] 
     fg_z<-dfgdem[ixx]
     fg_val<-dfg[ixx]
-    fg_prio<-rep(-1,length(ixx))
+    fg_prio<-rep(argv$fg_prio.buddy_eve,length(ixx))
     rm(fgxy,fgxy_transf)
   }
   # thinning
