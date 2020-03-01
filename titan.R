@@ -5113,7 +5113,7 @@ if (!is.na(argv$fg.file)) {
   # temperature: adjust for elevation differences
   if (argv$variable=="T") {
     debug.file<-ifelse(argv$debug, file.path(argv$debug.dir,"fgdemnc.RData"), NA)
-    ref<-get_data_from_ncfile(nc.file=argv$fg.demfile,
+    res<-get_data_from_ncfile(nc.file=argv$fg.demfile,
                               nc.varname=argv$fg.demvarname,
                               nc.t=argv$fg.demt,
                               nc.e=argv$fg.deme,
