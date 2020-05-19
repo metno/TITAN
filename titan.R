@@ -5540,7 +5540,7 @@ if (argv$buddy_eve) {
         # stSp_buddy_eve: 1 = nobs, 2 = maxVertDist[m], 
         #                 3 = event yes/no at the i-th point (1=yes,0=no)
         #                 4 = percentage of event=yes among the buddies
-        n.buddy_eve<-ifelse(priority,0,argv$n.buddy_eve[j])
+        n.buddy_eve<-ifelse(priority,1,argv$n.buddy_eve[j])
         # suspect if:
         # Mode 'A' (see thr.buddy_eve help)
         if (argv$thr.buddy_eve[j]<1) { 
