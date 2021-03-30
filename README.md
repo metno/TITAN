@@ -26,7 +26,7 @@ The path to the files `titanlib.R` and `titanlib.so` must be specified in the co
 Running the program
 -------------------
 
-The environmental variable `TITANR\_PATH` must be specified. This is the path to the TITAN `functions` directory (see the examples in the test directory).
+The environmental variable `TITANR_PATH` must be specified. This is the path to the TITAN `functions` directory (see the examples in the test directory).
 
 A detailed description of how to run the program, with specific examples for most of the tests, is provided in the Wiki [here](https://github.com/metno/TITAN/wiki). 
 
