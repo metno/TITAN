@@ -1,0 +1,1 @@
+ncks -O -d x,400,700 -d y,700,1000 analysis_raw_ta_20180326T08Z.nc ta_background_test.nc
