@@ -19,10 +19,16 @@ Optional, only used for some functions:
    * igraph (used to post-process radar-derived precipitation)
    * RANN (used with background files)
 
+The tests are based on [titanlib](https://github.com/metno/titanlib), which is required. 
+The path to the files `titanlib.R` and `titanlib.so` must be specified in the configuration files as `titanlib_path` (see the examples in the test directory).
+
+
 Running the program
 -------------------
 
-See the Wiki 
+The environmental variable `TITANR\_PATH` must be specified. This is the path to the TITAN `functions` directory (see the examples in the test directory).
+
+A detailed description of how to run the program, with specific examples for most of the tests, is provided in the Wiki [here](https://github.com/metno/TITAN/wiki). 
 
 Copyright and license
 ---------------------
