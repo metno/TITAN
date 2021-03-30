@@ -2,3 +2,7 @@
 .*.swp
 *~
 *.o
+*.png
+*.rdata
+*.nc
+log
