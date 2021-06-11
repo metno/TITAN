@@ -16,7 +16,9 @@ metadata_check_r <- function( argv,
 # dqcflag. updated data quality control flags.
 #==============================================================================
 # NOTE: keep-listed stations could be flagged here
+
   ix <- which( is.na( dqcflag) | dqcflag == argv$code.keep)
+
   if ( length( ix) > 0) {
     meta <- is.na( data$lat[ix]) | 
             is.na( data$lon[ix]) |
@@ -33,6 +35,7 @@ metadata_check_r <- function( argv,
   } else {
     print("no valid observations left, no metadata check")
   }
+
   if (argv$verbose) {
     flagaux<-dqcflag==argv$code.nometa & !is.na(dqcflag)
     print("test for no metdata, statistics over the whole dataset")
@@ -63,6 +66,8 @@ metadata_check_r <- function( argv,
     rm(flagaux)
     print("+---------------------------------+")
   }
+
   #
   return(dqcflag)
+
 }

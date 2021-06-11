@@ -79,10 +79,10 @@ sct_fg_resistant <- function( argv,
   #............................................................................
   # prepare vectors of valid and admissible values
   if (argv$variable == "T") {
-    values_mina <- data$value - 20
-    values_maxa <- data$value + 20
-    values_minv <- data$value - 1
-    values_maxv <- data$value + 1
+    values_mina <- data$value - argv$a_delta.sct_fg
+    values_maxa <- data$value + argv$a_delta.sct_fg
+    values_minv <- data$value - argv$v_delta.sct_fg
+    values_maxv <- data$value + argv$v_delta.sct_fg
   } else if (argv$variable == "RR") {
     values_mina <- pmin( pmax( data$value - 10, 0), 
                          pmax( data$value - 0.5 * data$value, 0))
@@ -297,7 +297,8 @@ sct_fg_resistant <- function( argv,
                             obsToCheck_eps2,
                             obsToCheck_tpos,
                             obsToCheck_tneg,
-                            debug)
+                            debug,
+                            argv$basic.sct_fg)
        
                 flag <- res[[1]]
 

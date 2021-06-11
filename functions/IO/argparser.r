@@ -128,7 +128,7 @@ argparser <- function() {
   # one can specify file names outside the fg config files
   if ( any( !is.na( argv$fg.filenames))) {
     if ( length( argv$fg.files) != length( argv$fg.filenames))
-      boom( "since --fg.files and --fg.filenames are both defined, they must have the same lenght")
+      boom( "since --fg.files and --fg.filenames are both defined, they must have the same length")
     for (f in 1:length(argv$fg.files)) {
       if ( file.exists( argv$fg.filenames[f])) {
         fg_env$fg[[f]]$main.file <- argv$fg.filenames[f]
@@ -145,7 +145,7 @@ argparser <- function() {
   if ( any( !is.na( argv$input.files))) {
     for (j in 1:length(argv$input.files)) {
       if ( !file.exists( argv$input.files[j])) 
-        boom( paste( "ERROR: input file not found", argv$input.files[j]))
+        print( paste( "Warning: input file not found", argv$input.files[j]))
     }
   } else {
     boom( paste( "ERROR: specify at least one input file"))

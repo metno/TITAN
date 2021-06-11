@@ -38,7 +38,6 @@ buddy <- function( argv,
     argv$tpos.buddy <- rep( argv$tpos.buddy[1], N*M)
   if ( length( argv$tneg.buddy) != (M*N)) 
     argv$tneg.buddy <- rep( argv$tneg.buddy[1], N*M)
-
   if ( length( argv$background_elab_type.buddy) != N) 
     argv$background_elab_type.buddy <- rep( argv$background_elab_type.buddy[1], N)
   if ( length( argv$num_min_outer.buddy) != N) 
@@ -68,10 +67,10 @@ buddy <- function( argv,
   #............................................................................
   # prepare vectors of valid and admissible values
   if (argv$variable == "T") {
-    values_mina <- data$value - 20
-    values_maxa <- data$value + 20
-    values_minv <- data$value - 1
-    values_maxv <- data$value + 1
+    values_mina <- data$value - argv$a_delta.buddy
+    values_maxa <- data$value + argv$a_delta.buddy
+    values_minv <- data$value - argv$v_delta.buddy
+    values_maxv <- data$value + argv$v_delta.buddy
   } else if (argv$variable == "RR") {
     values_mina <- pmin( pmax( data$value - 10, 0), 
                          pmax( data$value - 0.5 * data$value, 0))
@@ -162,7 +161,8 @@ buddy <- function( argv,
                       obsToCheck_maxv,
                       obsToCheck_tpos,
                       obsToCheck_tneg,
-                      debug)
+                      debug,
+                      argv$basic.buddy)
  
           flag <- res[[1]]
 

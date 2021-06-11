@@ -72,3 +72,17 @@
                     help="break the loop if the number of flagged observations in the last iretation (by considering al the test) is euqual to or less than this value.",
                     type="numeric",
                     default=0)
+
+  p <- add_argument(p, "--a_delta.fgt",
+                    help="range of admissibile values is plus/minus this number",
+                    type="numeric",
+                    default=15)
+
+  p <- add_argument(p, "--v_delta.fgt",
+                    help="range of valid values is plus/minus this number",
+                    type="numeric",
+                    default=0.5)
+
+  p <- add_argument(p, "--basic.fgt",
+                    help="should we use the \"basic\" mode or the \"resistant\" mode?",
+                    flag=T)

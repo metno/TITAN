@@ -61,4 +61,16 @@
                     default=NA,
                     nargs=Inf)
 
+  p <- add_argument(p, "--a_delta.buddy",
+                    help="range of admissibile values is plus/minus this number",
+                    type="numeric",
+                    default=15)
 
+  p <- add_argument(p, "--v_delta.buddy",
+                    help="range of valid values is plus/minus this number",
+                    type="numeric",
+                    default=0.5)
+
+  p <- add_argument(p, "--basic.buddy",
+                    help="should we use the \"basic\" mode or the \"resistant\" mode?",
+                    flag=T)

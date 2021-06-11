@@ -3,11 +3,11 @@
   p <- add_argument(p, "--no_duplicates",
                     help="remove duplicates from input data",
                     flag=T)
-  p <- add_argument(p, "--dup.match_tol_x",
-                    help="remove duplicates, matching tolerance for lat and lon (degrees)",
+  p <- add_argument(p, "--no_duplicates_radius",
+                    help="remove duplicates, matching tolerance in the horizontal (meters)",
                     type="numeric",
-                    default=0.00001)
-  p <- add_argument(p, "--dup.match_tol_z",
+                    default=500)
+  p <- add_argument(p, "--no_duplicates_vertical_range",
                     help="remove duplicates, matching tolerance for elevation (m)",
                     type="numeric",
                     default=1)

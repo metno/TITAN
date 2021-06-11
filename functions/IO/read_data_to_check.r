@@ -25,6 +25,8 @@ read_data_to_check <- function( argv)
 
   # loop over input files (i.e. observation providers)
   for (f in 1:nfin) {
+    
+    if ( !file.exists(argv$input.files[f])) next 
 
     datain <- read.table( file   = argv$input.files[f],
                           header = T,
@@ -115,41 +117,28 @@ read_data_to_check <- function( argv)
 
     # ensure no duplicates
     if (argv$no_duplicates) {
-      is_duplicate<-function(i) { dup_diff_datasources<-F
-                                  if (exists("data",mode="data.frame"))
-                                    dup_diff_datasources<-
-                                     any( (abs(datatmp$lat[i]-data$lat) < argv$dup.match_tol_x |
-                                           datatmp$lat[i]==data$lat) & 
-                                          (abs(datatmp$lon[i]-data$lon) < argv$dup.match_tol_x |
-                                           datatmp$lon[i]==data$lon) &
-                                          (abs(datatmp$elev[i]-data$elev) < argv$dup.match_tol_z |
-                                           datatmp$elev[i]==data$elev) )
-                                  dup_same_datasource<-F
-                                  if (i<ndatatmp)
-                                    dup_same_datasource<-
-                                     any( (abs(datatmp$lat[i]-datatmp$lat[(i+1):ndatatmp]) < argv$dup.match_tol_x |
-                                           datatmp$lat[i]==datatmp$lat[(i+1):ndatatmp]) & 
-                                          (abs(datatmp$lon[i]-datatmp$lon[(i+1):ndatatmp]) < argv$dup.match_tol_x |
-                                           datatmp$lon[i]==datatmp$lon[(i+1):ndatatmp]) &
-                                          (abs(datatmp$elev[i]-datatmp$elev[(i+1):ndatatmp]) < argv$dup.match_tol_z |
-                                           datatmp$elev[i]==datatmp$elev[(i+1):ndatatmp]) ) 
-                                  return(dup_diff_datasources | dup_same_datasource) }
-      if (!is.na(argv$cores)) {
-        dup<-mcmapply(is_duplicate,
-                      1:ndatatmp,
-                      mc.cores=argv$cores,
-                      SIMPLIFY=T)
-      # no-multicores
+      if (first) {
+        dup_aux <- 0
+        datacheck_lat  <- datatmp$lat
+        datacheck_lon  <- datatmp$lon
+        datacheck_elev <- datatmp$elev
       } else {
-        dup<-mapply(is_duplicate,
-                    1:ndatatmp,
-                    SIMPLIFY=T)
+        dup_aux <- length(data$lat) 
+        datacheck_lat  <- c( data$lat,  datatmp$lat)  
+        datacheck_lon  <- c( data$lon,  datatmp$lon)
+        datacheck_elev <- c( data$elev, datatmp$elev)
       }
-      ix_nodup<-which(!dup)
+      is_dup <- duplicate_check( points = Points( datacheck_lat,
+                                                  datacheck_lon,
+                                                  datacheck_elev),
+                                 argv$no_duplicates_radius,
+                                 argv$no_duplicates_vertical_range)
+      ix_nodup <- which( is_dup == 0 & (1:length(is_dup)) > dup_aux) - dup_aux
+      rm( is_dup, datacheck_lat, datacheck_lon, datacheck_elev, dup_aux)
     } else {
-      ix_nodup<-1:ndatatmp
+      ix_nodup <- 1:ndatatmp
     }
-   
+
     # create and update the definitve data structure 
     ndatatmp<-length(ix_nodup)
     
