@@ -6,7 +6,7 @@
                     default=901)
 
   p <- add_argument(p, "--code.dem",
-                    help="quality code returned in case of SCT fails",
+                    help="quality code returned in case of dem check fails",
                     type="integer",
                     default=902)
 
