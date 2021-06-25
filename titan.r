@@ -160,8 +160,10 @@ if (argv$ccrrt) {
 #-----------------------------------------------------------------------------
 # Correction for the wind-undercatch of precipitation 
 
-if (argv$rr.wcor) 
+if (argv$rr.wcor) {
+  if ( !exists( "t2m")) t2m <- NULL
   data  <- rr_windcorr( argv, data, z, dqcflag, t2m) 
+}
 
 #
 #-----------------------------------------------------------------------------
