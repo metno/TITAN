@@ -71,6 +71,16 @@
                     type="numeric",
                     default=0.5)
 
+  p <- add_argument(p, "--a_fact.buddy",
+                    help="factor used in the definition of the range of admissibile values",
+                    type="numeric",
+                    default=0.5)
+
+  p <- add_argument(p, "--v_fact.buddy",
+                    help="factor used in the definition of the range of admissibile values",
+                    type="numeric",
+                    default=0.1)
+
   p <- add_argument(p, "--basic.buddy",
                     help="should we use the \"basic\" mode or the \"resistant\" mode?",
                     flag=T)

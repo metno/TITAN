@@ -119,6 +119,16 @@
                     type="numeric",
                     default=0.5)
 
+  p <- add_argument(p, "--a_fact.sct_fg",
+                    help="factor used in the definition of the range of admissibile values",
+                    type="numeric",
+                    default=0.5)
+
+  p <- add_argument(p, "--v_fact.sct_fg",
+                    help="factor used in the definition of the range of admissibile values",
+                    type="numeric",
+                    default=0.1)
+
   p <- add_argument(p, "--basic.sct_fg",
                     help="should we use the \"basic\" mode or the \"resistant\" mode?",
                     flag=T)

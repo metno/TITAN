@@ -80,12 +80,14 @@ fgt_r <- function( argv,
     values_minv <- data$value - argv$v_delta.fgt
     values_maxv <- data$value + argv$v_delta.fgt
   } else if (argv$variable == "RR") {
-    values_mina <- pmin( pmax( data$value - 10, 0), 
-                         pmax( data$value - 0.5 * data$value, 0))
-    values_maxa <- pmax( data$value + 10, data$value + 0.5 * data$value)
-    values_minv <- pmin( pmax( data$value - 1, 0), 
-                         pmax( data$value - 0.1 * data$value, 0))
-    values_maxv <- pmax( data$value + 1, data$value + 0.1 * data$value)
+    values_mina <- pmin( pmax( data$value - argv$a_delta.fgt, 0), 
+                         pmax( data$value - argv$a_fact.fgt * data$value, 0))
+    values_maxa <- pmax( data$value + argv$a_delta.fgt,
+                         data$value + argv$a_fact.fgt * data$value)
+    values_minv <- pmin( pmax( data$value - argv$v_delta.fgt, 0), 
+                         pmax( data$value - argv$v_fact.fgt * data$value, 0))
+    values_maxv <- pmax( data$value + argv$v_delta.fgt,
+                         data$value + argv$v_fact.fgt * data$value)
   }
 
   # data transformation

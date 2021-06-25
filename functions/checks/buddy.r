@@ -72,12 +72,14 @@ buddy <- function( argv,
     values_minv <- data$value - argv$v_delta.buddy
     values_maxv <- data$value + argv$v_delta.buddy
   } else if (argv$variable == "RR") {
-    values_mina <- pmin( pmax( data$value - 10, 0), 
-                         pmax( data$value - 0.5 * data$value, 0))
-    values_maxa <- pmax( data$value + 10, data$value + 0.5 * data$value)
-    values_minv <- pmin( pmax( data$value - 1, 0), 
-                         pmax( data$value - 0.1 * data$value, 0))
-    values_maxv <- pmax( data$value + 1, data$value + 0.1 * data$value)
+    values_mina <- pmin( pmax( data$value - argv$a_delta.buddy, 0), 
+                         pmax( data$value - argv$a_fact.buddy * data$value, 0))
+    values_maxa <- pmax( data$value + argv$a_delta.buddy,
+                         data$value + argv$a_fact.buddy * data$value)
+    values_minv <- pmin( pmax( data$value - argv$v_delta.buddy, 0), 
+                         pmax( data$value - argv$v_fact.buddy * data$value, 0))
+    values_maxv <- pmax( data$value + argv$v_delta.buddy,
+                         data$value + argv$v_fact.buddy * data$value)
   }
 
   #............................................................................
