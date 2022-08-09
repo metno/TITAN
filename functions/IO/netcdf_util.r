@@ -713,7 +713,7 @@ get_data_from_ncfile<-function(nc.file,
   } else if (proj4_nc!=argv$proj4_where_dqc_is_done) {
     coord<-SpatialPoints(cbind(data$lon,data$lat),
                          proj4string=CRS(argv$proj4_input_obsfiles))
-    coord.new<-spTransform(coord,CRS(proj4_nc))
+    coord.new<-spTransform(coord,crs(proj4_nc))
     xy.tmp<-coordinates(coord.new)
     if ( return_obsloc) val<-extract(r,xy.tmp)
     rm(coord,coord.new,xy.tmp)
@@ -726,7 +726,7 @@ get_data_from_ncfile<-function(nc.file,
       coord <- SpatialPoints( cbind( c( extent[1], extent[1], extent[2], extent[2]),
                                      c( extent[3], extent[4], extent[3], extent[4])),
                            proj4string=CRS("+proj=longlat +datum=WGS84"))
-      coord.new<-spTransform(coord,CRS(proj4_nc))
+      coord.new<-spTransform(coord,crs(proj4_nc))
       xy.tmp<-coordinates(coord.new)
       extentxy <- as( extent( min(xy.tmp[,1]), max(xy.tmp[,1]), 
                               min(xy.tmp[,2]), max(xy.tmp[,2])), 'SpatialPolygons')

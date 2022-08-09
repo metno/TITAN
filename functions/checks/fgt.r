@@ -151,10 +151,10 @@ fgt_r <- function( argv,
           names( fgxy) <- c( "x", "y")
           coordinates( fgxy) <- c( "x", "y")
           proj4string( fgxy) <- CRS( fg_env$fg[[ifg]]$main.proj4)
-          fgxy_transf <- as.data.frame( spTransform( fgxy, CRS=argv$proj4_where_dqc_is_done))
+          fgxy_transf <- as.data.frame( spTransform( fgxy, crs(argv$proj4_where_dqc_is_done)))
           fg_x        <- fgxy_transf[,1]
           fg_y        <- fgxy_transf[,2]
-          fgll_transf <- as.data.frame( spTransform( fgxy, CRS="+proj=longlat +datum=WGS84"))
+          fgll_transf <- as.data.frame( spTransform( fgxy, crs("+proj=longlat +datum=WGS84")))
           fg_lon      <- fgll_transf[,1]
           fg_lat      <- fgll_transf[,2]
           fg_z        <- dfgdem[ixx]

@@ -93,6 +93,7 @@ sct_resistant_r <- function( argv,
 
   #............................................................................
   # data transformation
+  orig_value <- data$value
   if (argv$transf.sct) {
     values_mina <- boxcox( x=values_mina, lambda=argv$boxcox.lambda)
     values_maxa <- boxcox( x=values_maxa, lambda=argv$boxcox.lambda)
@@ -184,6 +185,7 @@ sct_resistant_r <- function( argv,
                       argv$basic.sct)
  
           flag <- res[[1]]
+          score <- res[[2]]
 
           # suspect if: 
           sus<-which( flag[1:obsToCheck_n] == 1 &
@@ -191,7 +193,15 @@ sct_resistant_r <- function( argv,
                       doit[ix]==1 )
 
           # set dqcflag
-          if (length(sus)>0) dqcflag[ix[sus]] <- argv$code.sct
+          if (length(sus)>0) {
+            dqcflag[ix[sus]] <- argv$code.sct
+            cat( paste0( "rejected observations (prid,origvalue,value,score,dqcflag)\n"))
+            print( cbind( data$prid[ix[sus]],
+                          round( orig_value[ix[sus]], 2),
+                          round( data$value[ix[sus]], 2),
+                          round( score[sus], 2), 
+                          dqcflag[ix[sus]]))
+          }
 
         } else {
           cat( "no valid observations left, no sct check\n")

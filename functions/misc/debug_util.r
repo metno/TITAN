@@ -74,7 +74,7 @@ plot_debug<-function(ff,
   xy<-as.data.frame(cbind(x,y))
   coordinates(xy)<-c("x","y")
   proj4string(xy)<-CRS(proj4)
-  if (!is.null(proj4plot)) xy<-spTransform(xy,CRS(proj4plot))
+  if (!is.null(proj4plot)) xy<-spTransform(xy,crs(proj4plot))
   points(xy,cex=0.8,pch=19)
   dev.off()
 }

@@ -17,7 +17,7 @@ write_output <- function( argv,
       xy <- as.data.frame( x=data$lon, y=data$lat)
       coordinates(xy) <- c("x","y")
       proj4string(xy) <- CRS(argv$proj4_input_obsfiles)
-      xyt <- as.data.frame(spTransform( xy, CRS=argv$proj4_output_files))  
+      xyt <- as.data.frame(spTransform( xy, crs(argv$proj4_output_files)))  
       xout <- xyt[,1]
       yout <- xyt[,2]
       rm( xy, xyt)
