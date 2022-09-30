@@ -16,3 +16,10 @@
   p <- add_argument(p, "--blacklist.fidx",
                     help="observation blacklist (ID provider)",
                     type="numeric",default=NA,nargs=Inf,short="-bfix")
+  p <- add_argument(p, "--blacklist.file_with_sourceIds",
+                    help="blacklist based on sourceId (list of source Ids)",
+                    type="character",default=NA,nargs=Inf)
+  p <- add_argument(p, "--blacklist.file_sourceIds_varname",
+                    help="label for the sourceId variable in the input file",
+                    type="character",default="sourceId")
+

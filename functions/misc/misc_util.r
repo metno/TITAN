@@ -60,7 +60,7 @@ strings_to_numbers <- function( strings,
 }
 
 # auxiliary function to keep/blacklist observations
-setCode_lonlat<-function(lonlat,code) {
+setCode_lonlat<-function(lonlat,code,datatmp) {
 # lonlat. vector. 1=lon; 2=lat
   ix<-which(datatmp$lon==lonlat[1] & datatmp$lat==lonlat[2])
   if (length(ix)>0)  {
