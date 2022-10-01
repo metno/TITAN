@@ -2,6 +2,13 @@
 rr_windcorr <- function( argv, data, z, dqcflag, t2m=NULL) {
 #==============================================================================
   cat( "Correction for the wind-undercatch of precipitation\n")
+
+  if ( !file.exists(argv$t2m.file) | !file.exists(argv$t2m.demfile) | 
+       !file.exists(argv$wind.file)) {
+    cat( "File not found - Correction not possible\n")
+    return( data)
+  }
+
   if (is.null(t2m)) {
     #t2m
     t2m.offset   <- strings_to_numbers( strings = argv$t2m.offset,

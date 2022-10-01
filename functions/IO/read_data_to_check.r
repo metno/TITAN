@@ -209,7 +209,7 @@ read_data_to_check <- function( argv)
     if (exists("ix_nodup")) rm(ix_nodup)
     if (exists("varidxtmp")) rm(varidxtmp)
 
-    if ( !is.na( argv$varname.opt) & any(!is.na(argv$blacklist.file_with_sourceIds))) {
+    if ( any(!is.na( argv$varname.opt)) & any(!is.na(argv$blacklist.file_with_sourceIds))) {
       ix_souid <- which( names(datain) == argv$blacklist.file_sourceIds_varname)
       if ( length( ix_souid > 0)) {
         for (ii in 1:length(argv$blacklist.file_with_sourceIds)) {
