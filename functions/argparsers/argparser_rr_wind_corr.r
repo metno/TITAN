@@ -14,6 +14,12 @@
                     type="character",
                     default=NULL)
 
+  p <- add_argument(p,"--wind.prid",
+                    help="apply wind correction only to a selection of providers",
+                    type="character",
+                    default=NA,
+                    nargs=Inf)
+
   # parameter 
 
   p <- add_argument(p, "--rr.wcor.par",

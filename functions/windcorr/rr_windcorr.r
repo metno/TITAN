@@ -190,24 +190,36 @@ rr_windcorr <- function( argv, data, z, dqcflag, t2m=NULL) {
   }
   if (argv$debug) save.image(file.path(argv$debug.dir,"rrcor_before.RData"))
   # precipitation data adjustment
-  data$rawvalue<-data$value
+  # 2023-11-06 CL begin
+  if ( any( !is.na(argv$wind.prid))) {
+    ix2corr <- which( data$prid %in% argv$wind.prid & !is.na(data$value) & is.na(dqcflag)) 
+  } else {
+    ix2corr <- which( !is.na(data$value) & is.na(dqcflag))
+  }
+  rawvalue <- data$value[ix2corr]
   res <- wolff_correction( par   = argv$rr.wcor.par,
-                           t2m   = t2m,
-                           ws10m = ws10m,
-                           rr    = data$rawvalue)
-  data$value  <- res$rr.cor
-  data$vsigma <- res$sigma
+                           t2m   = t2m[ix2corr],
+                           ws10m = ws10m[ix2corr],
+                           rr    = rawvalue)
+  data$rawvalue <- data$value
+  data$value[ix2corr]  <- res$rr.cor
+  data$vsigma <- data$value; data$vsigma[] <- NA
+  data$vsigma[ix2corr] <- res$sigma
+  # 2023-11-06 CL end
   rm(res)
   if (argv$verbose) {
+    print(paste0("# observations adjusted for wind-undercatch = ",
+          length(ix2corr)))
+    print(paste0("# not NAs-observations set to NAs after this correction = ",
+          length(which( is.na(data$value[ix2corr]) & !is.na(data$rawvalue[ix2corr]) ))))
     print(paste0("# observations (ok-so-far) = ",
           length(which(!is.na(data$value) & is.na(dqcflag)))))
     print(paste0("# observations (>=0 & ok-so-far) = ",
           length(which(data$value>=0 & !is.na(data$value) & is.na(dqcflag)))))
-    print(paste0("# not NAs-observations set to NAs after this correction = ",
-          length(which( is.na(data$value) & !is.na(data$rawvalue) ))))
-    ix<-which(data$value>=0 & !is.na(data$value) & is.na(dqcflag))
+    ix<-which(data$value[ix2corr]>=0 & !is.na(data$value[ix2corr]) & is.na(dqcflag[ix2corr]))
     if (length(ix)>0) {
-      lm<-lm(data$value[ix]~data$rawvalue[ix]+0)
+      xx <- data$rawvalue[ix2corr][ix]; yy <- data$value[ix2corr][ix]
+      lm<-lm(yy~xx+0)
       print(paste0("linear regression, obs_adjusted = ",
       round(as.numeric(lm$coefficients),3)," * obs_raw"))
     }
