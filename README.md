@@ -1,3 +1,5 @@
+# WARNING: THIS IS AN OLD PAGE THAT WE WILL REMOVE SOON (2025-01-31), please refer to the NEW PAGE https://github.com/metno/titanlib
+
 # TITAN - auTomatIc daTa quAlity coNtrol
 
 Automatic quality control of in-situ observations with an emphasis on spatial controls.
